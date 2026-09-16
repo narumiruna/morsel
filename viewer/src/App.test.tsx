@@ -65,7 +65,7 @@ describe("App", () => {
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined)
     const { container } = renderApp(true)
-    expect(await screen.findByRole("heading", { name: "Shared Markdown" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Morsel" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "Hello" })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledOnce()
 
