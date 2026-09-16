@@ -12,6 +12,33 @@ flowchart LR
     Morsel -->|hash-route share URL| Client
 ```
 
+A share is created and consumed through the following sequence:
+
+```mermaid
+sequenceDiagram
+    actor Creator as CLI / agent
+    actor Reader
+    participant Viewer as Browser / React viewer
+    participant Morsel as Go service
+    participant DB as PostgreSQL
+
+    Creator->>Morsel: POST /v1/shares (Bearer API key)
+    Morsel->>Morsel: Generate capability and SHA-256 hash
+    Morsel->>DB: Store Markdown and capability hash
+    DB-->>Morsel: Share metadata
+    Morsel-->>Creator: 201 UUID and #/s/&lt;raw-token&gt;
+    Creator-->>Reader: Send share URL
+    Reader->>Viewer: Open share URL
+    Viewer->>Morsel: GET / (fragment stays in browser)
+    Morsel-->>Viewer: React viewer
+    Viewer->>Morsel: GET /v1/shares/&lt;raw-token&gt;
+    Morsel->>Morsel: Hash capability token
+    Morsel->>DB: Conditional UPDATE ... RETURNING
+    DB-->>Morsel: Markdown and incremented view count
+    Morsel-->>Viewer: 200 Markdown (Cache-Control: no-store)
+    Viewer->>Viewer: Sanitize and render Markdown
+```
+
 The Go service serves `/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` from one domain. PostgreSQL is the only content store and correctness boundary. Morsel v1 has no Redis, object storage, queue, account system, separate static host, or Node.js runtime server.
 
 ## Clean start with Docker Compose
