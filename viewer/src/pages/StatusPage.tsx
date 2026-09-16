@@ -45,12 +45,12 @@ export function ErrorPage({ kind }: { kind: StatusKind }) {
       <Callout.Icon>
         <ExclamationTriangleIcon />
       </Callout.Icon>
-      <Callout.Text>
+      <div>
         <Heading as="h1" size="5">
           {title}
         </Heading>
         <Text as="p">{description}</Text>
-      </Callout.Text>
+      </div>
     </Callout.Root>
   )
 }

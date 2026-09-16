@@ -41,15 +41,15 @@ function DiagramError({ message, source }: { message: string; source: string }) 
       <Callout.Icon>
         <ExclamationTriangleIcon />
       </Callout.Icon>
-      <Callout.Text>
-        {message}
+      <div>
+        <p>{message}</p>
         <details>
           <summary>Show diagram source</summary>
           <pre>
             <code>{source}</code>
           </pre>
         </details>
-      </Callout.Text>
+      </div>
     </Callout.Root>
   )
 }
