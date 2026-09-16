@@ -34,7 +34,7 @@ func Load() (Config, error) {
 		Environment:       env("MORSEL_ENVIRONMENT", "development"),
 		Address:           env("MORSEL_ADDRESS", ":8080"),
 		DatabaseURL:       os.Getenv("MORSEL_DATABASE_URL"),
-		ViewerDir:         env("MORSEL_VIEWER_DIR", "viewer/dist"),
+		ViewerDir:         env("MORSEL_VIEWER_DIR", "../viewer/dist"),
 		MaxDocumentBytes:  1 << 20,
 		MaxRequestBytes:   (1 << 20) + (64 << 10),
 		ReadHeaderTimeout: 5 * time.Second,

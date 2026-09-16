@@ -100,7 +100,7 @@ The API reads the following environment variables:
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
 | `MORSEL_API_KEYS` or `MORSEL_API_KEYS_FILE` | yes | — | Comma-separated keys or newline-delimited key file. Each key must have at least 32 characters. Both sources may be combined during rotation. |
 | `MORSEL_PUBLIC_VIEWER_URL` | yes | — | Public single-origin URL used to construct `#/s/<token>` links. |
-| `MORSEL_VIEWER_DIR` | no | `viewer/dist` | Directory containing the production viewer and `index.html`; the container sets this to `/srv/viewer`. |
+| `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Directory containing the production viewer and `index.html`, relative to the usual `api/` working directory; the container sets this to `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS public URLs. |
 | `MORSEL_ADDRESS` | no | `:8080` | API listen address. |
 | `MORSEL_MAX_DOCUMENT_BYTES` | no | `1048576` | UTF-8 Markdown byte limit. |

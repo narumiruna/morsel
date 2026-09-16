@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestHandlerServesIndexAndImmutableAssets(t *testing.T) {
+func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.Mkdir(filepath.Join(directory, "assets"), 0o755); err != nil {
 		t.Fatal(err)
@@ -41,6 +41,17 @@ func TestHandlerServesIndexAndImmutableAssets(t *testing.T) {
 	}
 	if got := asset.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
 		t.Fatalf("asset cache control=%q", got)
+	}
+
+	for _, requestPath := range []string{"/assets", "/assets/"} {
+		directory := httptest.NewRecorder()
+		handler.ServeHTTP(directory, httptest.NewRequest(http.MethodGet, requestPath, nil))
+		if directory.Code != http.StatusNotFound || strings.Contains(directory.Body.String(), "app-abc.js") {
+			t.Fatalf("directory %s status=%d body=%q", requestPath, directory.Code, directory.Body.String())
+		}
+		if got := directory.Header().Get("Cache-Control"); got != "" {
+			t.Fatalf("directory %s cache control=%q", requestPath, got)
+		}
 	}
 }
 

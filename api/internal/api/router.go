@@ -55,7 +55,8 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 	})
 	HandlerWithOptions(strict, ChiServerOptions{BaseRouter: router, ErrorHandlerFunc: writeRequestError})
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		if cfg.Viewer != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) && !strings.HasPrefix(r.URL.Path, "/v1/") {
+		apiPath := r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/")
+		if cfg.Viewer != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) && !apiPath {
 			cfg.Viewer.ServeHTTP(w, r)
 			return
 		}

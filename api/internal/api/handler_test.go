@@ -246,9 +246,16 @@ func TestRouterServesViewerWithoutMaskingUnknownAPIRoutes(t *testing.T) {
 	if response.Code != http.StatusOK || response.Body.String() != "viewer" || viewerCalls != 1 {
 		t.Fatalf("viewer response=%d body=%q calls=%d", response.Code, response.Body.String(), viewerCalls)
 	}
-	response = request(t, router, http.MethodGet, "/v1/unknown", "", "")
-	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), "not_found") || viewerCalls != 1 {
-		t.Fatalf("API response=%d body=%q calls=%d", response.Code, response.Body.String(), viewerCalls)
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, path := range []string{"/v1", "/v1/unknown"} {
+			response = request(t, router, method, path, "", "")
+			if response.Code != http.StatusNotFound || response.Header().Get("Content-Type") != "application/json" || viewerCalls != 1 {
+				t.Fatalf("%s %s response=%d content-type=%q calls=%d", method, path, response.Code, response.Header().Get("Content-Type"), viewerCalls)
+			}
+			if method == http.MethodGet && !strings.Contains(response.Body.String(), "not_found") {
+				t.Fatalf("%s %s body=%q", method, path, response.Body.String())
+			}
+		}
 	}
 }
 

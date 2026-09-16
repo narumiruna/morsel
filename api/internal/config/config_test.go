@@ -24,6 +24,9 @@ func TestLoadValidConfiguration(t *testing.T) {
 	if cfg.PublicViewerURL.String() != "https://morsel.example.com/" {
 		t.Fatalf("viewer URL = %q", cfg.PublicViewerURL)
 	}
+	if cfg.ViewerDir != "../viewer/dist" {
+		t.Fatalf("viewer directory = %q", cfg.ViewerDir)
+	}
 	if cfg.MaxRequestBytes <= cfg.MaxDocumentBytes || len(cfg.APIKeys) != 1 {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
