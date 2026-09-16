@@ -6,11 +6,11 @@ import {
   ExitFullScreenIcon,
   EyeOpenIcon,
   ImageIcon,
-  MagnifyingGlassIcon,
   MinusIcon,
   PlusIcon,
   ReloadIcon,
   ResetIcon,
+  SizeIcon,
 } from "@radix-ui/react-icons"
 import * as Tooltip from "@radix-ui/react-tooltip"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
@@ -303,7 +303,7 @@ export function DiagramViewer({
             disabled={showSource}
             onClick={() => controller.current?.setCameraMode("overview")}
           >
-            <MagnifyingGlassIcon />
+            <SizeIcon />
           </ActionButton>
           <ActionButton
             className="diagram-control"
@@ -341,15 +341,6 @@ export function DiagramViewer({
             tooltipContainer={tooltipContainer}
             variant="soft"
             onClick={() => void copy(source)}
-          >
-            <CopyIcon />
-          </ActionButton>
-          <ActionButton
-            className="diagram-control"
-            label="Copy SVG"
-            tooltipContainer={tooltipContainer}
-            variant="soft"
-            onClick={() => void copy(svg)}
           >
             <CopyIcon />
           </ActionButton>
