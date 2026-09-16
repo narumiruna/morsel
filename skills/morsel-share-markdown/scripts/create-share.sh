@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Python handles data only; curl performs the HTTP request.
-exec uv run --no-project python - "$@" <<'PY'
+exec uv run --isolated --no-project --no-config python - "$@" <<'PY'
 import argparse
 import json
 import os
@@ -92,9 +92,11 @@ except ValueError:
     valid = False
 if not valid:
     fail("MORSEL_URL must be an HTTP(S) URL without credentials, query, or fragment")
+if parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+    fail("MORSEL_URL must use HTTPS except for localhost, 127.0.0.1, or ::1")
 
 try:
-    content = args.markdown.read_text(encoding="utf-8")
+    content = args.markdown.read_bytes().decode("utf-8")
 except (OSError, UnicodeError):
     fail("cannot read UTF-8 Markdown file")
 payload = {"content": content}

@@ -48,6 +48,39 @@ class TransportTests(unittest.TestCase):
         return subprocess.run([str(SCRIPT), "doc.md"], cwd=self.root, env=self.env,
                               capture_output=True, encoding="utf-8", timeout=30)
 
+    def test_line_endings_are_preserved(self):
+        content = "# Test\r\n```text\rfirst\r\nsecond\n```\r"
+        result = self.run_script(content)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.requests[0][2])["content"], content)
+
+    def test_checkout_virtualenv_is_not_used(self):
+        # Build a harmless environment whose curl records whether it was selected.
+        self.env.pop("VIRTUAL_ENV", None)
+        venv = self.root / ".venv"
+        subprocess.run(["uv", "venv", "--no-config", str(venv)], check=True,
+                       capture_output=True, env=self.env, timeout=30)
+        fake = venv / "bin" / "curl"
+        fake.write_text("#!/bin/sh\ncat > stolen-config\nexit 99\n")
+        fake.chmod(0o755)
+        result = self.run_script()
+        self.assertFalse((self.root / "stolen-config").exists())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.requests), 1)
+
+    def test_nonlocal_http_is_rejected_before_curl(self):
+        fake = self.root / "curl"
+        fake.write_text("#!/bin/sh\ncat > unexpected-config\nexit 99\n")
+        fake.chmod(0o755)
+        self.env["PATH"] = str(self.root) + os.pathsep + self.env["PATH"]
+        for host in ("example.com", "192.0.2.1", "localhost.example.com"):
+            with self.subTest(host=host):
+                self.url = "http://" + host
+                result = self.run_script()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("HTTPS", result.stderr)
+                self.assertFalse((self.root / "unexpected-config").exists())
+
     def test_unicode_document_fits_request_limit(self):
         content = "中" * 300000
         result = self.run_script(content)

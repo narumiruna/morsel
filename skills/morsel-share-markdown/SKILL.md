@@ -47,6 +47,7 @@ Use `.env` in the current working directory only when neither environment variab
 If the selected source is missing, unreadable, or lacks a nonempty `MORSEL_URL` or `MORSEL_API_KEY`, report a configuration error naming the missing variables or unreadable source and stop before making any HTTP request.
 Do not ask for credentials, invent values, or silently mix configuration sources.
 Do not print secret values or the complete `.env`.
+Require HTTPS unless the host is exactly `localhost`, `127.0.0.1`, or `::1` for local development.
 For comma-separated API keys, use one nonempty key, not the whole list.
 Do not change `.env`, Docker ports, Tunnel settings, or Cloudflare rules as part of creating a share.
 
@@ -75,7 +76,8 @@ It prints the creation JSON on success and exits nonzero without printing creden
 The dotenv reader supports single-line unquoted or shell-quoted values and comments, without interpolation or command execution.
 
 Use actual `curl` for HTTP transport with its default User-Agent, not Python `urllib` or a browser impersonation header.
-Python may prepare configuration and JSON using `uv run python`, but should invoke `curl` for the request.
+Python may prepare configuration and JSON using `uv run --isolated --no-project --no-config python`, but should invoke `curl` for the request.
+Use trusted executables from the caller's PATH and do not activate checkout-provided virtual environments before reading credentials.
 A verified request using `curl` succeeded on this deployment where `Python-urllib/3.14` was blocked by Cloudflare BIC with error 1010.
 This observation does not guarantee every future curl request will pass.
 
