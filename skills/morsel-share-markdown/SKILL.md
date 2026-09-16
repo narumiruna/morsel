@@ -41,7 +41,9 @@ When no file is explicitly specified, use `.env` in the current working director
 ### Source Selection and Secrets
 
 Honor an explicitly selected configuration method or file first.
-Otherwise, use a complete environment-variable pair; if neither variable is set, use `.env` in the current working directory.
+Otherwise, if either `MORSEL_URL` or `MORSEL_API_KEY` is present in the environment, select only the environment, even when its value is empty.
+If either variable is then missing or empty, report a configuration error and stop without reading `.env` or sending an HTTP request.
+Use `.env` in the current working directory only when neither environment variable is present.
 If the selected source is missing, unreadable, or lacks a nonempty `MORSEL_URL` or `MORSEL_API_KEY`, report a configuration error naming the missing variables or unreadable source and stop before making any HTTP request.
 Do not ask for credentials, invent values, or silently mix configuration sources.
 Do not print secret values or the complete `.env`.
