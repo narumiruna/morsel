@@ -59,6 +59,19 @@ Send `content` as a string, not a filename.
 
 ## Create with curl
 
+Use [scripts/create-share.sh](scripts/create-share.sh) to create a share from a UTF-8 Markdown file.
+Resolve the script path relative to this skill directory, while keeping the working directory where the desired `.env` resides.
+The script requires Bash, uv, and curl.
+
+```sh
+scripts/create-share.sh document.md
+scripts/create-share.sh --environment document.md
+scripts/create-share.sh --env-file /path/to/.env --expires-in 3600 --max-views 10 document.md
+```
+
+It prints the creation JSON on success and exits nonzero without printing credentials on failure.
+The dotenv reader supports single-line unquoted or shell-quoted values and comments, without interpolation or command execution.
+
 Use actual `curl` for HTTP transport with its default User-Agent, not Python `urllib` or a browser impersonation header.
 Python may prepare configuration and JSON using `uv run python`, but should invoke `curl` for the request.
 A verified request using `curl` succeeded on this deployment where `Python-urllib/3.14` was blocked by Cloudflare BIC with error 1010.
