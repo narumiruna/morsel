@@ -86,7 +86,7 @@ try:
     parsed = urlsplit(url)
     valid = (parsed.scheme in ("http", "https") and parsed.hostname
              and not parsed.username and not parsed.password
-             and not parsed.query and not parsed.fragment)
+             and "?" not in url and "#" not in url)
     parsed.port  # Validate the port before passing the URL to curl.
 except ValueError:
     valid = False
@@ -120,6 +120,8 @@ try:
     result = subprocess.run(
         ["curl", "--disable", "--globoff", "--silent", "--show-error", "--fail-with-body",
          "--connect-timeout", "10", "--max-time", "40", "--proto", "=http,https",
+         "--max-filesize", "65536",
+         *(["--noproxy", "*"] if parsed.scheme == "http" else []),
          "--write-out", "\n%{http_code}", "--config", "-"],
         input=curl_config, encoding="utf-8", errors="replace", capture_output=True,
     )
