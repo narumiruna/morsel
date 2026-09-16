@@ -53,8 +53,8 @@ describe("DiagramViewer", () => {
     const controls = [
       "Zoom out",
       "Zoom in",
-      "Use readable view",
-      "Reset to readable view",
+      "Fit to screen",
+      "Reset zoom",
       "Fullscreen",
       "Show source",
       "Copy source",
@@ -63,14 +63,17 @@ describe("DiagramViewer", () => {
       "Download PNG",
     ].map((name) => screen.getByRole("button", { name }))
     expect(controls.every((control) => control.textContent === "")).toBe(true)
-    expect(screen.getByRole("button", { name: "Use readable view" })).not.toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Fit to screen" })).not.toHaveAttribute(
       "aria-pressed",
     )
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
     expect(screen.getByLabelText("Current zoom")).toHaveTextContent("125%")
     expect(screen.getByRole("img").style.transform).toContain("scale(1.25)")
-    fireEvent.click(screen.getByRole("button", { name: "Reset to readable view" }))
+    fireEvent.click(screen.getByRole("button", { name: "Fit to screen" }))
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("100%")
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
+    fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }))
     expect(screen.getByLabelText("Current zoom")).toHaveTextContent("100%")
     fireEvent.click(screen.getByRole("button", { name: "Show source" }))
     expect(screen.getByText("graph TD; A-->B")).toBeVisible()

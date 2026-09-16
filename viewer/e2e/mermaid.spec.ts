@@ -67,14 +67,14 @@ test("fits, navigates, rerenders by theme, exports PNG, and stays local", async 
     })
     .toBe(true)
 
-  await card.getByRole("button", { name: "Use readable view" }).click()
-  await expect(card.getByRole("button", { name: "Show overview" })).toBeVisible()
+  await card.getByRole("button", { name: "Reset zoom" }).click()
+  await expect(card.getByRole("button", { name: "Fit to screen" })).toBeVisible()
   const readableTransform = await stage.getAttribute("style")
   await viewport.focus()
   await viewport.press("+")
   await expect(card.getByLabel("Current zoom")).not.toHaveText("100%")
   await viewport.press("0")
-  await expect(card.getByRole("button", { name: "Use readable view" })).toBeVisible()
+  await expect(card.getByRole("button", { name: "Fit to screen" })).toBeVisible()
 
   for (let count = 0; count < 5; count += 1) {
     await card.getByRole("button", { name: "Zoom in" }).click()
@@ -145,10 +145,7 @@ for (const width of [375, 1280]) {
       await page.getByRole("option", { name: appearance }).click()
       await expect(page.locator(`[data-appearance="${appearance.toLowerCase()}"]`)).toBeVisible()
       for (const card of await page.locator(".diagram-card").all()) {
-        await card.getByRole("button", { name: /Show overview|Use readable view/ }).click()
-        if (await card.getByRole("button", { name: "Show overview" }).isVisible()) {
-          await card.getByRole("button", { name: "Show overview" }).click()
-        }
+        await card.getByRole("button", { name: "Fit to screen" }).click()
         await expect
           .poll(async () => {
             const viewport = await card.locator(".diagram-viewport").boundingBox()
@@ -197,7 +194,7 @@ test.describe("touch fullscreen fallback", () => {
     await expect(card.getByRole("img", { name: "Mermaid diagram" })).toBeVisible()
     const viewport = card.getByRole("region", { name: /Interactive Mermaid diagram/ })
     const stage = card.locator(".mermaid-diagram")
-    await card.getByRole("button", { name: "Use readable view" }).click()
+    await card.getByRole("button", { name: "Reset zoom" }).click()
 
     const inlineTransform = await stage.getAttribute("style")
     await viewport.evaluate((element) => {
