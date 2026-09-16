@@ -76,7 +76,7 @@ else:
 missing = [n for n in names if not config.get(n, "").strip()]
 if missing:
     fail("missing configuration: " + ", ".join(missing))
-url = config["MORSEL_URL"].strip().rstrip("/")
+url = config["MORSEL_URL"].strip()
 key = next((k.strip() for k in config["MORSEL_API_KEY"].split(",") if k.strip()), "")
 if not key:
     fail("missing configuration: MORSEL_API_KEY")
@@ -85,13 +85,15 @@ if any(ord(c) < 32 or ord(c) == 127 for c in url + key):
 try:
     parsed = urlsplit(url)
     valid = (parsed.scheme in ("http", "https") and parsed.hostname
-             and not parsed.username and not parsed.password
-             and not parsed.query and not parsed.fragment)
+             and parsed.username is None and parsed.password is None
+             and parsed.path in ("", "/")
+             and "?" not in url and "#" not in url)
     parsed.port  # Validate the port before passing the URL to curl.
 except ValueError:
     valid = False
 if not valid:
-    fail("MORSEL_URL must be an HTTP(S) URL without credentials, query, or fragment")
+    fail("MORSEL_URL must be an HTTP(S) origin without credentials, path, query, or fragment")
+url = url.rstrip("/")
 
 try:
     content = args.markdown.read_text(encoding="utf-8")

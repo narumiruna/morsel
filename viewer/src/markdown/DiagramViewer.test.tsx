@@ -1,10 +1,25 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { DiagramViewer } from "./DiagramViewer"
 
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text>A</text></svg>'
 
 describe("DiagramViewer", () => {
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard")
+
+  afterEach(() => {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard)
+    else Reflect.deleteProperty(navigator, "clipboard")
+    expect(Object.getOwnPropertyDescriptor(navigator, "clipboard")).toEqual(clipboard)
+  })
+
+  it("keeps the initial status empty without whitespace nodes", () => {
+    const { container } = render(<DiagramViewer svg={svg} source="graph TD; A-->B" />)
+    const status = container.querySelector(".diagram-status")
+    expect(status?.childNodes).toHaveLength(0)
+    expect(status?.matches(":empty")).toBe(true)
+    expect(status?.matches(".diagram-status:not(:empty)")).toBe(false)
+  })
   it("exposes actions without a menu and supports zoom and source toggling", () => {
     render(<DiagramViewer svg={svg} source="graph TD; A-->B" />)
     expect(screen.queryByRole("menu")).not.toBeInTheDocument()
@@ -26,7 +41,9 @@ describe("DiagramViewer", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
     render(<DiagramViewer svg={svg} source="graph TD; A-->B" />)
     fireEvent.click(screen.getByRole("button", { name: "Copy source" }))
-    expect(await screen.findByText("Copied to clipboard.")).toBeVisible()
+    const status = await screen.findByText("Copied to clipboard.")
+    expect(status).toBeVisible()
+    expect(status.matches(".diagram-status:not(:empty)")).toBe(true)
     expect(writeText).toHaveBeenCalledWith("graph TD; A-->B")
     writeText.mockRejectedValueOnce(new Error("Denied"))
     fireEvent.click(screen.getByRole("button", { name: "Copy SVG" }))
