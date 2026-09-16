@@ -54,6 +54,8 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  const tooltipContainer = fullscreen ? card.current : undefined
+
   return (
     <div className="diagram-card" ref={card}>
       <Tooltip.Provider delayDuration={350}>
@@ -61,6 +63,7 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
           <ActionButton
             className="diagram-control"
             label="Zoom out"
+            tooltipContainer={tooltipContainer}
             variant="soft"
             disabled={showSource || zoom <= 25}
             onClick={() => setZoom(Math.max(25, zoom - 25))}
@@ -71,6 +74,7 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
           <ActionButton
             className="diagram-control"
             label="Zoom in"
+            tooltipContainer={tooltipContainer}
             variant="soft"
             disabled={showSource || zoom >= 400}
             onClick={() => setZoom(Math.min(400, zoom + 25))}
@@ -80,6 +84,7 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
           <ActionButton
             className="diagram-control"
             label="Reset zoom"
+            tooltipContainer={tooltipContainer}
             variant="soft"
             disabled={showSource}
             onClick={() => setZoom(100)}
@@ -89,6 +94,7 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
           <ActionButton
             className="diagram-control"
             label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            tooltipContainer={tooltipContainer}
             variant="soft"
             onClick={toggleFullscreen}
           >
@@ -97,6 +103,7 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
           <ActionButton
             className="diagram-control"
             label={showSource ? "Show diagram" : "Show source"}
+            tooltipContainer={tooltipContainer}
             variant="soft"
             aria-controls={sourceID}
             aria-pressed={showSource}
@@ -107,6 +114,7 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
           <ActionButton
             className="diagram-control"
             label="Copy source"
+            tooltipContainer={tooltipContainer}
             variant="soft"
             onClick={() => copy(source)}
           >
@@ -115,6 +123,7 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
           <ActionButton
             className="diagram-control"
             label="Copy SVG"
+            tooltipContainer={tooltipContainer}
             variant="soft"
             onClick={() => copy(svg)}
           >
@@ -123,6 +132,7 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
           <ActionButton
             className="diagram-control"
             label="Download SVG"
+            tooltipContainer={tooltipContainer}
             variant="soft"
             onClick={download}
           >

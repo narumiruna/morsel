@@ -10,11 +10,17 @@ function renderViewer() {
 
 describe("DiagramViewer", () => {
   const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard")
+  const fullscreenElement = Object.getOwnPropertyDescriptor(document, "fullscreenElement")
 
   afterEach(() => {
     if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard)
     else Reflect.deleteProperty(navigator, "clipboard")
+    if (fullscreenElement) Object.defineProperty(document, "fullscreenElement", fullscreenElement)
+    else Reflect.deleteProperty(document, "fullscreenElement")
     expect(Object.getOwnPropertyDescriptor(navigator, "clipboard")).toEqual(clipboard)
+    expect(Object.getOwnPropertyDescriptor(document, "fullscreenElement")).toEqual(
+      fullscreenElement,
+    )
   })
 
   it("keeps the initial status empty without whitespace nodes", () => {
@@ -49,6 +55,21 @@ describe("DiagramViewer", () => {
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeDisabled()
     fireEvent.click(screen.getByRole("button", { name: "Show diagram" }))
     expect(screen.getByRole("img")).toBeVisible()
+  })
+
+  it("mounts tooltips inside the fullscreen card", async () => {
+    const { container } = renderViewer()
+    const card = container.querySelector(".diagram-card")
+    expect(card).toBeInstanceOf(HTMLDivElement)
+    if (!(card instanceof HTMLDivElement)) return
+
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, value: card })
+    fireEvent(document, new Event("fullscreenchange"))
+    fireEvent.focus(screen.getByRole("button", { name: "Copy source" }))
+
+    const tooltip = await screen.findByRole("tooltip")
+    expect(tooltip).toHaveTextContent("Copy source")
+    expect(card).toContainElement(tooltip)
   })
 
   it("copies source and reports clipboard failures", async () => {
