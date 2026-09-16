@@ -16,10 +16,14 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
     runs-on: self-hosted
+    env:
+      MORSEL_IMAGE: morsel:${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Build image
+        run: docker build --pull --tag "${MORSEL_IMAGE}" .
       - name: Start services
         shell: bash
         env:
@@ -30,4 +34,4 @@ jobs:
           MORSEL_PORT: ${{ secrets.MORSEL_PORT || '12647' }}
         run: |
           : "${MORSEL_URL:?set MORSEL_URL secret}"
-          docker compose up --build --detach --wait --wait-timeout 120
+          docker compose up --detach --wait --wait-timeout 120

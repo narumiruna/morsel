@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: narumi/morsel:latest
+    image: ${MORSEL_IMAGE:-narumi/morsel:latest}
     entrypoint: ["/usr/local/bin/migrate"]
     environment:
       MORSEL_DATABASE_URL: postgres://morsel:${POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
@@ -27,7 +27,7 @@ services:
     restart: "no"
 
   morsel:
-    image: narumi/morsel:latest
+    image: ${MORSEL_IMAGE:-narumi/morsel:latest}
     environment:
       MORSEL_ENVIRONMENT: ${MORSEL_ENVIRONMENT:-development}
       MORSEL_DATABASE_URL: postgres://morsel:${POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
