@@ -34,7 +34,7 @@ npm audit --omit=dev
 npm run test:browser
 ```
 
-All commands passed. Vitest ran 24 unit/component tests. Playwright passed the production-build CSP, GFM, KaTeX, Mermaid, one-request, responsive, and keyboard checks. The viewer uses root-relative assets and `/v1/*` requests without an API hostname or credential. Preview and production responses set `connect-src 'self'` and `Referrer-Policy: no-referrer` headers.
+All commands passed. Vitest ran 25 unit/component tests. Playwright passed the production-build CSP, GFM, syntax highlighting, KaTeX, Mermaid labels, one-request, responsive, and keyboard checks. The viewer uses root-relative assets and `/v1/*` requests without an API hostname or credential. Preview and production responses set `connect-src 'self'` and `Referrer-Policy: no-referrer` headers.
 
 ## Production-stack acceptance
 

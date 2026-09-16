@@ -1,6 +1,6 @@
 # Morsel
 
-Morsel is a small, self-hosted, API-first Markdown sharing service. One Go service stores capability-protected shares in PostgreSQL and serves the static React viewer on the same origin. The viewer renders Markdown, GitHub Flavored Markdown, KaTeX, and Mermaid without running authored HTML.
+Morsel is a small, self-hosted, API-first Markdown sharing service. One Go service stores capability-protected shares in PostgreSQL and serves the static React viewer on the same origin. The viewer renders Markdown, GitHub Flavored Markdown, syntax-highlighted fenced code, KaTeX, and Mermaid without running authored HTML.
 
 ## Architecture
 

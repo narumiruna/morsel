@@ -9,9 +9,17 @@ const content = `# Browser smoke
 
 Inline $x^2$.
 
+\`\`\`go
+package main
+
+func main() {
+  println("hello")
+}
+\`\`\`
+
 \`\`\`mermaid
-graph TD
-  A --> B
+flowchart LR
+  Browser --> API
 \`\`\``
 
 test.beforeEach(async ({ page }) => {
@@ -39,7 +47,12 @@ test("renders safely under the production CSP and uses one request", async ({ pa
   await expect(page.getByRole("heading", { name: "Browser smoke" })).toBeVisible()
   await expect(page.getByRole("table")).toBeVisible()
   await expect(page.locator(".katex")).toBeVisible()
-  await expect(page.getByLabel("Mermaid diagram")).toBeVisible()
+  await expect(page.locator("pre code.hljs.language-go .hljs-keyword").first()).toContainText(
+    "package",
+  )
+  const diagram = page.getByLabel("Mermaid diagram")
+  await expect(diagram).toBeVisible()
+  await expect(diagram.locator("svg text")).toContainText(["Browser", "API"])
   expect(requests).toBe(1)
 
   const blocked = await page.evaluate(async () => {
