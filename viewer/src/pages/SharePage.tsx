@@ -67,7 +67,7 @@ function DocumentView({ share }: { share: Share }) {
         <Flex justify="between" align="start" gap="4" wrap="wrap">
           <div>
             <Heading id="document-title" size="6">
-              Shared Markdown
+              Morsel
             </Heading>
             <Flex gap="2" mt="2" wrap="wrap">
               <Badge color="gray">View {share.view_count}</Badge>
