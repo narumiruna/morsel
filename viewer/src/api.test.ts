@@ -28,6 +28,28 @@ describe("getShare", () => {
     )
   })
 
+  it("evicts failed requests without retrying automatically", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            content: "recovered",
+            created_at: "2026-01-01T00:00:00Z",
+            view_count: 1,
+          }),
+          { status: 200 },
+        ),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getShare(token)).rejects.toThrow("network unavailable")
+    expect(fetchMock).toHaveBeenCalledOnce()
+    await expect(getShare(token)).resolves.toMatchObject({ content: "recovered" })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it("returns stable API error codes", async () => {
     vi.stubGlobal(
       "fetch",

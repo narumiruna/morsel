@@ -6,8 +6,12 @@ export type ThemeMode = "system" | "light" | "dark"
 const storageKey = "morsel-theme"
 
 function initialMode(): ThemeMode {
-  const stored = localStorage.getItem(storageKey)
-  return stored === "light" || stored === "dark" || stored === "system" ? stored : "system"
+  try {
+    const stored = localStorage.getItem(storageKey)
+    return stored === "light" || stored === "dark" || stored === "system" ? stored : "system"
+  } catch {
+    return "system"
+  }
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -24,7 +28,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const appearance = mode === "system" ? (systemDark ? "dark" : "light") : mode
   const updateMode = (next: string) => {
     if (next !== "system" && next !== "light" && next !== "dark") return
-    localStorage.setItem(storageKey, next)
+    try {
+      localStorage.setItem(storageKey, next)
+    } catch {
+      // Theme persistence is optional when storage is unavailable.
+    }
     setMode(next)
   }
 

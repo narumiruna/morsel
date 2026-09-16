@@ -15,6 +15,7 @@ vi.mock("mermaid", () => ({
 }))
 
 const token = "A".repeat(43)
+const nextToken = "B".repeat(43)
 
 function renderApp(strict = false) {
   const app = (
@@ -81,6 +82,33 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 
+  it("clears the previous document when the share token changes", async () => {
+    window.location.hash = `#/s/${token}`
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            content: "# First document",
+            created_at: "2026-01-01T00:00:00Z",
+            view_count: 1,
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockReturnValueOnce(new Promise<Response>(() => undefined))
+    vi.stubGlobal("fetch", fetchMock)
+    renderApp()
+    expect(await screen.findByRole("heading", { name: "First document" })).toBeInTheDocument()
+
+    window.location.hash = `#/s/${nextToken}`
+    fireEvent(window, new HashChangeEvent("hashchange"))
+
+    expect(screen.getByLabelText("Loading share")).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "First document" })).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     [404, "not_found", "Share not found"],
     [410, "expired", "Share expired"],
@@ -112,6 +140,28 @@ describe("App", () => {
       dark.container.querySelector('[data-theme-mode="dark"][data-appearance="dark"]'),
     ).toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("falls back when theme storage is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn())
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError")
+    })
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError")
+    })
+    const { container } = renderApp()
+    expect(container.querySelector('[data-theme-mode="system"]')).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("combobox", { name: "Theme" }))
+    await user.click(screen.getByRole("option", { name: "Dark" }))
+    await waitFor(() =>
+      expect(container.querySelector('[data-theme-mode="dark"]')).toBeInTheDocument(),
+    )
+    expect(fetch).not.toHaveBeenCalled()
+    getItem.mockRestore()
+    setItem.mockRestore()
   })
 
   it("follows live system theme changes without network activity", async () => {

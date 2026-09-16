@@ -81,13 +81,21 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 		}
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		decoder.DisallowUnknownFields()
-		var parsed CreateShareRequest
+		var parsed struct {
+			Content   *string `json:"content"`
+			ExpiresIn *int64  `json:"expires_in"`
+			MaxViews  *int64  `json:"max_views"`
+		}
 		if err := decoder.Decode(&parsed); err != nil {
 			writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "invalid request")
 			return
 		}
 		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 			writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "invalid request")
+			return
+		}
+		if parsed.Content == nil {
+			writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "content is required")
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))

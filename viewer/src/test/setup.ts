@@ -5,6 +5,7 @@ import { afterEach, vi } from "vitest"
 afterEach(() => {
   cleanup()
   localStorage.clear()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -28,6 +29,20 @@ Object.defineProperty(document, "execCommand", {
   writable: true,
   value: vi.fn(() => true),
 })
+
+for (const method of [
+  "hasPointerCapture",
+  "setPointerCapture",
+  "releasePointerCapture",
+  "scrollIntoView",
+] as const) {
+  if (!(method in Element.prototype)) {
+    Object.defineProperty(Element.prototype, method, {
+      configurable: true,
+      value: method === "hasPointerCapture" ? () => false : () => undefined,
+    })
+  }
+}
 
 Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
   configurable: true,

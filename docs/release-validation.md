@@ -34,7 +34,7 @@ npm audit --omit=dev
 npm run test:browser
 ```
 
-All commands passed. Vitest ran 21 unit/component tests. Playwright passed the production-build CSP, GFM, KaTeX, Mermaid, one-request, responsive, and keyboard checks. The generated `index.html` used `/morsel/` asset paths, an exact `connect-src https://api.morsel.invalid`, and `Referrer-Policy: no-referrer` without API credentials.
+All commands passed. Vitest ran 24 unit/component tests. Playwright passed the production-build CSP, GFM, KaTeX, Mermaid, one-request, responsive, and keyboard checks. The generated `index.html` used `/morsel/` asset paths, an exact `connect-src https://api.morsel.invalid`, and `Referrer-Policy: no-referrer` without API credentials.
 
 ## Production-stack acceptance
 

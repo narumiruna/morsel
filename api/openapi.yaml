@@ -143,7 +143,7 @@ components:
       properties:
         content:
           type: string
-          maxLength: 1048576
+          description: Markdown limited by MORSEL_MAX_DOCUMENT_BYTES, measured in UTF-8 bytes.
         expires_in:
           type: integer
           format: int64

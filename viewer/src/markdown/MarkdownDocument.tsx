@@ -71,7 +71,7 @@ const sanitizeSchema = {
   protocols: {
     ...defaultSchema.protocols,
     href: ["http", "https", "mailto"],
-    src: ["http", "https"],
+    src: ["http", "https", "data"],
   },
 }
 

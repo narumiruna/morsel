@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/narumiruna/morsel/api/internal/share"
@@ -45,8 +46,11 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 		return createBadRequest("request body is required"), nil
 	}
 	body := request.Body
-	if int64(len([]byte(body.Content))) > h.maxDocumentBytes {
+	if int64(len(body.Content)) > h.maxDocumentBytes {
 		return CreateShare413JSONResponse{ContentTooLargeJSONResponse: ContentTooLargeJSONResponse(errorResponse(ErrorCodeContentTooLarge, "Markdown content is too large"))}, nil
+	}
+	if strings.ContainsRune(body.Content, '\x00') {
+		return createBadRequest("content must not contain NUL characters"), nil
 	}
 	if body.ExpiresIn != nil && (*body.ExpiresIn <= 0 || *body.ExpiresIn > 315360000) {
 		return createBadRequest("expires_in must be between 1 and 315360000"), nil

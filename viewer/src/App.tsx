@@ -19,7 +19,7 @@ export function App() {
       page = <HomePage />
       break
     case "share":
-      page = <SharePage token={route.token} />
+      page = <SharePage key={route.token} token={route.token} />
       break
     case "invalid-share":
       page = <ErrorPage kind="invalid-share" />

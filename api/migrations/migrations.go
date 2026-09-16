@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"cmp"
 	"context"
 	"embed"
 	"errors"
@@ -220,6 +221,6 @@ func load() ([]migration, error) {
 		}
 		result = append(result, *m)
 	}
-	slices.SortFunc(result, func(a, b migration) int { return int(a.version - b.version) })
+	slices.SortFunc(result, func(a, b migration) int { return cmp.Compare(a.version, b.version) })
 	return result, nil
 }

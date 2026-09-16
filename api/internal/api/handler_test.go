@@ -111,6 +111,24 @@ func TestCreateShareAuthenticationValidationAndResponse(t *testing.T) {
 	}
 }
 
+func TestCreateShareRequiresContentAndRejectsNUL(t *testing.T) {
+	repository := &repositoryStub{}
+	handler := testRouter(t, repository, nil, nil, 100)
+	for _, body := range []string{`{}`, `{"content":null}`, `{"content":"\u0000"}`} {
+		response := request(t, handler, http.MethodPost, "/v1/shares", body, "Bearer "+testAPIKey)
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("body=%s status=%d response=%s", body, response.Code, response.Body.String())
+		}
+	}
+	response := request(t, handler, http.MethodPost, "/v1/shares", `{"content":""}`, "Bearer "+testAPIKey)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("empty content status=%d response=%s", response.Code, response.Body.String())
+	}
+	if len(repository.created) != 1 || repository.created[0].Content != "" {
+		t.Fatalf("created=%+v", repository.created)
+	}
+}
+
 func TestCreateShareCollisionRecoveryAndFailure(t *testing.T) {
 	repository := &repositoryStub{createErrors: []error{share.ErrTokenCollision, nil}}
 	entropy := bytes.NewReader(append(bytes.Repeat([]byte{1}, 32), bytes.Repeat([]byte{2}, 32)...))

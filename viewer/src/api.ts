@@ -59,6 +59,9 @@ export function getShare(token: string): Promise<Share> {
     return body as Share
   })
   requests.set(token, pending)
+  void pending.catch(() => {
+    if (requests.get(token) === pending) requests.delete(token)
+  })
   return pending
 }
 

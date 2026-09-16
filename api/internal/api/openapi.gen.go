@@ -72,6 +72,7 @@ func (e HealthStatus) Valid() bool {
 
 // CreateShareRequest defines model for CreateShareRequest.
 type CreateShareRequest struct {
+	// Content Markdown limited by MORSEL_MAX_DOCUMENT_BYTES, measured in UTF-8 bytes.
 	Content   string `json:"content"`
 	ExpiresIn *int64 `json:"expires_in,omitempty"`
 	MaxViews  *int64 `json:"max_views,omitempty"`

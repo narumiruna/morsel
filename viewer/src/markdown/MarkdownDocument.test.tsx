@@ -66,7 +66,9 @@ alert("escaped")
       <MarkdownDocument
         content={`[safe](https://example.com) [mail](mailto:test@example.com) [bad](javascript:alert(1))
 
-![safe](https://images.example/a.png) ![bad](javascript:alert(1))
+![safe](https://images.example/a.png) ![inline](data:image/png;base64,iVBORw0KGgo=)
+
+![bad](javascript:alert(1)) ![vector](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)
 
 <img src=x onerror="window.pwned=true"><svg onload="window.pwned=true"></svg>`}
       />,
@@ -78,6 +80,11 @@ alert("escaped")
     const image = screen.getByAltText("safe")
     expect(image).toHaveAttribute("referrerpolicy", "no-referrer")
     expect(image).toHaveAttribute("loading", "lazy")
+    expect(screen.getByAltText("inline")).toHaveAttribute(
+      "src",
+      "data:image/png;base64,iVBORw0KGgo=",
+    )
+    expect(screen.getByAltText("vector")).not.toHaveAttribute("src")
     expect(container.innerHTML).not.toMatch(/onerror|onload|<svg/i)
   })
 
