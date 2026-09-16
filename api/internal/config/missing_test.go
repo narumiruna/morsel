@@ -5,9 +5,9 @@ import "testing"
 func TestLoadRejectsMissingRequiredValues(t *testing.T) {
 	for _, name := range []string{
 		"MORSEL_DATABASE_URL",
-		"MORSEL_API_KEYS",
-		"MORSEL_API_KEYS_FILE",
-		"MORSEL_PUBLIC_VIEWER_URL",
+		"MORSEL_API_KEY",
+		"MORSEL_API_KEY_FILE",
+		"MORSEL_URL",
 	} {
 		t.Setenv(name, "")
 	}

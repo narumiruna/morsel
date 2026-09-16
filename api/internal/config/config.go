@@ -48,7 +48,7 @@ func Load() (Config, error) {
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("MORSEL_DATABASE_URL is required")
 	}
-	if cfg.APIKeys, err = loadValues("MORSEL_API_KEYS", "MORSEL_API_KEYS_FILE"); err != nil {
+	if cfg.APIKeys, err = loadValues("MORSEL_API_KEY", "MORSEL_API_KEY_FILE"); err != nil {
 		return Config{}, fmt.Errorf("load API keys: %w", err)
 	}
 	if len(cfg.APIKeys) == 0 {
@@ -62,9 +62,9 @@ func Load() (Config, error) {
 	if strings.TrimSpace(cfg.ViewerDir) == "" {
 		return Config{}, errors.New("MORSEL_VIEWER_DIR must not be empty")
 	}
-	viewer := os.Getenv("MORSEL_PUBLIC_VIEWER_URL")
+	viewer := os.Getenv("MORSEL_URL")
 	if viewer == "" {
-		return Config{}, errors.New("MORSEL_PUBLIC_VIEWER_URL is required")
+		return Config{}, errors.New("MORSEL_URL is required")
 	}
 	cfg.PublicViewerURL, err = parsePublicURL(viewer, cfg.Environment)
 	if err != nil {

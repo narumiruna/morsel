@@ -43,7 +43,7 @@ The following flow used `docker compose up -d --build --wait`, the single-domain
 ```sh
 cd viewer
 MORSEL_E2E_LIVE=1 \
-MORSEL_E2E_API_KEY="$MORSEL_API_KEYS" \
+MORSEL_E2E_API_KEY="$MORSEL_API_KEY" \
 npm run test:browser -- --grep 'release acceptance flow'
 ```
 
