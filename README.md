@@ -50,9 +50,9 @@ POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 API_KEY="$(openssl rand -hex 32)"
 cat > .env <<EOF
 MORSEL_POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-MORSEL_API_KEYS=$API_KEY
+MORSEL_API_KEY=$API_KEY
 MORSEL_ENVIRONMENT=development
-MORSEL_PUBLIC_VIEWER_URL=http://localhost:12647/
+MORSEL_URL=http://localhost:12647/
 MORSEL_PORT=12647
 EOF
 export MORSEL_API_KEY="$API_KEY"
@@ -125,8 +125,8 @@ The API reads the following environment variables:
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
-| `MORSEL_API_KEYS` or `MORSEL_API_KEYS_FILE` | yes | — | Comma-separated keys or newline-delimited key file. Each key must have at least 32 characters. Both sources may be combined during rotation. |
-| `MORSEL_PUBLIC_VIEWER_URL` | yes | — | Public single-origin URL used to construct `#/s/<token>` links. |
+| `MORSEL_API_KEY` or `MORSEL_API_KEY_FILE` | yes | — | Comma-separated keys or newline-delimited key file. Each key must have at least 32 characters. Both sources may be combined during rotation. |
+| `MORSEL_URL` | yes | — | Public single-origin URL used to construct `#/s/<token>` links. |
 | `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Directory containing the production viewer and `index.html`, relative to the usual `api/` working directory; the container sets this to `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS public URLs. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
@@ -144,7 +144,7 @@ Production startup rejects insecure public HTTP URLs, short API keys, empty view
 
 ### API-key rotation
 
-1. Configure both the old and new keys, preferably with `MORSEL_API_KEYS_FILE`.
+1. Configure both the old and new keys, preferably with `MORSEL_API_KEY_FILE`.
 2. Restart the API and move all administrative clients to the new key.
 3. Remove the old key and restart again.
 
@@ -173,7 +173,7 @@ Production has no separate viewer deployment and no build-time API hostname. The
 
 ### Production domain and security headers
 
-Set `MORSEL_PUBLIC_VIEWER_URL=https://morsel.narumi.dev/` and route that domain to port 12647 through an HTTPS reverse proxy. The Go server sends CSP, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff` as HTTP response headers. The CSP limits API connections to `'self'`.
+Set `MORSEL_URL=https://morsel.narumi.dev/` and route that domain to port 12647 through an HTTPS reverse proxy. The Go server sends CSP, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff` as HTTP response headers. The CSP limits API connections to `'self'`.
 
 A reverse proxy must preserve `X-Request-ID` responses, avoid logging authorization headers, and never cache `/v1/shares/*`. Hash routing keeps the capability out of the initial document request; the viewer sends it only to the same-origin API retrieval endpoint.
 

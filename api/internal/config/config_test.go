@@ -10,8 +10,8 @@ import (
 func validEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("MORSEL_DATABASE_URL", "postgres://morsel:secret@db/morsel")
-	t.Setenv("MORSEL_API_KEYS", strings.Repeat("k", 32))
-	t.Setenv("MORSEL_PUBLIC_VIEWER_URL", "https://morsel.example.com/")
+	t.Setenv("MORSEL_API_KEY", strings.Repeat("k", 32))
+	t.Setenv("MORSEL_URL", "https://morsel.example.com/")
 	t.Setenv("MORSEL_ENVIRONMENT", "production")
 }
 
@@ -38,8 +38,8 @@ func TestLoadAPIKeysFromFile(t *testing.T) {
 	if err := os.WriteFile(keys, []byte(strings.Repeat("a", 32)+"\n"+strings.Repeat("b", 32)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MORSEL_API_KEYS", "")
-	t.Setenv("MORSEL_API_KEYS_FILE", keys)
+	t.Setenv("MORSEL_API_KEY", "")
+	t.Setenv("MORSEL_API_KEY_FILE", keys)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -57,9 +57,9 @@ func TestLoadRejectsUnsafeConfigurationWithoutLeakingSecrets(t *testing.T) {
 		needle string
 	}{
 		{name: "empty viewer directory", key: "MORSEL_VIEWER_DIR", value: " ", needle: "must not be empty"},
-		{name: "insecure viewer", key: "MORSEL_PUBLIC_VIEWER_URL", value: "http://morsel.example.com", needle: "HTTPS"},
-		{name: "viewer path", key: "MORSEL_PUBLIC_VIEWER_URL", value: "https://morsel.example.com/app", needle: "without credentials"},
-		{name: "short API key", key: "MORSEL_API_KEYS", value: "super-secret", needle: "32"},
+		{name: "insecure viewer", key: "MORSEL_URL", value: "http://morsel.example.com", needle: "HTTPS"},
+		{name: "viewer path", key: "MORSEL_URL", value: "https://morsel.example.com/app", needle: "without credentials"},
+		{name: "short API key", key: "MORSEL_API_KEY", value: "super-secret", needle: "32"},
 		{name: "bad timeout", key: "MORSEL_REQUEST_TIMEOUT", value: "never", needle: "positive duration"},
 		{name: "bad limits", key: "MORSEL_MAX_REQUEST_BYTES", value: "1", needle: "greater"},
 	}
@@ -81,7 +81,7 @@ func TestLoadRejectsUnsafeConfigurationWithoutLeakingSecrets(t *testing.T) {
 func TestLoadAllowsLocalHTTPInDevelopment(t *testing.T) {
 	validEnvironment(t)
 	t.Setenv("MORSEL_ENVIRONMENT", "development")
-	t.Setenv("MORSEL_PUBLIC_VIEWER_URL", "http://127.0.0.1:5173")
+	t.Setenv("MORSEL_URL", "http://127.0.0.1:5173")
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
 	}
