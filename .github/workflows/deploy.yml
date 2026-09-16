@@ -14,12 +14,14 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Start services
+        shell: bash
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           MORSEL_API_KEY: ${{ secrets.MORSEL_API_KEY }}
