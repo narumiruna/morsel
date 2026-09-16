@@ -39,7 +39,7 @@ jobs:
       MORSEL_TEST_DATABASE_URL: postgres://morsel:test-only-password@127.0.0.1:5432/morsel_test?sslmode=disable
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: api/go.mod
           cache-dependency-path: api/go.sum
