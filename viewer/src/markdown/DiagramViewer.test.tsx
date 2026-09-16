@@ -63,6 +63,9 @@ describe("DiagramViewer", () => {
       "Download PNG",
     ].map((name) => screen.getByRole("button", { name }))
     expect(controls.every((control) => control.textContent === "")).toBe(true)
+    expect(screen.getByRole("button", { name: "Use readable view" })).not.toHaveAttribute(
+      "aria-pressed",
+    )
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
     expect(screen.getByLabelText("Current zoom")).toHaveTextContent("125%")
@@ -133,6 +136,18 @@ describe("DiagramViewer", () => {
     await screen.findByRole("button", { name: "Fullscreen" })
     expect(card.requestFullscreen).toHaveBeenCalledOnce()
     expect(document.exitFullscreen).toHaveBeenCalledOnce()
+  })
+
+  it("cleans up when native fullscreen lacks an exit method", () => {
+    const { container, unmount } = renderViewer()
+    const card = container.querySelector(".diagram-card")
+    if (!(card instanceof HTMLDivElement)) throw new Error("card missing")
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: card,
+    })
+    Reflect.deleteProperty(document, "exitFullscreen")
+    expect(() => unmount()).not.toThrow()
   })
 
   it("falls back from native fullscreen and restores isolation, scrolling, and focus", async () => {

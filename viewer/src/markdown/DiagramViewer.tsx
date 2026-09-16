@@ -199,8 +199,12 @@ export function DiagramViewer({
     () => () => {
       restoreFallback()
       fallbackRef.current = false
-      if (document.fullscreenElement === card.current)
+      if (
+        document.fullscreenElement === card.current &&
+        typeof document.exitFullscreen === "function"
+      ) {
         void document.exitFullscreen().catch(() => {})
+      }
     },
     [restoreFallback],
   )
@@ -303,7 +307,6 @@ export function DiagramViewer({
             tooltipContainer={tooltipContainer}
             variant="soft"
             disabled={showSource}
-            aria-pressed={camera === "overview"}
             onClick={() =>
               controller.current?.setCameraMode(camera === "overview" ? "readable" : "overview")
             }

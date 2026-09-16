@@ -1,7 +1,7 @@
 import { ExclamationTriangleIcon, ReloadIcon } from "@radix-ui/react-icons"
 import { Button, Callout } from "@radix-ui/themes"
 import { useEffect, useRef, useState } from "react"
-import { useAppearance } from "../theme"
+import { type Appearance, useAppearance } from "../theme"
 import { DiagramViewer } from "./DiagramViewer"
 import { maxMermaidBytes, renderMermaid } from "./mermaidRenderer"
 
@@ -46,13 +46,17 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
   const appearance = useAppearance()
   const pending = useRef<HTMLDivElement>(null)
   const [eligible, setEligible] = useState(() => typeof IntersectionObserver !== "function")
-  const [result, setResult] = useState<{ source: string; svg: string }>()
+  const [result, setResult] = useState<{
+    appearance: Appearance
+    source: string
+    svg: string
+  }>()
   const [error, setError] = useState("")
   const [rendering, setRendering] = useState(false)
   const [retry, setRetry] = useState(0)
   const byteLength = new TextEncoder().encode(source).byteLength
   const withinLimits = index < maxMermaidDiagrams && byteLength <= maxMermaidBytes
-  const visibleSVG = result?.source === source ? result.svg : undefined
+  const visibleResult = result?.source === source ? result : undefined
 
   useEffect(() => {
     if (!withinLimits || eligible || typeof IntersectionObserver !== "function") return
@@ -80,7 +84,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
     void renderMermaid(source, appearance).then(
       (svg) => {
         if (!active) return
-        setResult({ source, svg })
+        setResult({ appearance, source, svg })
         setRendering(false)
       },
       () => {
@@ -105,7 +109,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
   if (byteLength > maxMermaidBytes) {
     return <DiagramError message="This diagram exceeds the 50 KiB source limit." source={source} />
   }
-  if (error && !visibleSVG) {
+  if (error && !visibleResult) {
     return (
       <DiagramError
         message={error}
@@ -117,7 +121,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
       />
     )
   }
-  if (!visibleSVG) {
+  if (!visibleResult) {
     return (
       <div
         ref={pending}
@@ -129,7 +133,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
   }
   return (
     <DiagramViewer
-      appearance={appearance}
+      appearance={visibleResult.appearance}
       refreshing={rendering}
       renderError={error}
       retryRender={() => {
@@ -137,7 +141,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
         setRetry((value) => value + 1)
       }}
       source={source}
-      svg={visibleSVG}
+      svg={visibleResult.svg}
     />
   )
 }

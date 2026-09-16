@@ -16,6 +16,11 @@ vi.mock("mermaid", () => ({
     render: mermaidMock.render,
   },
 }))
+const exportMock = vi.hoisted(() => ({
+  createPngExport: vi.fn(),
+  downloadDiagram: vi.fn(),
+}))
+vi.mock("./diagramExport", () => exportMock)
 const renderDiagram = mermaidMock.render
 
 beforeEach(() => {
@@ -23,6 +28,9 @@ beforeEach(() => {
   renderDiagram.mockResolvedValue({
     svg: '<svg viewBox="0 0 10 10"><title>Safe diagram</title><path d="M0 0" /></svg>',
   })
+  exportMock.createPngExport.mockReset()
+  exportMock.createPngExport.mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+  exportMock.downloadDiagram.mockReset()
 })
 
 describe("MarkdownDocument", () => {
@@ -180,8 +188,23 @@ alert("escaped")
     await user.click(screen.getByRole("option", { name: "Dark" }))
     await screen.findByText("Refreshing diagram theme…")
     expect(screen.getByText("Light")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Download PNG" }))
+    await waitFor(() =>
+      expect(exportMock.createPngExport).toHaveBeenLastCalledWith(
+        expect.any(SVGSVGElement),
+        "light",
+      ),
+    )
+
     act(() => finishDark?.({ svg: '<svg viewBox="0 0 10 10"><text>Dark</text></svg>' }))
     expect(await screen.findByText("Dark")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Download PNG" }))
+    await waitFor(() =>
+      expect(exportMock.createPngExport).toHaveBeenLastCalledWith(
+        expect.any(SVGSVGElement),
+        "dark",
+      ),
+    )
     expect(mermaidMock.configuration).toMatchObject({ theme: "dark" })
   })
 

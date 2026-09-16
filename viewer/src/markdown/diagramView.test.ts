@@ -55,6 +55,16 @@ describe("diagram view", () => {
     controller.destroy()
   })
 
+  it("fits very large diagrams below the interactive zoom floor", () => {
+    const { stage, viewport } = fixture()
+    stage.innerHTML = '<svg viewBox="0 0 5000 500"><text>Wide</text></svg>'
+    const controller = createDiagramView(viewport, stage)
+    expect(controller.getState()).toMatchObject({ cameraMode: "overview", scale: 0.1 })
+    expect(controller.getState().scale).toBeLessThan(minDiagramScale)
+    expect(viewport).toHaveAttribute("data-diagram-cropped", "false")
+    controller.destroy()
+  })
+
   it("bounds zoom and preserves a user-modified scale while refreshing", () => {
     const { stage, viewport } = fixture()
     const controller = createDiagramView(viewport, stage)

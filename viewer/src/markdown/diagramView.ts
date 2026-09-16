@@ -189,7 +189,7 @@ export function createDiagramView(
       (viewport.clientHeight - inset.top - inset.bottom) / state.naturalHeight,
     )
     const limited = expanded() ? fit : Math.min(1, fit)
-    state.scale = clamp(positive(limited, 1), minDiagramScale, maxDiagramScale)
+    state.scale = Math.min(positive(limited, 1), maxDiagramScale)
     state.cameraMode = "overview"
     state.userModified = false
     apply()
