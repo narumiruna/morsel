@@ -173,7 +173,7 @@ Production has no separate viewer deployment and no build-time API hostname. The
 
 ### Mermaid diagram controls
 
-Mermaid diagrams open in **Overview**, fitted without upscaling. Use **Use readable view** to restore legible label sizing when a large diagram must be cropped. Drag with a mouse or use the arrow keys to pan; use the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel to zoom. Press `0` to return to Overview. Reset returns to Readable View.
+Mermaid diagrams open fitted to the available space without upscaling. Use **Reset zoom** to restore the default readable size when a large diagram must be cropped, or **Fit to screen** to show the entire diagram. Drag with a mouse or use the arrow keys to pan; use the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel to zoom. Press `0` to fit the diagram to the screen.
 
 Fullscreen uses the browser API when available and an isolated in-page fallback otherwise. Inline one-finger gestures continue scrolling the document. In fullscreen, one finger pans and two fingers pan and zoom. Escape closes fallback fullscreen, and focus returns to the control that opened it.
 

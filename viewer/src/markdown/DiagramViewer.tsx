@@ -17,11 +17,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { ActionButton } from "../components/ActionButton"
 import type { Appearance } from "../theme"
 import { createPngExport, downloadDiagram } from "./diagramExport"
-import {
-  createDiagramView,
-  type DiagramCameraMode,
-  type DiagramViewController,
-} from "./diagramView"
+import { createDiagramView, type DiagramViewController } from "./diagramView"
 
 interface DiagramViewerProps {
   appearance?: Appearance
@@ -62,7 +58,6 @@ export function DiagramViewer({
   const nativeFullscreen = useRef(false)
   const sourceID = useId()
   const [zoom, setZoom] = useState(100)
-  const [camera, setCamera] = useState<DiagramCameraMode>("overview")
   const [cropped, setCropped] = useState(false)
   const [showSource, setShowSource] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -146,7 +141,6 @@ export function DiagramViewer({
     if (!view || !content) return
     const next = createDiagramView(view, content, {
       isExpanded: () => document.fullscreenElement === card.current || fallbackRef.current,
-      onCameraModeChange: setCamera,
       onCropChange: setCropped,
       onEscape: closeFallback,
       onScaleChange: setZoom,
@@ -303,19 +297,17 @@ export function DiagramViewer({
           </ActionButton>
           <ActionButton
             className="diagram-control"
-            label={camera === "overview" ? "Use readable view" : "Show overview"}
+            label="Fit to screen"
             tooltipContainer={tooltipContainer}
             variant="soft"
             disabled={showSource}
-            onClick={() =>
-              controller.current?.setCameraMode(camera === "overview" ? "readable" : "overview")
-            }
+            onClick={() => controller.current?.setCameraMode("overview")}
           >
             <CornersIcon />
           </ActionButton>
           <ActionButton
             className="diagram-control"
-            label="Reset to readable view"
+            label="Reset zoom"
             tooltipContainer={tooltipContainer}
             variant="soft"
             disabled={showSource}
