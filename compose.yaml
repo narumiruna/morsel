@@ -1,9 +1,5 @@
 name: morsel
 
-x-morsel-build: &morsel-build
-  context: .
-  dockerfile: Dockerfile
-
 services:
   postgres:
     image: postgres:17.6-alpine3.22
@@ -21,8 +17,7 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: morsel:local
-    build: *morsel-build
+    image: ${MORSEL_IMAGE:-narumi/morsel:latest}
     entrypoint: ["/usr/local/bin/migrate"]
     environment:
       MORSEL_DATABASE_URL: postgres://morsel:${POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
@@ -32,8 +27,7 @@ services:
     restart: "no"
 
   morsel:
-    image: morsel:local
-    build: *morsel-build
+    image: ${MORSEL_IMAGE:-narumi/morsel:latest}
     environment:
       MORSEL_ENVIRONMENT: ${MORSEL_ENVIRONMENT:-development}
       MORSEL_DATABASE_URL: postgres://morsel:${POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
