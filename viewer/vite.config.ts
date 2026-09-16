@@ -5,7 +5,7 @@ const contentSecurityPolicy =
   "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: data:; connect-src 'self'"
 
 const apiProxy = {
-  "/v1": "http://127.0.0.1:8080",
+  "/v1": "http://127.0.0.1:12647",
 }
 
 export default defineConfig({

@@ -38,9 +38,9 @@ services:
       MORSEL_ENVIRONMENT: ${MORSEL_ENVIRONMENT:-development}
       MORSEL_DATABASE_URL: postgres://morsel:${MORSEL_POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
       MORSEL_API_KEYS: ${MORSEL_API_KEYS:?set MORSEL_API_KEYS}
-      MORSEL_PUBLIC_VIEWER_URL: "${MORSEL_PUBLIC_VIEWER_URL:-http://localhost:${MORSEL_PORT:-8080}/}"
+      MORSEL_PUBLIC_VIEWER_URL: "${MORSEL_PUBLIC_VIEWER_URL:-http://localhost:${MORSEL_PORT:-12647}/}"
     ports:
-      - "127.0.0.1:${MORSEL_PORT:-8080}:8080"
+      - "127.0.0.1:${MORSEL_PORT:-12647}:12647"
     depends_on:
       postgres:
         condition: service_healthy

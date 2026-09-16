@@ -16,7 +16,7 @@ func TestHealthcheckURLUsesConfiguredAddress(t *testing.T) {
 		address string
 		want    string
 	}{
-		{"", "http://127.0.0.1:8080/readyz"},
+		{"", "http://127.0.0.1:12647/readyz"},
 		{":9090", "http://127.0.0.1:9090/readyz"},
 		{"0.0.0.0:7070", "http://127.0.0.1:7070/readyz"},
 		{"[::]:6060", "http://127.0.0.1:6060/readyz"},
@@ -28,7 +28,7 @@ func TestHealthcheckURLUsesConfiguredAddress(t *testing.T) {
 			t.Errorf("healthcheckURL(%q)=%q, %v; want %q", test.address, got, err, test.want)
 		}
 	}
-	for _, address := range []string{"8080", ":0"} {
+	for _, address := range []string{"12647", ":0"} {
 		if _, err := healthcheckURL(address); err == nil {
 			t.Errorf("healthcheckURL(%q) succeeded", address)
 		}

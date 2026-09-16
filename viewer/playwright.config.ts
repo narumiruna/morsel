@@ -8,7 +8,7 @@ export default defineConfig({
   retries: 0,
   reporter: "list",
   use: {
-    baseURL: live ? "http://127.0.0.1:8080/" : "http://127.0.0.1:4173/",
+    baseURL: live ? "http://127.0.0.1:12647/" : "http://127.0.0.1:4173/",
     trace: "retain-on-failure",
   },
   webServer: live

@@ -25,13 +25,13 @@ cat > .env <<EOF
 MORSEL_POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 MORSEL_API_KEYS=$API_KEY
 MORSEL_ENVIRONMENT=development
-MORSEL_PUBLIC_VIEWER_URL=http://localhost:8080/
-MORSEL_PORT=8080
+MORSEL_PUBLIC_VIEWER_URL=http://localhost:12647/
+MORSEL_PORT=12647
 EOF
 export MORSEL_API_KEY="$API_KEY"
 docker compose up --build -d
 docker compose ps
-curl --fail http://127.0.0.1:8080/readyz
+curl --fail http://127.0.0.1:12647/readyz
 ```
 
 Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
@@ -61,7 +61,7 @@ curl --fail-with-body \
   -H "Authorization: Bearer $MORSEL_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"content":"# Hello\n\n$x^2$","expires_in":3600,"max_views":3}' \
-  http://127.0.0.1:8080/v1/shares
+  http://127.0.0.1:12647/v1/shares
 ```
 
 The response contains an administrative UUID and a `share_url`. The URL is the only place the raw capability token is returned. Morsel stores only its SHA-256 hash.
@@ -69,7 +69,7 @@ The response contains an administrative UUID and a `share_url`. The URL is the o
 Consume one view using the token after `#/s/`:
 
 ```sh
-curl --fail-with-body http://127.0.0.1:8080/v1/shares/RAW_CAPABILITY_TOKEN
+curl --fail-with-body http://127.0.0.1:12647/v1/shares/RAW_CAPABILITY_TOKEN
 ```
 
 Revoke a share by administrative UUID:
@@ -77,7 +77,7 @@ Revoke a share by administrative UUID:
 ```sh
 curl --fail-with-body -X DELETE \
   -H "Authorization: Bearer $MORSEL_API_KEY" \
-  http://127.0.0.1:8080/v1/shares/SHARE_UUID
+  http://127.0.0.1:12647/v1/shares/SHARE_UUID
 ```
 
 The complete contract is [`api/openapi.yaml`](api/openapi.yaml). Public error bodies contain stable `code` and `message` fields.
@@ -102,7 +102,7 @@ The API reads the following environment variables:
 | `MORSEL_PUBLIC_VIEWER_URL` | yes | — | Public single-origin URL used to construct `#/s/<token>` links. |
 | `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Directory containing the production viewer and `index.html`, relative to the usual `api/` working directory; the container sets this to `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS public URLs. |
-| `MORSEL_ADDRESS` | no | `:8080` | API listen address. |
+| `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
 | `MORSEL_MAX_DOCUMENT_BYTES` | no | `1048576` | UTF-8 Markdown byte limit. |
 | `MORSEL_MAX_REQUEST_BYTES` | no | `1114112` | Whole request body limit; must exceed the document limit. |
 | `MORSEL_READ_HEADER_TIMEOUT` | no | `5s` | HTTP header timeout. |
@@ -125,7 +125,7 @@ All configured keys are trusted administrators and may revoke any share.
 
 ## Viewer development and production serving
 
-The viewer needs Node.js 24.15+ LTS (or 26+) and npm 11 only at build time. Its development server proxies same-origin `/v1/*` requests to the Go API on `127.0.0.1:8080`.
+The viewer needs Node.js 24.15+ LTS (or 26+) and npm 11 only at build time. Its development server proxies same-origin `/v1/*` requests to the Go API on `127.0.0.1:12647`.
 
 ```sh
 cd viewer
@@ -146,7 +146,7 @@ Production has no separate viewer deployment and no build-time API hostname. The
 
 ### Production domain and security headers
 
-Set `MORSEL_PUBLIC_VIEWER_URL=https://morsel.narumi.dev/` and route that domain to port 8080 through an HTTPS reverse proxy. The Go server sends CSP, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff` as HTTP response headers. The CSP limits API connections to `'self'`.
+Set `MORSEL_PUBLIC_VIEWER_URL=https://morsel.narumi.dev/` and route that domain to port 12647 through an HTTPS reverse proxy. The Go server sends CSP, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff` as HTTP response headers. The CSP limits API connections to `'self'`.
 
 A reverse proxy must preserve `X-Request-ID` responses, avoid logging authorization headers, and never cache `/v1/shares/*`. Hash routing keeps the capability out of the initial document request; the viewer sends it only to the same-origin API retrieval endpoint.
 
