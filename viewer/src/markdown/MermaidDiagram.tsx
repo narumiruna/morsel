@@ -13,6 +13,7 @@ mermaid.initialize({
   suppressErrorRendering: true,
   maxTextSize: maxMermaidBytes,
   theme: "neutral",
+  htmlLabels: false,
 })
 
 let nextDiagramID = 0

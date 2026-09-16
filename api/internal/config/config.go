@@ -16,8 +16,8 @@ type Config struct {
 	Address           string
 	DatabaseURL       string
 	APIKeys           []string
-	AllowedOrigins    []string
 	PublicViewerURL   *url.URL
+	ViewerDir         string
 	MaxDocumentBytes  int64
 	MaxRequestBytes   int64
 	ReadHeaderTimeout time.Duration
@@ -34,6 +34,7 @@ func Load() (Config, error) {
 		Environment:       env("MORSEL_ENVIRONMENT", "development"),
 		Address:           env("MORSEL_ADDRESS", ":8080"),
 		DatabaseURL:       os.Getenv("MORSEL_DATABASE_URL"),
+		ViewerDir:         env("MORSEL_VIEWER_DIR", "../viewer/dist"),
 		MaxDocumentBytes:  1 << 20,
 		MaxRequestBytes:   (1 << 20) + (64 << 10),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -58,18 +59,8 @@ func Load() (Config, error) {
 			return Config{}, errors.New("each API key must contain at least 32 characters")
 		}
 	}
-	if cfg.AllowedOrigins, err = loadValues("MORSEL_ALLOWED_ORIGINS", "MORSEL_ALLOWED_ORIGINS_FILE"); err != nil {
-		return Config{}, fmt.Errorf("load allowed origins: %w", err)
-	}
-	if len(cfg.AllowedOrigins) == 0 {
-		return Config{}, errors.New("at least one allowed origin is required")
-	}
-	for i, origin := range cfg.AllowedOrigins {
-		parsed, parseErr := parseOrigin(origin, cfg.Environment)
-		if parseErr != nil {
-			return Config{}, fmt.Errorf("invalid allowed origin at position %d: %w", i+1, parseErr)
-		}
-		cfg.AllowedOrigins[i] = parsed
+	if strings.TrimSpace(cfg.ViewerDir) == "" {
+		return Config{}, errors.New("MORSEL_VIEWER_DIR must not be empty")
 	}
 	viewer := os.Getenv("MORSEL_PUBLIC_VIEWER_URL")
 	if viewer == "" {
@@ -134,31 +125,15 @@ func loadValues(valueEnv, fileEnv string) ([]string, error) {
 	return result, nil
 }
 
-func parseOrigin(raw, environment string) (string, error) {
-	if raw == "*" {
-		return "", errors.New("wildcard origins are forbidden")
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return "", errors.New("origin must contain only scheme and host")
-	}
-	if err := requireSafeHTTPURL(u, environment); err != nil {
-		return "", err
-	}
-	return u.Scheme + "://" + u.Host, nil
-}
-
 func parsePublicURL(raw, environment string) (*url.URL, error) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return nil, errors.New("must be an absolute URL without credentials, query, or fragment")
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return nil, errors.New("must be an absolute origin without credentials, path, query, or fragment")
 	}
 	if err := requireSafeHTTPURL(u, environment); err != nil {
 		return nil, err
 	}
-	if !strings.HasSuffix(u.Path, "/") {
-		u.Path += "/"
-	}
+	u.Path = "/"
 	return u, nil
 }
 

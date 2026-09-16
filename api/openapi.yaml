@@ -8,11 +8,11 @@ info:
     identifier: MIT
 security: []
 servers:
-  - url: https://{apiHost}
+  - url: https://{morselHost}
     variables:
-      apiHost:
-        default: api.your-domain.invalid
-        description: Hostname of the self-hosted Morsel API
+      morselHost:
+        default: morsel.your-domain.invalid
+        description: Hostname serving both the Morsel viewer and API
 paths:
   /healthz:
     get:

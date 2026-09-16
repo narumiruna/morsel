@@ -1,0 +1,8 @@
+.git
+.env
+api/coverage.out
+viewer/node_modules
+viewer/dist
+viewer/coverage
+viewer/playwright-report
+viewer/test-results

@@ -29,16 +29,16 @@ npm run openapi:lint
 npm run lint
 npm run typecheck
 npm test
-VITE_API_BASE_URL=https://api.morsel.invalid VITE_BASE_PATH=/morsel/ npm run build
+npm run build
 npm audit --omit=dev
 npm run test:browser
 ```
 
-All commands passed. Vitest ran 24 unit/component tests. Playwright passed the production-build CSP, GFM, KaTeX, Mermaid, one-request, responsive, and keyboard checks. The generated `index.html` used `/morsel/` asset paths, an exact `connect-src https://api.morsel.invalid`, and `Referrer-Policy: no-referrer` without API credentials.
+All commands passed. Vitest ran 25 unit/component tests. Playwright passed the production-build CSP, GFM, syntax highlighting, KaTeX, Mermaid labels, one-request, responsive, and keyboard checks. The viewer uses root-relative assets and `/v1/*` requests without an API hostname or credential. Preview and production responses set `connect-src 'self'` and `Referrer-Policy: no-referrer` headers.
 
 ## Production-stack acceptance
 
-The following flow used `docker compose up -d --build --wait`, the production API image, PostgreSQL 17.6, and the production Vite preview build:
+The following flow used `docker compose up -d --build --wait`, the single-domain production image containing the Go API and Vite viewer, and PostgreSQL 17.6:
 
 ```sh
 cd viewer
@@ -56,7 +56,7 @@ docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
 
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
   aquasec/trivy:0.69.3 image --skip-version-check --scanners vuln \
-  --severity HIGH,CRITICAL --exit-code 1 morsel-api:test
+  --severity HIGH,CRITICAL --exit-code 1 morsel:test
 ```
 
 Actionlint passed. Trivy reported zero high/critical findings for the Debian image and both Go binaries. See [dependency-review.md](dependency-review.md) for license and vulnerability details.

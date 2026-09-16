@@ -1,21 +1,24 @@
 import { defineConfig, devices } from "@playwright/test"
 
+const live = process.env.MORSEL_E2E_LIVE === "1"
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   retries: 0,
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:4173/morsel/",
+    baseURL: live ? "http://127.0.0.1:8080/" : "http://127.0.0.1:4173/",
     trace: "retain-on-failure",
   },
-  webServer: {
-    command:
-      "export VITE_API_BASE_URL=http://127.0.0.1:8080 VITE_BASE_PATH=/morsel/; npm run build && npm run preview -- --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173/morsel/",
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: live
+    ? undefined
+    : {
+        command: "npm run build && npm run preview -- --host 127.0.0.1 --port 4173",
+        url: "http://127.0.0.1:4173/",
+        reuseExistingServer: false,
+        timeout: 120_000,
+      },
   projects: [
     {
       name: "chromium",

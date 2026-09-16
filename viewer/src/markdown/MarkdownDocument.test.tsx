@@ -2,13 +2,19 @@ import { render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { MarkdownDocument } from "./MarkdownDocument"
 
-const renderDiagram = vi.hoisted(() => vi.fn())
+const mermaidMock = vi.hoisted(() => ({
+  configuration: undefined as unknown,
+  render: vi.fn(),
+}))
 vi.mock("mermaid", () => ({
   default: {
-    initialize: vi.fn(),
-    render: renderDiagram,
+    initialize: (configuration: unknown) => {
+      mermaidMock.configuration = configuration
+    },
+    render: mermaidMock.render,
   },
 }))
+const renderDiagram = mermaidMock.render
 
 beforeEach(() => {
   renderDiagram.mockReset()
@@ -47,6 +53,18 @@ alert("escaped")
     expect(container.querySelector("blockquote")).toHaveTextContent("quote")
     expect(container.querySelector("script")).not.toBeInTheDocument()
     expect(container.innerHTML).not.toContain("data-evil")
+  })
+
+  it("highlights fenced code without changing its source", () => {
+    const { container } = render(
+      <MarkdownDocument
+        content={'```go\npackage main\n\nfunc main() {\n  println("hello")\n}\n```'}
+      />,
+    )
+    const code = container.querySelector("pre code")
+    expect(code).toHaveClass("hljs", "language-go")
+    expect(code).toHaveTextContent('package main func main() { println("hello") }')
+    expect(code?.querySelector(".hljs-keyword")).toHaveTextContent("package")
   })
 
   it("renders inline and display math with KaTeX trust disabled", () => {
@@ -88,14 +106,18 @@ alert("escaped")
     expect(container.innerHTML).not.toMatch(/onerror|onload|<svg/i)
   })
 
-  it("renders Mermaid sequentially and sanitizes returned SVG", async () => {
+  it("renders Mermaid labels as sanitized SVG text", async () => {
     renderDiagram.mockResolvedValueOnce({
-      svg: '<svg onload="alert(1)"><script>alert(1)</script><foreignObject>bad</foreignObject><path d="M0 0" /></svg>',
+      svg: '<svg onload="alert(1)"><script>alert(1)</script><foreignObject>bad</foreignObject><text>Browser</text><path d="M0 0" /></svg>',
     })
     const { container } = render(<MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />)
     await screen.findByLabelText("Mermaid diagram")
+    expect(mermaidMock.configuration).toMatchObject({
+      htmlLabels: false,
+      securityLevel: "strict",
+    })
     expect(renderDiagram).toHaveBeenCalledOnce()
-    expect(container.querySelector("svg")).toBeInTheDocument()
+    expect(container.querySelector("svg text")).toHaveTextContent("Browser")
     expect(container.innerHTML).not.toMatch(/onload|script|foreignObject/i)
   })
 

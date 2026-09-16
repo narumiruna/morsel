@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/narumiruna/morsel/api/internal/share"
+	"github.com/narumiruna/morsel/api/internal/telemetry"
 )
 
 const testAPIKey = "0123456789abcdef0123456789abcdef"
@@ -59,7 +60,7 @@ func (r *repositoryStub) Ping(context.Context) error { return r.pingError }
 
 func testRouter(t *testing.T, repository share.Repository, tokenReader io.Reader, logOutput io.Writer, maxDocumentBytes int64) http.Handler {
 	t.Helper()
-	viewerURL, _ := url.Parse("https://viewer.example/morsel/")
+	viewerURL, _ := url.Parse("https://morsel.example/")
 	if tokenReader == nil {
 		tokenReader = bytes.NewReader(bytes.Repeat([]byte{0xaa}, share.TokenBytes*4))
 	}
@@ -69,7 +70,7 @@ func testRouter(t *testing.T, repository share.Repository, tokenReader io.Reader
 	logger := slog.New(slog.NewJSONHandler(logOutput, nil))
 	service := NewService(repository, share.TokenGenerator{Reader: tokenReader}, viewerURL, maxDocumentBytes, logger)
 	return NewRouter(service, RouterConfig{
-		APIKeys: []string{testAPIKey}, AllowedOrigins: []string{"https://viewer.example"},
+		APIKeys:        []string{testAPIKey},
 		MaxRequestBody: 256, RequestTimeout: time.Second, Logger: logger,
 	})
 }
@@ -141,7 +142,7 @@ func TestCreateShareCollisionRecoveryAndFailure(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(body.ShareUrl, "https://viewer.example/morsel/#/s/") || len(repository.created) != 2 {
+	if !strings.HasPrefix(body.ShareUrl, "https://morsel.example/#/s/") || len(repository.created) != 2 {
 		t.Fatalf("response=%+v calls=%d", body, len(repository.created))
 	}
 	if repository.created[0].TokenHash == repository.created[1].TokenHash {
@@ -227,28 +228,56 @@ func TestRevokeAndReadiness(t *testing.T) {
 	}
 }
 
-func TestCORSAndSecretFreeLogs(t *testing.T) {
+func TestRouterServesViewerWithoutMaskingUnknownAPIRoutes(t *testing.T) {
+	repository := &repositoryStub{}
+	viewerURL, _ := url.Parse("https://morsel.example/")
+	service := NewService(repository, share.TokenGenerator{}, viewerURL, 100, slog.Default())
+	viewerCalls := 0
+	router := NewRouter(service, RouterConfig{
+		APIKeys: []string{testAPIKey},
+		Viewer: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			viewerCalls++
+			_, _ = io.WriteString(w, "viewer")
+		}),
+		MaxRequestBody: 256, RequestTimeout: time.Second, Logger: slog.Default(),
+	})
+
+	response := request(t, router, http.MethodGet, "/", "", "")
+	if response.Code != http.StatusOK || response.Body.String() != "viewer" || viewerCalls != 1 {
+		t.Fatalf("viewer response=%d body=%q calls=%d", response.Code, response.Body.String(), viewerCalls)
+	}
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, path := range []string{"/v1", "/v1/unknown"} {
+			response = request(t, router, method, path, "", "")
+			if response.Code != http.StatusNotFound || response.Header().Get("Content-Type") != "application/json" || viewerCalls != 1 {
+				t.Fatalf("%s %s response=%d content-type=%q calls=%d", method, path, response.Code, response.Header().Get("Content-Type"), viewerCalls)
+			}
+			if method == http.MethodGet && !strings.Contains(response.Body.String(), "not_found") {
+				t.Fatalf("%s %s body=%q", method, path, response.Body.String())
+			}
+		}
+	}
+}
+
+func TestSecurityHeadersAndSecretFreeLogs(t *testing.T) {
 	token, _, _ := (share.TokenGenerator{Reader: bytes.NewReader(bytes.Repeat([]byte{7}, 32))}).Generate()
 	logs := &bytes.Buffer{}
 	repository := &repositoryStub{consumeError: errors.New("database unavailable")}
 	handler := testRouter(t, repository, nil, logs, 100)
 
-	req := httptest.NewRequest(http.MethodOptions, "/v1/shares", nil)
-	req.Header.Set("Origin", "https://viewer.example")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, req)
-	if response.Code != http.StatusNoContent || response.Header().Get("Access-Control-Allow-Origin") != "https://viewer.example" || response.Header().Get("Access-Control-Allow-Credentials") != "" {
-		t.Fatalf("allowed CORS headers=%v", response.Header())
+	response := request(t, handler, http.MethodGet, "/v1/shares/"+token, "", "Bearer "+testAPIKey)
+	for name, want := range map[string]string{
+		"Content-Security-Policy": telemetry.ContentSecurityPolicy,
+		"Referrer-Policy":         "no-referrer",
+		"X-Content-Type-Options":  "nosniff",
+	} {
+		if got := response.Header().Get(name); got != want {
+			t.Errorf("%s=%q, want %q", name, got, want)
+		}
 	}
-	req = httptest.NewRequest(http.MethodOptions, "/v1/shares", nil)
-	req.Header.Set("Origin", "https://evil.example")
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, req)
 	if response.Header().Get("Access-Control-Allow-Origin") != "" {
-		t.Fatal("unconfigured origin was allowed")
+		t.Fatal("cross-origin access was enabled")
 	}
-
-	response = request(t, handler, http.MethodGet, "/v1/shares/"+token, "", "Bearer "+testAPIKey)
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status=%d", response.Code)
 	}

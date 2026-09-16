@@ -9,13 +9,21 @@ const content = `# Browser smoke
 
 Inline $x^2$.
 
+\`\`\`go
+package main
+
+func main() {
+  println("hello")
+}
+\`\`\`
+
 \`\`\`mermaid
-graph TD
-  A --> B
+flowchart LR
+  Browser --> API
 \`\`\``
 
 test.beforeEach(async ({ page }) => {
-  await page.route(`http://127.0.0.1:8080/v1/shares/${token}`, async (route) => {
+  await page.route(`**/v1/shares/${token}`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -34,11 +42,17 @@ test("renders safely under the production CSP and uses one request", async ({ pa
   page.on("request", (request) => {
     if (request.url().includes(`/v1/shares/${token}`)) requests += 1
   })
-  await page.goto(`#/s/${token}`)
+  const response = await page.goto(`#/s/${token}`)
+  expect(response).not.toBeNull()
   await expect(page.getByRole("heading", { name: "Browser smoke" })).toBeVisible()
   await expect(page.getByRole("table")).toBeVisible()
   await expect(page.locator(".katex")).toBeVisible()
-  await expect(page.getByLabel("Mermaid diagram")).toBeVisible()
+  await expect(page.locator("pre code.hljs.language-go .hljs-keyword").first()).toContainText(
+    "package",
+  )
+  const diagram = page.getByLabel("Mermaid diagram")
+  await expect(diagram).toBeVisible()
+  await expect(diagram.locator("svg text")).toContainText(["Browser", "API"])
   expect(requests).toBe(1)
 
   const blocked = await page.evaluate(async () => {
@@ -50,11 +64,10 @@ test("renders safely under the production CSP and uses one request", async ({ pa
     }
   })
   expect(blocked).toBe(true)
-  const csp = await page
-    .locator('meta[http-equiv="Content-Security-Policy"]')
-    .getAttribute("content")
-  expect(csp).toContain("connect-src 'self' http://127.0.0.1:8080")
-  await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer")
+  const headers = response?.headers() ?? {}
+  expect(headers["content-security-policy"]).toContain("connect-src 'self'")
+  expect(headers["content-security-policy"]).not.toContain("127.0.0.1:8080")
+  expect(headers["referrer-policy"]).toBe("no-referrer")
 })
 
 test("supports keyboard navigation at desktop and narrow widths", async ({ page }) => {

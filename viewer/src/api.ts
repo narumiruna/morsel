@@ -31,7 +31,7 @@ const requests = new Map<string, Promise<Share>>()
 export function getShare(token: string): Promise<Share> {
   const existing = requests.get(token)
   if (existing) return existing
-  const pending = fetch(`${__MORSEL_API_BASE_URL__}/v1/shares/${encodeURIComponent(token)}`, {
+  const pending = fetch(`/v1/shares/${encodeURIComponent(token)}`, {
     method: "GET",
     headers: { Accept: "application/json" },
     cache: "no-store",

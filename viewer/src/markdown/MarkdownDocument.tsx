@@ -1,6 +1,7 @@
 import "katex/dist/katex.min.css"
 import { isValidElement } from "react"
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown"
+import rehypeHighlight from "rehype-highlight"
 import rehypeKatex from "rehype-katex"
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
 import remarkGfm from "remark-gfm"
@@ -58,7 +59,7 @@ const sanitizeSchema = {
       "style",
       "ariaHidden",
     ],
-    code: [...(defaultSchema.attributes?.code ?? []), ["className", /^language-[\w-]+$/]],
+    code: [["className", "hljs", /^language-[\w-]+$/]],
     input: ["type", "checked", "disabled"],
     math: ["xmlns", "display"],
     annotation: ["encoding"],
@@ -102,6 +103,7 @@ export function MarkdownDocument({ content }: { content: string }) {
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
           [rehypeKatex, { strict: "error", trust: false, throwOnError: false }],
+          [rehypeHighlight, { detect: false, plainText: ["mermaid"] }],
           [rehypeSanitize, sanitizeSchema],
         ]}
         urlTransform={safeURL}
