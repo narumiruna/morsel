@@ -218,7 +218,7 @@ Production has no separate viewer deployment or build-time API hostname. The roo
 
 #### Mermaid diagram controls
 
-Mermaid diagrams open at a readable size without upscaling. Use **Reset zoom** to return to that size or **Fit to screen** to display the entire diagram. Pan by dragging or using the arrow keys. Zoom with the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel. Press `0` to fit the diagram.
+Mermaid diagrams open fitted to the available space without upscaling. Use **Reset zoom** to restore a readable size, which may crop a large diagram, or **Fit to screen** to display the entire diagram. Pan by dragging or using the arrow keys. Zoom with the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel. Press `0` to fit the diagram.
 
 Fullscreen uses the browser API when available and an in-page fallback otherwise. Inline one-finger gestures continue scrolling the document. In fullscreen, one finger pans and two fingers pan and zoom. Escape closes fallback fullscreen and returns focus to the control that opened it.
 
@@ -293,4 +293,4 @@ compose.yaml  Local single-origin deployment
 
 ## License
 
-Morsel is available under the [`MIT License`](LICENSE).
+Morsel is available under the [GNU Affero General Public License version 3](LICENSE) (`AGPL-3.0`).
