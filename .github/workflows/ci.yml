@@ -1,4 +1,4 @@
-name: API
+name: CI
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
       - ".dockerignore"
       - "Dockerfile"
       - "compose.yaml"
-      - ".github/workflows/api.yml"
+      - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
@@ -19,13 +19,13 @@ on:
       - ".dockerignore"
       - "Dockerfile"
       - "compose.yaml"
-      - ".github/workflows/api.yml"
+      - ".github/workflows/ci.yml"
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  api:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -83,3 +83,29 @@ jobs:
           file: Dockerfile
           push: false
           tags: morsel:test
+
+  viewer:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: viewer-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+      - working-directory: viewer
+        run: npm ci
+      - working-directory: viewer
+        run: npm run ci
+      - name: Audit production dependencies
+        working-directory: viewer
+        run: npm audit --omit=dev
+      - name: Install Chromium
+        working-directory: viewer
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests
+        working-directory: viewer
+        run: npm run test:browser
