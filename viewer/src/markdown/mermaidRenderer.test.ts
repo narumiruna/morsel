@@ -56,4 +56,13 @@ describe("Mermaid renderer", () => {
     expect(sanitized).toContain("url(#arrow)")
     expect(sanitized).not.toMatch(/onload|script|foreignObject|https:\/\/evil/i)
   })
+
+  it("rejects CSS escapes that conceal external references", () => {
+    const sanitized = sanitizeMermaidSVG(
+      String.raw`<svg><style>.bad{fill:u\72l(https://attacker.invalid/style)}</style><text style="fill:u\72l(https://attacker.invalid/attribute)">safe</text><path marker-end="url(#arrow)" /></svg>`,
+    )
+    expect(sanitized).toContain("safe")
+    expect(sanitized).toContain("url(#arrow)")
+    expect(sanitized).not.toMatch(/attacker|\\72/i)
+  })
 })

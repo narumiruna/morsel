@@ -62,6 +62,14 @@ describe("diagram view", () => {
     expect(controller.getState()).toMatchObject({ cameraMode: "overview", scale: 0.1 })
     expect(controller.getState().scale).toBeLessThan(minDiagramScale)
     expect(viewport).toHaveAttribute("data-diagram-cropped", "false")
+
+    controller.zoomBy(0.8)
+    expect(controller.getState().scale).toBe(0.1)
+    expect(viewport).toHaveAttribute("data-diagram-cropped", "false")
+    controller.zoomBy(1.25)
+    expect(controller.getState().scale).toBe(0.125)
+    controller.zoomBy(0.8)
+    expect(controller.getState().scale).toBe(0.1)
     controller.destroy()
   })
 
