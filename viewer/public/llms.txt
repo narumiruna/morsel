@@ -20,4 +20,4 @@ Important usage notes:
 ## Optional
 
 - [Morsel source repository](https://github.com/narumiruna/morsel): Go API, React viewer, deployment configuration, tests, and issue history.
-- [MIT license](https://raw.githubusercontent.com/narumiruna/morsel/main/LICENSE): Terms for using and modifying Morsel.
+- [GNU Affero General Public License v3.0](https://raw.githubusercontent.com/narumiruna/morsel/main/LICENSE): AGPL-3.0 terms for using and modifying Morsel.
