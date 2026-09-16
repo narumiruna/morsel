@@ -49,8 +49,24 @@ else:
         name = name.strip()
         if not sep or name not in names:
             continue
+        # A hash starts a comment only outside quotes at a token boundary.
+        quoted = None
+        escaped = False
+        for index, char in enumerate(value):
+            if escaped:
+                escaped = False
+            elif char == "\\" and quoted != "'":
+                escaped = True
+            elif quoted:
+                if char == quoted:
+                    quoted = None
+            elif char in "\"'":
+                quoted = char
+            elif char == "#" and (index == 0 or value[index - 1].isspace()):
+                value = value[:index]
+                break
         try:
-            parts = shlex.split(value, comments=True)
+            parts = shlex.split(value, comments=False)
         except ValueError:
             fail(f"invalid dotenv quoting for {name}")
         if len(parts) > 1:
@@ -96,14 +112,14 @@ curl_config = "\n".join([
     "url = " + quote(url + "/v1/shares"),
     "header = " + quote("Authorization: Bearer " + key),
     'header = "Content-Type: application/json"',
-    "data-binary = " + quote(json.dumps(payload, ensure_ascii=True)),
+    "data-binary = " + quote(json.dumps(payload, ensure_ascii=False)),
 ])
 try:
     result = subprocess.run(
-        ["curl", "--disable", "--silent", "--show-error", "--fail-with-body",
+        ["curl", "--disable", "--globoff", "--silent", "--show-error", "--fail-with-body",
          "--connect-timeout", "10", "--max-time", "40", "--proto", "=http,https",
          "--write-out", "\n%{http_code}", "--config", "-"],
-        input=curl_config, text=True, capture_output=True,
+        input=curl_config, encoding="utf-8", errors="replace", capture_output=True,
     )
 except FileNotFoundError:
     fail("curl is required")
@@ -111,6 +127,13 @@ body, _, status = result.stdout.rpartition("\n")
 if status != "201" or result.returncode:
     # Do not echo intermediary bodies, which could contain credentials.
     safe_status = status if status.isdigit() and len(status) == 3 else "unknown"
+    diagnostic = result.stderr
+    for secret in sorted({key, config["MORSEL_API_KEY"], *config["MORSEL_API_KEY"].split(",")}, key=len, reverse=True):
+        if secret.strip():
+            diagnostic = diagnostic.replace(secret.strip(), "[REDACTED]")
+    diagnostic = "".join(c if c.isprintable() else " " for c in diagnostic)
+    if diagnostic.strip():
+        print("curl: " + diagnostic[:1024], file=sys.stderr)
     fail(f"creation not confirmed (HTTP {safe_status}, curl exit {result.returncode}); not retried; a share may exist if transmission occurred")
 try:
     response = json.loads(body)
