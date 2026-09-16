@@ -1,8 +1,94 @@
 # Morsel
 
-Morsel is a small, self-hosted, API-first Markdown sharing service. One Go service stores capability-protected shares in PostgreSQL and serves the static React viewer on the same origin. The viewer renders Markdown, GitHub Flavored Markdown, syntax-highlighted fenced code, KaTeX, and Mermaid without running authored HTML.
+Morsel is a small, self-hosted service for sharing Markdown through revocable capability URLs. One Go service exposes the API and serves the React viewer from the same origin; PostgreSQL is the only content store.
 
-## Architecture
+Morsel supports:
+
+- API-first share creation and revocation
+- optional expiration times and view limits
+- GitHub Flavored Markdown, syntax highlighting, KaTeX, and Mermaid
+- sanitized output with authored HTML disabled
+- a single production image with no Node.js runtime
+
+## Quick start
+
+Requirements: Docker with Compose and `openssl`.
+
+Generate local secrets, create `.env`, and start Morsel:
+
+```sh
+POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+MORSEL_API_KEY="$(openssl rand -hex 32)"
+umask 077
+cat > .env <<EOF
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+MORSEL_API_KEY=$MORSEL_API_KEY
+MORSEL_ENVIRONMENT=development
+MORSEL_URL=http://localhost:12647/
+MORSEL_PORT=12647
+EOF
+export MORSEL_API_KEY
+docker compose up --build -d
+docker compose ps
+curl --fail http://127.0.0.1:12647/readyz
+```
+
+Open <http://localhost:12647/> to verify that the viewer is running.
+
+The root [`compose.yaml`](compose.yaml) builds one Morsel image, waits for PostgreSQL, applies pending migrations, and starts the service as a non-root user. It binds Morsel to loopback by default. Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
+
+`.env` is ignored by Git and may contain runtime secrets. [`.env.example`](.env.example) contains no secrets.
+
+Stop the services without deleting data:
+
+```sh
+docker compose down
+```
+
+Delete the local database only when data loss is intentional:
+
+```sh
+docker compose down --volumes
+```
+
+## Use the API
+
+Create a share:
+
+```sh
+curl --fail-with-body \
+  -H "Authorization: Bearer $MORSEL_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"# Hello\n\n$x^2$","expires_in":3600,"max_views":3}' \
+  http://127.0.0.1:12647/v1/shares
+```
+
+The response includes:
+
+- `id`: the administrative UUID used to revoke the share
+- `share_url`: the reader-facing URL containing the raw capability token
+- creation, expiration, and view-limit metadata
+
+The raw capability appears only in `share_url`; Morsel stores its SHA-256 hash. Anyone with the URL can read the share and consume one view.
+
+Retrieve a share directly with the token after `#/s/`:
+
+```sh
+curl --fail-with-body \
+  http://127.0.0.1:12647/v1/shares/RAW_CAPABILITY_TOKEN
+```
+
+Revoke a share with its administrative UUID:
+
+```sh
+curl --fail-with-body -X DELETE \
+  -H "Authorization: Bearer $MORSEL_API_KEY" \
+  http://127.0.0.1:12647/v1/shares/SHARE_UUID
+```
+
+See [`api/openapi.yaml`](api/openapi.yaml) for the complete contract. Public error responses contain stable `code` and `message` fields.
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -11,8 +97,6 @@ flowchart LR
     Morsel --> DB[(PostgreSQL)]
     Morsel -->|hash-route share URL| Client
 ```
-
-A share is created and consumed through the following sequence:
 
 ```mermaid
 sequenceDiagram
@@ -26,112 +110,44 @@ sequenceDiagram
     Morsel->>Morsel: Generate capability and SHA-256 hash
     Morsel->>DB: Store Markdown and capability hash
     DB-->>Morsel: Share metadata
-    Morsel-->>Creator: 201 JSON with id and #/s/RAW_CAPABILITY_TOKEN share_url
+    Morsel-->>Creator: 201 JSON with id and #/s/RAW_CAPABILITY_TOKEN URL
     Creator-->>Reader: Send share URL
     Reader->>Viewer: Open share URL
-    Viewer->>Morsel: GET / (fragment stays in browser)
+    Viewer->>Morsel: GET / (fragment remains in browser)
     Morsel-->>Viewer: React viewer
     Viewer->>Morsel: GET /v1/shares/RAW_CAPABILITY_TOKEN
     Morsel->>Morsel: Hash capability token
     Morsel->>DB: Conditional UPDATE ... RETURNING
     DB-->>Morsel: Markdown and incremented view count
-    Morsel-->>Viewer: 200 JSON share containing Markdown (Cache-Control: no-store)
+    Morsel-->>Viewer: 200 share JSON (Cache-Control: no-store)
     Viewer->>Viewer: Sanitize and render Markdown
 ```
 
-The Go service serves `/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` from one domain. PostgreSQL is the only content store and correctness boundary. Morsel v1 has no Redis, object storage, queue, account system, separate static host, or Node.js runtime server.
+The service handles `/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Morsel v1 has no Redis, object storage, queue, account system, separate static host, or Node.js runtime server.
 
-## Clean start with Docker Compose
-
-Requirements: Docker with Compose and `openssl`.
-
-```sh
-POSTGRES_PASSWORD="$(openssl rand -hex 24)"
-API_KEY="$(openssl rand -hex 32)"
-cat > .env <<EOF
-POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-MORSEL_API_KEY=$API_KEY
-MORSEL_ENVIRONMENT=development
-MORSEL_URL=http://localhost:12647/
-MORSEL_PORT=12647
-EOF
-export MORSEL_API_KEY="$API_KEY"
-docker compose up --build -d
-docker compose ps
-curl --fail http://127.0.0.1:12647/readyz
-```
-
-Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
-
-The root [`compose.yaml`](compose.yaml) builds one Morsel image containing the Go binaries and production viewer, waits for PostgreSQL, runs all pending migrations once, and starts the non-root service. It binds Morsel only to loopback by default. `.env` is ignored by Git and contains production secrets; `.env.example` intentionally contains none.
-
-Stop services without deleting data:
-
-```sh
-docker compose down
-```
-
-Delete the local database only when data loss is intentional:
-
-```sh
-docker compose down --volumes
-```
-
-## API examples
-
-Set the API key from `.env` in the current shell without placing it in shell history where possible.
-
-Create a share:
-
-```sh
-curl --fail-with-body \
-  -H "Authorization: Bearer $MORSEL_API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"content":"# Hello\n\n$x^2$","expires_in":3600,"max_views":3}' \
-  http://127.0.0.1:12647/v1/shares
-```
-
-The response contains an administrative UUID and a `share_url`. The URL is the only place the raw capability token is returned. Morsel stores only its SHA-256 hash.
-
-Consume one view using the token after `#/s/`:
-
-```sh
-curl --fail-with-body http://127.0.0.1:12647/v1/shares/RAW_CAPABILITY_TOKEN
-```
-
-Revoke a share by administrative UUID:
-
-```sh
-curl --fail-with-body -X DELETE \
-  -H "Authorization: Bearer $MORSEL_API_KEY" \
-  http://127.0.0.1:12647/v1/shares/SHARE_UUID
-```
-
-The complete contract is [`api/openapi.yaml`](api/openapi.yaml). Public error bodies contain stable `code` and `message` fields.
-
-## View and availability semantics
+### View and availability semantics
 
 - Every successful `GET` consumes exactly one view, including refreshes, command-line requests, crawlers, previews, and bots.
-- Morsel does not identify people or deduplicate clients. `max_views` means successful retrievals, not unique human readers.
-- The final view is protected by one conditional PostgreSQL `UPDATE ... RETURNING`. Concurrent requests cannot exceed the configured limit.
-- Retrieval responses use `Cache-Control: no-store`. Proxies must not cache capability responses.
-- Unknown capabilities return `404`. Expired, revoked, and exhausted capabilities return `410` with distinct codes. This improves viewer messages but reveals the state of a capability to anyone who already possesses it.
-- Losing a raw capability is irreversible. Revoke the share and create a replacement.
+- Morsel does not identify people or deduplicate clients. `max_views` counts successful retrievals, not unique readers.
+- A conditional PostgreSQL `UPDATE ... RETURNING` protects the final view, so concurrent requests cannot exceed the configured limit.
+- Retrieval responses use `Cache-Control: no-store`; proxies must not cache them.
+- Unknown capabilities return `404`. Expired, revoked, and exhausted capabilities return `410` with distinct codes. This improves viewer messages but reveals the capability's state to anyone who already possesses it.
+- A lost raw capability cannot be recovered. Revoke the share and create a replacement.
 
 ## Configuration
 
-The API reads the following environment variables:
+The API reads these environment variables:
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
-| `MORSEL_API_KEY` or `MORSEL_API_KEY_FILE` | yes | — | Comma-separated keys or newline-delimited key file. Each key must have at least 32 characters. Both sources may be combined during rotation. |
-| `MORSEL_URL` | yes | — | Public single-origin URL used to construct `#/s/<token>` links. |
-| `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Directory containing the production viewer and `index.html`, relative to the usual `api/` working directory; the container sets this to `/srv/viewer`. |
-| `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS public URLs. |
+| `MORSEL_API_KEY` or `MORSEL_API_KEY_FILE` | yes | — | Comma-separated keys or a newline-delimited key file. Each key must contain at least 32 characters. Both sources may be combined during rotation. |
+| `MORSEL_URL` | yes | — | Public origin used to construct `#/s/<token>` links. Non-root paths, queries, fragments, and credentials are rejected. |
+| `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Production viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
+| `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require an HTTPS public URL. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
 | `MORSEL_MAX_DOCUMENT_BYTES` | no | `1048576` | UTF-8 Markdown byte limit. |
-| `MORSEL_MAX_REQUEST_BYTES` | no | `1114112` | Whole request body limit; must exceed the document limit. |
+| `MORSEL_MAX_REQUEST_BYTES` | no | `1114112` | Whole request-body limit; must exceed the document limit. |
 | `MORSEL_READ_HEADER_TIMEOUT` | no | `5s` | HTTP header timeout. |
 | `MORSEL_READ_TIMEOUT` | no | `15s` | HTTP request read timeout. |
 | `MORSEL_WRITE_TIMEOUT` | no | `30s` | HTTP response write timeout. |
@@ -140,9 +156,9 @@ The API reads the following environment variables:
 | `MORSEL_SHUTDOWN_TIMEOUT` | no | `10s` | Graceful shutdown deadline. |
 | `MORSEL_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error`. |
 
-Production startup rejects insecure public HTTP URLs, short API keys, empty viewer paths, and invalid limits or timeouts. Errors never echo configured secrets. Morsel does not enable cross-origin browser access; the bundled viewer calls the API on the same origin.
+Startup rejects insecure public URLs, short API keys, empty viewer paths, and invalid limits or timeouts. Errors never echo configured secrets. Morsel does not enable cross-origin browser access; the bundled viewer calls the API on the same origin.
 
-### API-key rotation
+### Rotate API keys
 
 1. Configure both the old and new keys, preferably with `MORSEL_API_KEY_FILE`.
 2. Restart the API and move all administrative clients to the new key.
@@ -150,9 +166,38 @@ Production startup rejects insecure public HTTP URLs, short API keys, empty view
 
 All configured keys are trusted administrators and may revoke any share.
 
-## Viewer development and production serving
+## Production deployment
 
-The viewer needs Node.js 24.15+ LTS (or 26+) and npm 11 only at build time. Its development server proxies same-origin `/v1/*` requests to the Go API on `127.0.0.1:12647`.
+Set `MORSEL_ENVIRONMENT=production`, set `MORSEL_URL` to the public HTTPS origin—for example, `https://morsel.example.com/`—and route that domain to port 12647 through an HTTPS reverse proxy.
+
+The reverse proxy must:
+
+- preserve `X-Request-ID` response headers
+- avoid logging authorization headers
+- never cache `/v1/shares/*`
+
+The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. Hash routing keeps the capability out of the initial document request; the viewer sends it only to the same-origin retrieval endpoint.
+
+### Backup, restore, and rollback
+
+PostgreSQL is authoritative. Define recovery point and recovery time objectives appropriate to the deployment.
+
+```sh
+pg_dump --format=custom --dbname="$MORSEL_DATABASE_URL" --file=morsel.dump
+createdb morsel_restored
+pg_restore --clean --if-exists --no-owner \
+  --dbname=morsel_restored morsel.dump
+```
+
+Back up before every schema change and test restores regularly. Roll back to a previous immutable image only when it supports the current schema; otherwise, roll forward with a corrective migration. Restore a database backup before accepting new writes, then reconcile shares created after the backup according to the recovery point objective.
+
+The Morsel image contains both the API and viewer. Roll them back together; hash-route share URLs remain stable.
+
+## Development
+
+### Viewer
+
+Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. The development server proxies `/v1/*` requests to the Go API at `127.0.0.1:12647`.
 
 ```sh
 cd viewer
@@ -160,7 +205,7 @@ npm ci
 npm run dev
 ```
 
-Build and test:
+Run the full viewer checks:
 
 ```sh
 cd viewer
@@ -169,27 +214,21 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Production has no separate viewer deployment and no build-time API hostname. The root Docker build runs Vite and copies `viewer/dist` into the Morsel image; the Go server then serves those files and `/v1/*` from the same origin.
+Production has no separate viewer deployment or build-time API hostname. The root Docker build runs Vite, copies `viewer/dist` into the image, and lets the Go service serve both the viewer and API.
 
-### Mermaid diagram controls
+#### Mermaid diagram controls
 
-Mermaid diagrams open fitted to the available space without upscaling. Use **Reset zoom** to restore the default readable size when a large diagram must be cropped, or **Fit to screen** to show the entire diagram. Drag with a mouse or use the arrow keys to pan; use the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel to zoom. Press `0` to fit the diagram to the screen.
+Mermaid diagrams open at a readable size without upscaling. Use **Reset zoom** to return to that size or **Fit to screen** to display the entire diagram. Pan by dragging or using the arrow keys. Zoom with the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel. Press `0` to fit the diagram.
 
-Fullscreen uses the browser API when available and an isolated in-page fallback otherwise. Inline one-finger gestures continue scrolling the document. In fullscreen, one finger pans and two fingers pan and zoom. Escape closes fallback fullscreen, and focus returns to the control that opened it.
+Fullscreen uses the browser API when available and an in-page fallback otherwise. Inline one-finger gestures continue scrolling the document. In fullscreen, one finger pans and two fingers pan and zoom. Escape closes fallback fullscreen and returns focus to the control that opened it.
 
-The toolbar can show or copy source, copy or download sanitized SVG, and create a local PNG. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearance while retaining the last successful SVG if a theme refresh fails.
+The toolbar can show or copy source, copy or download sanitized SVG, and create a local PNG. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearances while retaining the last successful SVG if a theme refresh fails.
 
-Diagrams near the viewport render on demand. Failed renders preserve their source and expose **Retry diagram**. Mermaid remains limited to 20 diagrams per document and 50 KiB of UTF-8 source per diagram; rendering remains sequential with `securityLevel: "strict"`, `htmlLabels: false`, and DOMPurify SVG sanitation.
+Diagrams near the viewport render on demand. Failed renders preserve their source and expose **Retry diagram**. Morsel allows up to 20 diagrams per document and 50 KiB of UTF-8 source per diagram. Rendering is sequential and uses Mermaid's `securityLevel: "strict"`, `htmlLabels: false`, and DOMPurify SVG sanitation.
 
-### Production domain and security headers
+### Backend
 
-Set `MORSEL_URL=https://morsel.narumi.dev/` and route that domain to port 12647 through an HTTPS reverse proxy. The Go server sends CSP, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff` as HTTP response headers. The CSP limits API connections to `'self'`.
-
-A reverse proxy must preserve `X-Request-ID` responses, avoid logging authorization headers, and never cache `/v1/shares/*`. Hash routing keeps the capability out of the initial document request; the viewer sends it only to the same-origin API retrieval endpoint.
-
-## Backend development
-
-Requirements: Go 1.26+, PostgreSQL 17, and Docker for integration tests.
+Requirements: Go 1.26.6+, PostgreSQL 17, and Docker for integration tests.
 
 ```sh
 cd api
@@ -199,20 +238,23 @@ go vet ./...
 go test ./...
 ```
 
-Run PostgreSQL integration and concurrency tests:
+Run the PostgreSQL integration and concurrency tests:
 
 ```sh
 docker run --rm -d --name morsel-test-postgres \
-  -e POSTGRES_DB=morsel_test -e POSTGRES_USER=morsel -e POSTGRES_PASSWORD=test-only-password \
+  -e POSTGRES_DB=morsel_test \
+  -e POSTGRES_USER=morsel \
+  -e POSTGRES_PASSWORD=test-only-password \
   -p 5432:5432 postgres:17.6-alpine3.22
 export MORSEL_TEST_DATABASE_URL='postgres://morsel:test-only-password@127.0.0.1:5432/morsel_test?sslmode=disable'
 cd api
 go test -race ./...
-go test -race -count=10 ./internal/share -run TestPostgresRepositoryConcurrentFinalViews
+go test -race -count=10 ./internal/share \
+  -run TestPostgresRepositoryConcurrentFinalViews
 docker stop morsel-test-postgres
 ```
 
-`go generate` uses the exact `oapi-codegen` tool version recorded in `go.mod`. Generated-code drift fails CI.
+`go generate` uses the exact `oapi-codegen` version recorded in `go.mod`. Generated-code drift fails CI.
 
 ### Migrations
 
@@ -224,44 +266,31 @@ MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction up
 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction down -steps 1
 ```
 
-The runner refuses dirty, unknown, or gapped migration histories. Run migrations before starting a newer API. Never automatically downgrade production.
-
-## Backup, restore, and rollback
-
-PostgreSQL is authoritative. Define recovery point and recovery time objectives appropriate to the deployment.
-
-```sh
-pg_dump --format=custom --dbname="$MORSEL_DATABASE_URL" --file=morsel.dump
-createdb morsel_restored
-pg_restore --clean --if-exists --no-owner --dbname="$RESTORE_DATABASE_URL" morsel.dump
-```
-
-Back up before every schema change and test restores regularly. A failed API release may roll back to the previous immutable image only when that image supports the current schema; otherwise roll forward with a corrective migration. Restore database backups before accepting new writes, then reconcile shares created after the backup according to the documented recovery point objective.
-
-The immutable Morsel image contains both the API and viewer. Roll both back together to a known-good image that supports the current schema; hash-route share URLs remain stable.
+The runner rejects dirty, unknown, or gapped migration histories. Apply migrations before starting a newer API. Never automatically downgrade production.
 
 ## Security model
 
 - Capability tokens contain 256 random bits, are base64url encoded, and are never stored raw.
 - Administrative API keys are hashed before constant-time comparison.
-- Request logs contain route templates rather than token-bearing paths and omit bodies and authorization headers.
+- Request logs use route templates instead of token-bearing paths and omit bodies and authorization headers.
 - Authored HTML is disabled. Markdown and KaTeX output pass through a reviewed sanitation schema.
-- KaTeX trust is disabled. Mermaid runs sequentially with `securityLevel: "strict"`, source/count limits, and DOMPurify SVG sanitation.
+- KaTeX trust is disabled. Mermaid renders sequentially with strict security, source and count limits, and DOMPurify SVG sanitation.
 - External links use `noopener noreferrer`; images use `Referrer-Policy: no-referrer` and lazy loading.
-- Production serves API and viewer from one HTTPS origin and does not enable browser CORS.
+- Production serves the API and viewer from one HTTPS origin and does not enable browser CORS.
 
-Morsel does not protect a share after its capability URL is disclosed. Revoke exposed shares and rotate exposed administrative keys.
+Morsel cannot protect a share after its capability URL is disclosed. Revoke exposed shares and rotate exposed administrative keys.
 
 ## Repository layout
 
 ```text
-api/       Go API, static-file serving, OpenAPI contract, and migrations
-viewer/    React viewer source and build-time tests
-.github/   GitHub Actions workflows (CI and deploy)
-Dockerfile    Root production image build
-compose.yaml  Root single-domain deployment
+api/          Go API, static-file serving, OpenAPI contract, and migrations
+viewer/       React viewer source and build-time tests
+docs/         Release validation and dependency review notes
+.github/      GitHub Actions workflows for CI and deployment
+Dockerfile    Production image build
+compose.yaml  Local single-origin deployment
 ```
 
 ## License
 
-See [`LICENSE`](LICENSE).
+Morsel is available under the [`MIT License`](LICENSE).
