@@ -60,24 +60,26 @@ Do not rely on authored HTML or JavaScript execution in the viewer.
 Serialize the Markdown with a JSON library so backslashes, quotes, newlines, and Unicode survive unchanged.
 Send `content` as a string, not a filename.
 
-## Create with curl
+## Create with the Python Script
 
-Use [scripts/create-share.sh](scripts/create-share.sh) to create a share from a UTF-8 Markdown file.
+Run `uv --version` before using the script.
+If uv is unavailable, read [Install uv](references/installation.md) and install it before continuing.
+Use [scripts/create-share.py](scripts/create-share.py) to create a share from a UTF-8 Markdown file.
 Resolve the script path relative to this skill directory, while keeping the working directory where the desired `.env` resides.
-The script requires Bash, uv, and curl 8.4 or newer so response-size limits also apply when the server omits Content-Length.
+Always execute the script with `uv run --no-config --script`; do not invoke it with Python or execute it directly.
+The script requires curl 8.4 or newer so response-size limits also apply when the server omits Content-Length.
 It limits response bodies to 64 KiB and bypasses proxies for permitted loopback HTTP requests.
 
 ```sh
-scripts/create-share.sh document.md
-scripts/create-share.sh --environment document.md
-scripts/create-share.sh --env-file /path/to/.env --expires-in 3600 --max-views 10 document.md
+uv run --no-config --script /absolute/path/to/morsel-share-markdown/scripts/create-share.py document.md
+uv run --no-config --script /absolute/path/to/morsel-share-markdown/scripts/create-share.py --environment document.md
+uv run --no-config --script /absolute/path/to/morsel-share-markdown/scripts/create-share.py --env-file /path/to/.env --expires-in 3600 --max-views 10 document.md
 ```
 
 It prints the creation JSON on success and exits nonzero without printing credentials on failure.
 The dotenv reader supports single-line unquoted or shell-quoted values and comments, without interpolation or command execution.
 
-Use actual `curl` for HTTP transport with its default User-Agent, not Python `urllib` or a browser impersonation header.
-Python may prepare configuration and JSON using `uv run --isolated --no-project --no-config python`, but should invoke `curl` for the request.
+The script uses actual `curl` for HTTP transport with its default User-Agent, not Python `urllib` or a browser impersonation header.
 Use trusted executables from the caller's PATH and do not activate checkout-provided virtual environments before reading credentials.
 A verified request using `curl` succeeded on this deployment where `Python-urllib/3.14` was blocked by Cloudflare BIC with error 1010.
 This observation does not guarantee every future curl request will pass.

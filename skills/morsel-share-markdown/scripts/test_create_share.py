@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 
-SCRIPT = Path(__file__).with_name("create-share.sh")
+SCRIPT = Path(__file__).with_name("create-share.py")
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -36,7 +36,10 @@ class ConfigurationTests(unittest.TestCase):
                 env.update(config)
                 env["PATH"] = str(root) + os.pathsep + env["PATH"]
                 result = subprocess.run(
-                    [str(SCRIPT.resolve()), *flags, "doc.md"],
+                    [
+                        "uv", "run", "--no-config", "--script",
+                        str(SCRIPT.resolve()), *flags, "doc.md",
+                    ],
                     cwd=root, env=env, capture_output=True, text=True, timeout=30,
                 )
                 recorded = root / "curl-input"

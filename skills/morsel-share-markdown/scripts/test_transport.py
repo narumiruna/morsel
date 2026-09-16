@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 
-SCRIPT = Path(__file__).with_name("create-share.sh").resolve()
+SCRIPT = Path(__file__).with_name("create-share.py").resolve()
 
 
 class TransportTests(unittest.TestCase):
@@ -51,8 +51,13 @@ class TransportTests(unittest.TestCase):
         (self.root / ".env").write_text(
             f"MORSEL_URL={self.url}{suffix}\nMORSEL_API_KEY={key_value or self.key}\n", encoding="utf-8"
         )
-        return subprocess.run([str(SCRIPT), "doc.md"], cwd=self.root, env=self.env,
-                              capture_output=True, encoding="utf-8", timeout=30)
+        return subprocess.run(
+            [
+                "uv", "run", "--no-config", "--script",
+                str(SCRIPT), "doc.md",
+            ],
+            cwd=self.root, env=self.env, capture_output=True, encoding="utf-8", timeout=30,
+        )
 
     def test_loopback_http_bypasses_proxy(self):
         proxy = http.server.HTTPServer(("127.0.0.1", 0), self.server.RequestHandlerClass)
