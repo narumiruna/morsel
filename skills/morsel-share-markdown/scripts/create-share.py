@@ -1,4 +1,3 @@
-#!/usr/bin/env -S uv run --no-config --script
 # /// script
 # requires-python = ">=3.9"
 # dependencies = []
