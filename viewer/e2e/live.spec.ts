@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 const live = process.env.MORSEL_E2E_LIVE === "1"
-const apiBase = "http://127.0.0.1:8080"
+const apiBase = "http://127.0.0.1:12647"
 const apiKey = process.env.MORSEL_E2E_API_KEY ?? ""
 
 interface CreatedShare {

@@ -128,7 +128,7 @@ func checkHealth() error {
 
 func healthcheckURL(address string) (string, error) {
 	if address == "" {
-		address = ":8080"
+		address = ":12647"
 	}
 	host, port, err := net.SplitHostPort(address)
 	if err != nil || port == "" || port == "0" {

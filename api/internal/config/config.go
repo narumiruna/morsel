@@ -32,7 +32,7 @@ type Config struct {
 func Load() (Config, error) {
 	cfg := Config{
 		Environment:       env("MORSEL_ENVIRONMENT", "development"),
-		Address:           env("MORSEL_ADDRESS", ":8080"),
+		Address:           env("MORSEL_ADDRESS", ":12647"),
 		DatabaseURL:       os.Getenv("MORSEL_DATABASE_URL"),
 		ViewerDir:         env("MORSEL_VIEWER_DIR", "../viewer/dist"),
 		MaxDocumentBytes:  1 << 20,

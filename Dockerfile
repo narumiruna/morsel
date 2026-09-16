@@ -22,6 +22,6 @@ COPY --from=api-build --chown=65532:65532 /out/migrate /usr/local/bin/migrate
 COPY --from=viewer-build --chown=65532:65532 /src/viewer/dist /srv/viewer
 ENV MORSEL_VIEWER_DIR=/srv/viewer
 USER 65532:65532
-EXPOSE 8080
+EXPOSE 12647
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 CMD ["/usr/local/bin/server", "-healthcheck"]
 ENTRYPOINT ["/usr/local/bin/server"]

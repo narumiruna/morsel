@@ -66,7 +66,7 @@ test("renders safely under the production CSP and uses one request", async ({ pa
   expect(blocked).toBe(true)
   const headers = response?.headers() ?? {}
   expect(headers["content-security-policy"]).toContain("connect-src 'self'")
-  expect(headers["content-security-policy"]).not.toContain("127.0.0.1:8080")
+  expect(headers["content-security-policy"]).not.toContain("127.0.0.1:12647")
   expect(headers["referrer-policy"]).toBe("no-referrer")
 })
 

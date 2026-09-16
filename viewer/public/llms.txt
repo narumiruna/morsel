@@ -1,0 +1,23 @@
+# Morsel
+
+> Morsel is a small, self-hosted, API-first service for creating capability-protected Markdown shares and rendering them in a same-origin web viewer.
+
+The public service is available at `https://morsel.narumi.dev/`. It supports GitHub Flavored Markdown, syntax-highlighted fenced code, KaTeX, and Mermaid. Authored HTML is not executed.
+
+Important usage notes:
+
+- Creating and revoking shares requires an administrative bearer API key.
+- Retrieving `GET /v1/shares/{capability}` consumes exactly one view. Do not retrieve, preview, crawl, or validate a share unless the user explicitly asks you to access it.
+- Treat API keys, raw capability tokens, and complete share URLs as secrets. Do not expose or log them.
+- A viewer URL uses `#/s/{capability}`. The browser sends the capability to the same-origin retrieval API; the URL fragment itself is not sent in the initial HTTP request.
+- Retrieval responses must not be cached. Expired, revoked, and exhausted shares are unavailable.
+
+## Documentation
+
+- [Morsel documentation](https://raw.githubusercontent.com/narumiruna/morsel/main/README.md): Setup, API examples, retrieval semantics, configuration, operations, and security model.
+- [Morsel OpenAPI contract](https://raw.githubusercontent.com/narumiruna/morsel/main/api/openapi.yaml): Complete request, response, authentication, schema, and error definitions for the HTTP API.
+
+## Optional
+
+- [Morsel source repository](https://github.com/narumiruna/morsel): Go API, React viewer, deployment configuration, tests, and issue history.
+- [MIT license](https://raw.githubusercontent.com/narumiruna/morsel/main/LICENSE): Terms for using and modifying Morsel.
