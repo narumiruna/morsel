@@ -142,7 +142,7 @@ The API reads these environment variables:
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
 | `MORSEL_API_KEY` or `MORSEL_API_KEY_FILE` | yes | — | Comma-separated keys or a newline-delimited key file. Each key must contain at least 32 characters. Both sources may be combined during rotation. |
-| `MORSEL_URL` | yes | — | Public origin used to construct `#/s/<token>` links. Paths, queries, fragments, and credentials are rejected. |
+| `MORSEL_URL` | yes | — | Public origin used to construct `#/s/<token>` links. Non-root paths, queries, fragments, and credentials are rejected. |
 | `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Production viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require an HTTPS public URL. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
@@ -186,7 +186,7 @@ PostgreSQL is authoritative. Define recovery point and recovery time objectives 
 pg_dump --format=custom --dbname="$MORSEL_DATABASE_URL" --file=morsel.dump
 createdb morsel_restored
 pg_restore --clean --if-exists --no-owner \
-  --dbname="$RESTORE_DATABASE_URL" morsel.dump
+  --dbname=morsel_restored morsel.dump
 ```
 
 Back up before every schema change and test restores regularly. Roll back to a previous immutable image only when it supports the current schema; otherwise, roll forward with a corrective migration. Restore a database backup before accepting new writes, then reconcile shares created after the backup according to the recovery point objective.
