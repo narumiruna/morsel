@@ -1,0 +1,31 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Start services
+        env:
+          MORSEL_POSTGRES_PASSWORD: ${{ secrets.MORSEL_POSTGRES_PASSWORD }}
+          MORSEL_API_KEY: ${{ secrets.MORSEL_API_KEY }}
+          MORSEL_ENVIRONMENT: ${{ secrets.MORSEL_ENVIRONMENT || 'production' }}
+          MORSEL_URL: ${{ secrets.MORSEL_URL }}
+          MORSEL_PORT: ${{ secrets.MORSEL_PORT || '12647' }}
+        run: |
+          : "${MORSEL_URL:?set MORSEL_URL secret}"
+          docker compose up --build --detach --wait --wait-timeout 120
