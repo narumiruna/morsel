@@ -128,14 +128,27 @@ class TransportTests(unittest.TestCase):
         self.assertLess(len(body), 1114112)
         self.assertEqual(json.loads(body)["content"], content)
 
-    def test_glob_characters_create_only_one_request(self):
-        for suffix in ("/{one,two}", "/[1-2]"):
+    def test_root_urls_create_only_one_request(self):
+        for suffix in ("", "/"):
             with self.subTest(suffix=suffix):
                 self.requests.clear()
                 result = self.run_script(suffix=suffix)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(len(self.requests), 1)
-                self.assertEqual(self.requests[0][0], suffix + "/v1/shares")
+                self.assertEqual(self.requests[0][0], "/v1/shares")
+
+    def test_non_origin_urls_are_rejected_before_transport(self):
+        fake = self.root / "curl"
+        fake.write_text("#!/bin/sh\ntouch curl-called\nexit 1\n")
+        fake.chmod(0o755)
+        self.env["PATH"] = str(self.root) + os.pathsep + self.env["PATH"]
+        for suffix in ("/api", "/api/", "//", "/{one,two}", "/[1-2]", "?query=1", "#fragment", "?", "#"):
+            with self.subTest(suffix=suffix):
+                result = self.run_script(suffix=suffix)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("HTTP(S) origin", result.stderr)
+                self.assertFalse((self.root / "curl-called").exists())
+                self.assertEqual(self.requests, [])
 
     def test_dotenv_hash_and_comments(self):
         for value, expected in (

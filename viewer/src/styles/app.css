@@ -291,14 +291,68 @@ summary {
   padding-block: 0.5rem;
 }
 
-.mermaid-diagram {
-  overflow-x: auto;
+.diagram-card {
   margin-block: 1.5rem;
-  padding: 1rem;
   border: 1px solid var(--gray-a5);
   border-radius: var(--radius-4);
-  background: white;
+  overflow: hidden;
+  background: var(--color-background);
+}
+
+.diagram-card:fullscreen {
+  overflow: auto;
+  padding: 1rem;
+}
+
+.diagram-controls {
+  margin: 0;
+  min-width: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--gray-a5);
+}
+
+.diagram-controls button {
+  min-height: 2.75rem;
+}
+
+.diagram-controls output {
+  min-width: 3rem;
   text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.diagram-viewport {
+  overflow: auto;
+  padding: 1rem;
+  background: white;
+}
+
+.mermaid-diagram {
+  margin-inline: auto;
+  text-align: center;
+}
+
+.mermaid-diagram svg {
+  width: 100%;
+  /* Mermaid sets an inline max-width; override it so zoom can enlarge the SVG. */
+  /* biome-ignore lint/complexity/noImportantStyles: Override Mermaid's generated inline sizing. */
+  max-width: none !important;
+}
+
+.diagram-card > pre {
+  margin: 0;
+  max-height: 32rem;
+  overflow: auto;
+}
+
+.diagram-status:not(:empty) {
+  padding: 0.5rem 0.75rem;
+  font-size: var(--font-size-1);
 }
 
 .diagram-loading {
