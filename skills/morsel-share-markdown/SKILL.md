@@ -64,7 +64,8 @@ Send `content` as a string, not a filename.
 
 Use [scripts/create-share.sh](scripts/create-share.sh) to create a share from a UTF-8 Markdown file.
 Resolve the script path relative to this skill directory, while keeping the working directory where the desired `.env` resides.
-The script requires Bash, uv, and curl.
+The script requires Bash, uv, and curl 8.4 or newer so response-size limits also apply when the server omits Content-Length.
+It limits response bodies to 64 KiB and bypasses proxies for permitted loopback HTTP requests.
 
 ```sh
 scripts/create-share.sh document.md

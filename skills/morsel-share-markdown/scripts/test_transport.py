@@ -27,8 +27,14 @@ class TransportTests(unittest.TestCase):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 requests.append((self.path, self.headers["Authorization"], body))
                 self.send_response(201 if len(body) <= 1114112 else 413)
+                response = getattr(self.server, "response", b'{"id":"test","share_url":"https://example.com/#/s/test"}')
+                if getattr(self.server, "send_length", False):
+                    self.send_header("Content-Length", str(len(response)))
                 self.end_headers()
-                self.wfile.write(b'{"id":"test","share_url":"https://example.com/#/s/test"}')
+                try:
+                    self.wfile.write(response)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
 
             def log_message(self, *args):
                 pass
@@ -47,6 +53,38 @@ class TransportTests(unittest.TestCase):
         )
         return subprocess.run([str(SCRIPT), "doc.md"], cwd=self.root, env=self.env,
                               capture_output=True, encoding="utf-8", timeout=30)
+
+    def test_loopback_http_bypasses_proxy(self):
+        proxy = http.server.HTTPServer(("127.0.0.1", 0), self.server.RequestHandlerClass)
+        self.addCleanup(proxy.server_close)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        self.addCleanup(proxy.shutdown)
+        self.env.update(http_proxy=f"http://127.0.0.1:{proxy.server_port}",
+                        ALL_PROXY=f"http://127.0.0.1:{proxy.server_port}",
+                        NO_PROXY="", no_proxy="")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # A proxy gets an absolute request target; the origin gets a path.
+        self.assertEqual([r[0] for r in self.requests], ["/v1/shares"])
+
+    def test_response_size_is_bounded(self):
+        self.server.response = json.dumps({"id": "test", "share_url": "https://example.com/#/s/test", "padding": "x" * 131072}).encode()
+        for send_length in (True, False):
+            with self.subTest(content_length=send_length):
+                self.server.send_length = send_length
+                result = self.run_script()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("curl exit 63", result.stderr)
+                self.assertEqual(result.stdout, "")
+
+    def test_empty_query_and_fragment_are_rejected(self):
+        for suffix in ("?", "#", "/?", "/#"):
+            with self.subTest(suffix=suffix):
+                self.requests.clear()
+                result = self.run_script(suffix=suffix)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("query, or fragment", result.stderr)
+                self.assertEqual(self.requests, [])
 
     def test_line_endings_are_preserved(self):
         content = "# Test\r\n```text\rfirst\r\nsecond\n```\r"
@@ -90,14 +128,27 @@ class TransportTests(unittest.TestCase):
         self.assertLess(len(body), 1114112)
         self.assertEqual(json.loads(body)["content"], content)
 
-    def test_glob_characters_create_only_one_request(self):
-        for suffix in ("/{one,two}", "/[1-2]"):
+    def test_root_urls_create_only_one_request(self):
+        for suffix in ("", "/"):
             with self.subTest(suffix=suffix):
                 self.requests.clear()
                 result = self.run_script(suffix=suffix)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(len(self.requests), 1)
-                self.assertEqual(self.requests[0][0], suffix + "/v1/shares")
+                self.assertEqual(self.requests[0][0], "/v1/shares")
+
+    def test_non_origin_urls_are_rejected_before_transport(self):
+        fake = self.root / "curl"
+        fake.write_text("#!/bin/sh\ntouch curl-called\nexit 1\n")
+        fake.chmod(0o755)
+        self.env["PATH"] = str(self.root) + os.pathsep + self.env["PATH"]
+        for suffix in ("/api", "/api/", "//", "/{one,two}", "/[1-2]", "?query=1", "#fragment", "?", "#"):
+            with self.subTest(suffix=suffix):
+                result = self.run_script(suffix=suffix)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("HTTP(S) origin", result.stderr)
+                self.assertFalse((self.root / "curl-called").exists())
+                self.assertEqual(self.requests, [])
 
     def test_dotenv_hash_and_comments(self):
         for value, expected in (

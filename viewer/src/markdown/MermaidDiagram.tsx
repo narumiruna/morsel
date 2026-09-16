@@ -3,6 +3,7 @@ import { Callout } from "@radix-ui/themes"
 import DOMPurify from "dompurify"
 import mermaid from "mermaid"
 import { useEffect, useState } from "react"
+import { DiagramViewer } from "./DiagramViewer"
 
 export const maxMermaidDiagrams = 20
 export const maxMermaidBytes = 50 * 1024
@@ -95,13 +96,5 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
   if (error) return <DiagramError message={error} source={source} />
   if (!svg)
     return <div className="diagram-loading" role="status" aria-label="Rendering Mermaid diagram" />
-  return (
-    <div
-      className="mermaid-diagram"
-      role="img"
-      aria-label="Mermaid diagram"
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: DOMPurify applies an SVG-only allowlist immediately before insertion.
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  )
+  return <DiagramViewer key={source} svg={svg} source={source} />
 }
