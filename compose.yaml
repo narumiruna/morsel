@@ -10,7 +10,7 @@ services:
     environment:
       POSTGRES_DB: morsel
       POSTGRES_USER: morsel
-      POSTGRES_PASSWORD: ${MORSEL_POSTGRES_PASSWORD:?set MORSEL_POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - morsel-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +25,7 @@ services:
     build: *morsel-build
     entrypoint: ["/usr/local/bin/migrate"]
     environment:
-      MORSEL_DATABASE_URL: postgres://morsel:${MORSEL_POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
+      MORSEL_DATABASE_URL: postgres://morsel:${POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,7 +36,7 @@ services:
     build: *morsel-build
     environment:
       MORSEL_ENVIRONMENT: ${MORSEL_ENVIRONMENT:-development}
-      MORSEL_DATABASE_URL: postgres://morsel:${MORSEL_POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
+      MORSEL_DATABASE_URL: postgres://morsel:${POSTGRES_PASSWORD}@postgres:5432/morsel?sslmode=disable
       MORSEL_API_KEY: ${MORSEL_API_KEY:?set MORSEL_API_KEY}
       MORSEL_URL: "${MORSEL_URL:-http://localhost:${MORSEL_PORT:-12647}/}"
     ports:
