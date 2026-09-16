@@ -218,9 +218,10 @@ Morsel does not protect a share after its capability URL is disclosed. Revoke ex
 ## Repository layout
 
 ```text
-api/       Go API, static-file serving, OpenAPI contract, migrations, and container
+api/       Go API, static-file serving, OpenAPI contract, and migrations
 viewer/    React viewer source and build-time tests
 .github/   API/container and viewer CI workflows
+Dockerfile    Root production image build
 compose.yaml  Root single-domain deployment
 ```
 
