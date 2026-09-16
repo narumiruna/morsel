@@ -4,25 +4,46 @@ import { DiagramViewer } from "./DiagramViewer"
 
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text>A</text></svg>'
 
+function renderViewer() {
+  return render(<DiagramViewer svg={svg} source="graph TD; A-->B" />)
+}
+
 describe("DiagramViewer", () => {
   const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard")
+  const fullscreenElement = Object.getOwnPropertyDescriptor(document, "fullscreenElement")
 
   afterEach(() => {
     if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard)
     else Reflect.deleteProperty(navigator, "clipboard")
+    if (fullscreenElement) Object.defineProperty(document, "fullscreenElement", fullscreenElement)
+    else Reflect.deleteProperty(document, "fullscreenElement")
     expect(Object.getOwnPropertyDescriptor(navigator, "clipboard")).toEqual(clipboard)
+    expect(Object.getOwnPropertyDescriptor(document, "fullscreenElement")).toEqual(
+      fullscreenElement,
+    )
   })
 
   it("keeps the initial status empty without whitespace nodes", () => {
-    const { container } = render(<DiagramViewer svg={svg} source="graph TD; A-->B" />)
+    const { container } = renderViewer()
     const status = container.querySelector(".diagram-status")
     expect(status?.childNodes).toHaveLength(0)
     expect(status?.matches(":empty")).toBe(true)
     expect(status?.matches(".diagram-status:not(:empty)")).toBe(false)
   })
   it("exposes actions without a menu and supports zoom and source toggling", () => {
-    render(<DiagramViewer svg={svg} source="graph TD; A-->B" />)
+    renderViewer()
     expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    const controls = [
+      "Zoom out",
+      "Zoom in",
+      "Reset zoom",
+      "Fullscreen",
+      "Show source",
+      "Copy source",
+      "Copy SVG",
+      "Download SVG",
+    ].map((name) => screen.getByRole("button", { name }))
+    expect(controls.every((control) => control.textContent === "")).toBe(true)
     expect(screen.getByRole("button", { name: "Download SVG" })).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
     expect(screen.getByLabelText("Current zoom")).toHaveTextContent("125%")
@@ -36,10 +57,25 @@ describe("DiagramViewer", () => {
     expect(screen.getByRole("img")).toBeVisible()
   })
 
+  it("mounts tooltips inside the fullscreen card", async () => {
+    const { container } = renderViewer()
+    const card = container.querySelector(".diagram-card")
+    expect(card).toBeInstanceOf(HTMLDivElement)
+    if (!(card instanceof HTMLDivElement)) return
+
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, value: card })
+    fireEvent(document, new Event("fullscreenchange"))
+    fireEvent.focus(screen.getByRole("button", { name: "Copy source" }))
+
+    const tooltip = await screen.findByRole("tooltip")
+    expect(tooltip).toHaveTextContent("Copy source")
+    expect(card).toContainElement(tooltip)
+  })
+
   it("copies source and reports clipboard failures", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
-    render(<DiagramViewer svg={svg} source="graph TD; A-->B" />)
+    renderViewer()
     fireEvent.click(screen.getByRole("button", { name: "Copy source" }))
     const status = await screen.findByText("Copied to clipboard.")
     expect(status).toBeVisible()

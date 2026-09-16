@@ -5,8 +5,13 @@ import type { ComponentProps, ReactNode } from "react"
 export function ActionButton({
   label,
   children,
+  tooltipContainer,
   ...props
-}: { label: string; children: ReactNode } & ComponentProps<typeof Button>) {
+}: {
+  label: string
+  children: ReactNode
+  tooltipContainer?: Element | DocumentFragment | null
+} & ComponentProps<typeof Button>) {
   return (
     <Tooltip.Root>
       <Tooltip.Trigger asChild>
@@ -14,7 +19,7 @@ export function ActionButton({
           {children}
         </Button>
       </Tooltip.Trigger>
-      <Tooltip.Portal>
+      <Tooltip.Portal container={tooltipContainer}>
         <Tooltip.Content className="tooltip" sideOffset={6}>
           {label}
           <Tooltip.Arrow className="tooltip-arrow" />
