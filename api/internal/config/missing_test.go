@@ -7,8 +7,6 @@ func TestLoadRejectsMissingRequiredValues(t *testing.T) {
 		"MORSEL_DATABASE_URL",
 		"MORSEL_API_KEYS",
 		"MORSEL_API_KEYS_FILE",
-		"MORSEL_ALLOWED_ORIGINS",
-		"MORSEL_ALLOWED_ORIGINS_FILE",
 		"MORSEL_PUBLIC_VIEWER_URL",
 	} {
 		t.Setenv(name, "")

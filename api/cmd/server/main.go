@@ -17,6 +17,7 @@ import (
 	morselapi "github.com/narumiruna/morsel/api/internal/api"
 	"github.com/narumiruna/morsel/api/internal/config"
 	"github.com/narumiruna/morsel/api/internal/share"
+	viewerfiles "github.com/narumiruna/morsel/api/internal/viewer"
 )
 
 func main() {
@@ -40,6 +41,11 @@ func run() int {
 		return 2
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	viewer, err := viewerfiles.New(cfg.ViewerDir)
+	if err != nil {
+		logger.Error("initialize viewer", "error", err)
+		return 1
+	}
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		logger.Error("invalid database configuration")
@@ -57,7 +63,7 @@ func run() int {
 	repository := share.NewPostgresRepository(pool)
 	handler := morselapi.NewService(repository, share.TokenGenerator{}, cfg.PublicViewerURL, cfg.MaxDocumentBytes, logger)
 	router := morselapi.NewRouter(handler, morselapi.RouterConfig{
-		APIKeys: cfg.APIKeys, AllowedOrigins: cfg.AllowedOrigins,
+		APIKeys: cfg.APIKeys, Viewer: viewer,
 		MaxRequestBody: cfg.MaxRequestBytes, RequestTimeout: cfg.RequestTimeout, Logger: logger,
 	})
 	server := &http.Server{

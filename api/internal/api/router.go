@@ -17,7 +17,7 @@ import (
 
 type RouterConfig struct {
 	APIKeys        []string
-	AllowedOrigins []string
+	Viewer         http.Handler
 	MaxRequestBody int64
 	RequestTimeout time.Duration
 	Logger         *slog.Logger
@@ -28,7 +28,7 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 	router.Use(telemetry.RequestLogger(cfg.Logger))
 	router.Use(telemetry.Recoverer(cfg.Logger))
 	router.Use(telemetry.Timeout(cfg.RequestTimeout))
-	router.Use(telemetry.CORS(cfg.AllowedOrigins))
+	router.Use(telemetry.SecurityHeaders)
 	router.Use(telemetry.BodyLimit(cfg.MaxRequestBody))
 	authenticator := auth.New(cfg.APIKeys)
 	router.Use(authenticator.Middleware(isProtected))
@@ -54,7 +54,11 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 		},
 	})
 	HandlerWithOptions(strict, ChiServerOptions{BaseRouter: router, ErrorHandlerFunc: writeRequestError})
-	router.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Viewer != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) && !strings.HasPrefix(r.URL.Path, "/v1/") {
+			cfg.Viewer.ServeHTTP(w, r)
+			return
+		}
 		writePublicError(w, http.StatusNotFound, ErrorCodeNotFound, "route not found")
 	})
 	router.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {

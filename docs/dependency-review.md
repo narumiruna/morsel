@@ -28,7 +28,7 @@ npm audit --omit=dev
 
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
   aquasec/trivy:0.69.3 image --skip-version-check --scanners vuln \
-  --severity HIGH,CRITICAL --exit-code 1 morsel-api:test
+  --severity HIGH,CRITICAL --exit-code 1 morsel:test
 # Debian packages, /usr/local/bin/migrate, and /usr/local/bin/server: 0 findings.
 ```
 

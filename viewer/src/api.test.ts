@@ -23,7 +23,7 @@ describe("getShare", () => {
     await expect(first).resolves.toMatchObject({ content: "hello" })
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith(
-      `${__MORSEL_API_BASE_URL__}/v1/shares/${token}`,
+      `/v1/shares/${token}`,
       expect.objectContaining({ cache: "no-store", credentials: "omit" }),
     )
   })

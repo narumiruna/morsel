@@ -6,12 +6,16 @@ on:
     branches: [main]
     paths:
       - "api/**"
+      - "viewer/**"
+      - ".dockerignore"
       - "compose.yaml"
       - ".github/workflows/api.yml"
   pull_request:
     branches: [main]
     paths:
       - "api/**"
+      - "viewer/**"
+      - ".dockerignore"
       - "compose.yaml"
       - ".github/workflows/api.yml"
 
@@ -70,9 +74,10 @@ jobs:
       - name: Repeat final-view concurrency test
         working-directory: api
         run: go test -race -count=10 ./internal/share -run TestPostgresRepositoryConcurrentFinalViews
-      - name: Build API image
+      - name: Build Morsel image
         uses: docker/build-push-action@v6
         with:
-          context: api
+          context: .
+          file: api/Dockerfile
           push: false
-          tags: morsel-api:test
+          tags: morsel:test
