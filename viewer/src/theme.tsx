@@ -1,9 +1,15 @@
 import { Select, Theme } from "@radix-ui/themes"
-import { type ReactNode, useEffect, useState } from "react"
+import { createContext, type ReactNode, useContext, useEffect, useState } from "react"
 
 export type ThemeMode = "system" | "light" | "dark"
+export type Appearance = "light" | "dark"
 
 const storageKey = "morsel-theme"
+const AppearanceContext = createContext<Appearance>("light")
+
+export function useAppearance(): Appearance {
+  return useContext(AppearanceContext)
+}
 
 function initialMode(): ThemeMode {
   try {
@@ -37,21 +43,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Theme appearance={appearance} accentColor="orange" grayColor="sand" radius="medium">
-      <div data-theme-mode={mode} data-appearance={appearance}>
-        <div className="theme-control">
-          <span>Theme</span>
-          <Select.Root value={mode} onValueChange={updateMode}>
-            <Select.Trigger aria-label="Theme" />
-            <Select.Content>
-              <Select.Item value="system">System</Select.Item>
-              <Select.Item value="light">Light</Select.Item>
-              <Select.Item value="dark">Dark</Select.Item>
-            </Select.Content>
-          </Select.Root>
+    <AppearanceContext.Provider value={appearance}>
+      <Theme appearance={appearance} accentColor="orange" grayColor="sand" radius="medium">
+        <div data-theme-mode={mode} data-appearance={appearance}>
+          <div className="theme-control">
+            <span>Theme</span>
+            <Select.Root value={mode} onValueChange={updateMode}>
+              <Select.Trigger aria-label="Theme" />
+              <Select.Content>
+                <Select.Item value="system">System</Select.Item>
+                <Select.Item value="light">Light</Select.Item>
+                <Select.Item value="dark">Dark</Select.Item>
+              </Select.Content>
+            </Select.Root>
+          </div>
+          {children}
         </div>
-        {children}
-      </div>
-    </Theme>
+      </Theme>
+    </AppearanceContext.Provider>
   )
 }

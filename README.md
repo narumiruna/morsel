@@ -171,6 +171,16 @@ npm run test:browser
 
 Production has no separate viewer deployment and no build-time API hostname. The root Docker build runs Vite and copies `viewer/dist` into the Morsel image; the Go server then serves those files and `/v1/*` from the same origin.
 
+### Mermaid diagram controls
+
+Mermaid diagrams open in **Overview**, fitted without upscaling. Use **Use readable view** to restore legible label sizing when a large diagram must be cropped. Drag with a mouse or use the arrow keys to pan; use the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel to zoom. Press `0` to return to Overview. Reset returns to Readable View.
+
+Fullscreen uses the browser API when available and an isolated in-page fallback otherwise. Inline one-finger gestures continue scrolling the document. In fullscreen, one finger pans and two fingers pan and zoom. Escape closes fallback fullscreen, and focus returns to the control that opened it.
+
+The toolbar can show or copy source, copy or download sanitized SVG, and create a local PNG. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearance while retaining the last successful SVG if a theme refresh fails.
+
+Diagrams near the viewport render on demand. Failed renders preserve their source and expose **Retry diagram**. Mermaid remains limited to 20 diagrams per document and 50 KiB of UTF-8 source per diagram; rendering remains sequential with `securityLevel: "strict"`, `htmlLabels: false`, and DOMPurify SVG sanitation.
+
 ### Production domain and security headers
 
 Set `MORSEL_URL=https://morsel.narumi.dev/` and route that domain to port 12647 through an HTTPS reverse proxy. The Go server sends CSP, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff` as HTTP response headers. The CSP limits API connections to `'self'`.
