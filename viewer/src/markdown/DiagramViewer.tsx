@@ -1,12 +1,12 @@
 import {
   CodeIcon,
   CopyIcon,
-  CornersIcon,
   DownloadIcon,
   EnterFullScreenIcon,
   ExitFullScreenIcon,
   EyeOpenIcon,
   ImageIcon,
+  MagnifyingGlassIcon,
   MinusIcon,
   PlusIcon,
   ReloadIcon,
@@ -303,7 +303,7 @@ export function DiagramViewer({
             disabled={showSource}
             onClick={() => controller.current?.setCameraMode("overview")}
           >
-            <CornersIcon />
+            <MagnifyingGlassIcon />
           </ActionButton>
           <ActionButton
             className="diagram-control"
