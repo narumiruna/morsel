@@ -21,7 +21,7 @@ jobs:
           persist-credentials: false
       - name: Start services
         env:
-          MORSEL_POSTGRES_PASSWORD: ${{ secrets.MORSEL_POSTGRES_PASSWORD }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           MORSEL_API_KEY: ${{ secrets.MORSEL_API_KEY }}
           MORSEL_ENVIRONMENT: ${{ secrets.MORSEL_ENVIRONMENT || 'production' }}
           MORSEL_URL: ${{ secrets.MORSEL_URL }}

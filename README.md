@@ -49,7 +49,7 @@ Requirements: Docker with Compose and `openssl`.
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 API_KEY="$(openssl rand -hex 32)"
 cat > .env <<EOF
-MORSEL_POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 MORSEL_API_KEY=$API_KEY
 MORSEL_ENVIRONMENT=development
 MORSEL_URL=http://localhost:12647/
