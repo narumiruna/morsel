@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Python handles data only; curl performs the HTTP request.
-exec uv run --no-project python - "$@" <<'PY'
+exec uv run --isolated --no-project --no-config python - "$@" <<'PY'
 import argparse
 import json
 import os
@@ -93,10 +93,12 @@ except ValueError:
     valid = False
 if not valid:
     fail("MORSEL_URL must be an HTTP(S) origin without credentials, path, query, or fragment")
+if parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+    fail("MORSEL_URL must use HTTPS except for localhost, 127.0.0.1, or ::1")
 url = url.rstrip("/")
 
 try:
-    content = args.markdown.read_text(encoding="utf-8")
+    content = args.markdown.read_bytes().decode("utf-8")
 except (OSError, UnicodeError):
     fail("cannot read UTF-8 Markdown file")
 payload = {"content": content}
@@ -120,6 +122,8 @@ try:
     result = subprocess.run(
         ["curl", "--disable", "--globoff", "--silent", "--show-error", "--fail-with-body",
          "--connect-timeout", "10", "--max-time", "40", "--proto", "=http,https",
+         "--max-filesize", "65536",
+         *(["--noproxy", "*"] if parsed.scheme == "http" else []),
          "--write-out", "\n%{http_code}", "--config", "-"],
         input=curl_config, encoding="utf-8", errors="replace", capture_output=True,
     )

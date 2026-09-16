@@ -27,8 +27,14 @@ class TransportTests(unittest.TestCase):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 requests.append((self.path, self.headers["Authorization"], body))
                 self.send_response(201 if len(body) <= 1114112 else 413)
+                response = getattr(self.server, "response", b'{"id":"test","share_url":"https://example.com/#/s/test"}')
+                if getattr(self.server, "send_length", False):
+                    self.send_header("Content-Length", str(len(response)))
                 self.end_headers()
-                self.wfile.write(b'{"id":"test","share_url":"https://example.com/#/s/test"}')
+                try:
+                    self.wfile.write(response)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
 
             def log_message(self, *args):
                 pass
@@ -47,6 +53,71 @@ class TransportTests(unittest.TestCase):
         )
         return subprocess.run([str(SCRIPT), "doc.md"], cwd=self.root, env=self.env,
                               capture_output=True, encoding="utf-8", timeout=30)
+
+    def test_loopback_http_bypasses_proxy(self):
+        proxy = http.server.HTTPServer(("127.0.0.1", 0), self.server.RequestHandlerClass)
+        self.addCleanup(proxy.server_close)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        self.addCleanup(proxy.shutdown)
+        self.env.update(http_proxy=f"http://127.0.0.1:{proxy.server_port}",
+                        ALL_PROXY=f"http://127.0.0.1:{proxy.server_port}",
+                        NO_PROXY="", no_proxy="")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # A proxy gets an absolute request target; the origin gets a path.
+        self.assertEqual([r[0] for r in self.requests], ["/v1/shares"])
+
+    def test_response_size_is_bounded(self):
+        self.server.response = json.dumps({"id": "test", "share_url": "https://example.com/#/s/test", "padding": "x" * 131072}).encode()
+        for send_length in (True, False):
+            with self.subTest(content_length=send_length):
+                self.server.send_length = send_length
+                result = self.run_script()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("curl exit 63", result.stderr)
+                self.assertEqual(result.stdout, "")
+
+    def test_empty_query_and_fragment_are_rejected(self):
+        for suffix in ("?", "#", "/?", "/#"):
+            with self.subTest(suffix=suffix):
+                self.requests.clear()
+                result = self.run_script(suffix=suffix)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("query, or fragment", result.stderr)
+                self.assertEqual(self.requests, [])
+
+    def test_line_endings_are_preserved(self):
+        content = "# Test\r\n```text\rfirst\r\nsecond\n```\r"
+        result = self.run_script(content)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.requests[0][2])["content"], content)
+
+    def test_checkout_virtualenv_is_not_used(self):
+        # Build a harmless environment whose curl records whether it was selected.
+        self.env.pop("VIRTUAL_ENV", None)
+        venv = self.root / ".venv"
+        subprocess.run(["uv", "venv", "--no-config", str(venv)], check=True,
+                       capture_output=True, env=self.env, timeout=30)
+        fake = venv / "bin" / "curl"
+        fake.write_text("#!/bin/sh\ncat > stolen-config\nexit 99\n")
+        fake.chmod(0o755)
+        result = self.run_script()
+        self.assertFalse((self.root / "stolen-config").exists())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.requests), 1)
+
+    def test_nonlocal_http_is_rejected_before_curl(self):
+        fake = self.root / "curl"
+        fake.write_text("#!/bin/sh\ncat > unexpected-config\nexit 99\n")
+        fake.chmod(0o755)
+        self.env["PATH"] = str(self.root) + os.pathsep + self.env["PATH"]
+        for host in ("example.com", "192.0.2.1", "localhost.example.com"):
+            with self.subTest(host=host):
+                self.url = "http://" + host
+                result = self.run_script()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("HTTPS", result.stderr)
+                self.assertFalse((self.root / "unexpected-config").exists())
 
     def test_unicode_document_fits_request_limit(self):
         content = "中" * 300000
