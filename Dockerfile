@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.12
-FROM node:24.15.0-alpine3.23 AS viewer-build
+FROM node:26.8-alpine3.23 AS viewer-build
 WORKDIR /src/viewer
 COPY viewer/package.json viewer/package-lock.json ./
 RUN npm ci
