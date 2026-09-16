@@ -26,16 +26,16 @@ sequenceDiagram
     Morsel->>Morsel: Generate capability and SHA-256 hash
     Morsel->>DB: Store Markdown and capability hash
     DB-->>Morsel: Share metadata
-    Morsel-->>Creator: 201 UUID and #/s/&lt;raw-token&gt;
+    Morsel-->>Creator: 201 JSON with id and #/s/RAW_CAPABILITY_TOKEN share_url
     Creator-->>Reader: Send share URL
     Reader->>Viewer: Open share URL
     Viewer->>Morsel: GET / (fragment stays in browser)
     Morsel-->>Viewer: React viewer
-    Viewer->>Morsel: GET /v1/shares/&lt;raw-token&gt;
+    Viewer->>Morsel: GET /v1/shares/RAW_CAPABILITY_TOKEN
     Morsel->>Morsel: Hash capability token
     Morsel->>DB: Conditional UPDATE ... RETURNING
     DB-->>Morsel: Markdown and incremented view count
-    Morsel-->>Viewer: 200 Markdown (Cache-Control: no-store)
+    Morsel-->>Viewer: 200 JSON share containing Markdown (Cache-Control: no-store)
     Viewer->>Viewer: Sanitize and render Markdown
 ```
 
