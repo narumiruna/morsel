@@ -4,22 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "api/**"
-      - "viewer/**"
-      - ".dockerignore"
-      - "Dockerfile"
-      - "compose.yaml"
-      - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "api/**"
-      - "viewer/**"
-      - ".dockerignore"
-      - "Dockerfile"
-      - "compose.yaml"
-      - ".github/workflows/ci.yml"
 
 permissions:
   contents: read
