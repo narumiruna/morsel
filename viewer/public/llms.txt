@@ -7,7 +7,7 @@ The public service is available at `https://morsel.narumi.dev/`. It supports Git
 Important usage notes:
 
 - Creating and revoking shares requires an administrative bearer API key.
-- Retrieving `GET /v1/shares/{capability}` consumes exactly one view. Do not retrieve, preview, crawl, or validate a share unless the user explicitly asks you to access it.
+- Every successful `GET /v1/shares/{share}` consumes exactly one view. Do not retrieve, preview, crawl, or validate a share unless the user explicitly asks you to access it.
 - Treat API keys, raw capability tokens, and complete share URLs as secrets. Do not expose or log them.
 - A viewer URL uses `#/s/{capability}`. The browser sends the capability to the same-origin retrieval API; the URL fragment itself is not sent in the initial HTTP request.
 - Retrieval responses must not be cached. Expired, revoked, and exhausted shares are unavailable.
