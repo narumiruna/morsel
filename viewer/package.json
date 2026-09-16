@@ -1,0 +1,56 @@
+{
+  "name": "@morsel/viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:browser": "playwright test",
+    "openapi:lint": "redocly lint --config ../api/redocly.yaml ../api/openapi.yaml",
+    "ci": "npm run openapi:lint && npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@radix-ui/react-tooltip": "1.2.8",
+    "@radix-ui/themes": "3.3.0",
+    "@radix-ui/colors": "3.0.0",
+    "@radix-ui/react-icons": "1.3.2",
+    "dompurify": "3.4.15",
+    "katex": "0.16.22",
+    "mermaid": "11.17.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "rehype-katex": "7.0.1",
+    "rehype-sanitize": "6.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@playwright/test": "1.63.0",
+    "@redocly/cli": "2.53.2",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/dompurify": "3.0.5",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.1.1",
+    "axe-core": "4.11.0",
+    "jsdom": "27.2.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "vitest": "5.0.1"
+  }
+}
