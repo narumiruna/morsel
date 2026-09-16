@@ -17,7 +17,7 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
 }
 
 function hasUnsafeCssReference(value: string): boolean {
-  if (/@import/i.test(value)) return true
+  if (value.includes("\\") || /@import/i.test(value)) return true
   for (const match of value.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/gi)) {
     if (!match[1]?.trim().startsWith("#")) return true
   }

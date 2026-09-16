@@ -89,6 +89,7 @@ export function createDiagramView(
         world: DiagramPoint
       }
     | undefined
+  let minimumScale = minDiagramScale
   let resizeFrame = 0
   let previousWidth = 0
   let previousHeight = 0
@@ -190,6 +191,7 @@ export function createDiagramView(
     )
     const limited = expanded() ? fit : Math.min(1, fit)
     state.scale = Math.min(positive(limited, 1), maxDiagramScale)
+    minimumScale = Math.min(minDiagramScale, state.scale)
     state.cameraMode = "overview"
     state.userModified = false
     apply()
@@ -207,6 +209,7 @@ export function createDiagramView(
       minDiagramScale,
       maxDiagramScale,
     )
+    minimumScale = minDiagramScale
     state.x = inset.left
     state.y = inset.top
     state.cameraMode = "readable"
@@ -222,7 +225,7 @@ export function createDiagramView(
       x: (point.x - state.x) / state.scale,
       y: (point.y - state.y) / state.scale,
     }
-    state.scale = clamp(next, minDiagramScale, maxDiagramScale)
+    state.scale = clamp(next, minimumScale, maxDiagramScale)
     state.x = point.x - world.x * state.scale
     state.y = point.y - world.y * state.scale
     state.userModified = true
