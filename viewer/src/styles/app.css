@@ -158,6 +158,7 @@ summary {
   --syntax-title: #8250df;
   --syntax-variable: #953800;
   --syntax-meta: #0550ae;
+  --diagram-panel: #fff;
 }
 
 [data-appearance="dark"] {
@@ -167,6 +168,7 @@ summary {
   --syntax-title: #d2a8ff;
   --syntax-variable: #ffa657;
   --syntax-meta: #79c0ff;
+  --diagram-panel: #111113;
 }
 
 .markdown-document code,
@@ -296,24 +298,36 @@ summary {
   border: 1px solid var(--gray-a5);
   border-radius: var(--radius-4);
   overflow: hidden;
-  background: var(--color-background);
+  background: var(--diagram-panel, var(--color-background));
 }
 
-.diagram-card:fullscreen {
-  overflow: auto;
-  padding: 1rem;
+.diagram-card:fullscreen,
+.diagram-card.diagram-expanded {
+  position: fixed;
+  z-index: 2147483647;
+  inset: 0;
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--diagram-panel, var(--color-background));
 }
 
 .diagram-controls {
-  margin: 0;
-  min-width: 0;
-  border: 0;
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem;
+  min-width: 0;
+  margin: 0;
+  border: 0;
   border-bottom: 1px solid var(--gray-a5);
+  padding: 0.75rem;
 }
 
 .diagram-controls button {
@@ -332,30 +346,64 @@ summary {
 }
 
 .diagram-viewport {
-  overflow: auto;
+  position: relative;
+  min-height: 10rem;
+  max-height: 75vh;
+  overflow: hidden;
   padding: 1rem;
-  background: white;
+  background: var(--diagram-panel, var(--color-background));
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.diagram-viewport:active {
+  cursor: grabbing;
+}
+
+.diagram-card:fullscreen .diagram-viewport,
+.diagram-card.diagram-expanded .diagram-viewport {
+  max-height: none;
+  height: auto;
+  flex: 1;
+  touch-action: none;
 }
 
 .mermaid-diagram {
-  margin-inline: auto;
-  text-align: center;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .mermaid-diagram svg {
-  width: 100%;
-  /* Mermaid sets an inline max-width; override it so zoom can enlarge the SVG. */
+  display: block;
+  /* biome-ignore lint/complexity/noImportantStyles: Override Mermaid's generated inline sizing. */
+  width: 100% !important;
   /* biome-ignore lint/complexity/noImportantStyles: Override Mermaid's generated inline sizing. */
   max-width: none !important;
+  /* biome-ignore lint/complexity/noImportantStyles: Override Mermaid's generated inline sizing. */
+  height: 100% !important;
+  overflow: visible;
+}
+
+.diagram-pan-hint {
+  margin: 0;
+  border-top: 1px solid var(--gray-a5);
+  padding: 0.5rem 0.75rem;
+  color: var(--gray-11);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: var(--font-size-1);
 }
 
 .diagram-card > pre {
   margin: 0;
-  max-height: 32rem;
+  max-height: 60vh;
   overflow: auto;
 }
 
 .diagram-status:not(:empty) {
+  border-top: 1px solid var(--gray-a5);
   padding: 0.5rem 0.75rem;
   font-size: var(--font-size-1);
 }

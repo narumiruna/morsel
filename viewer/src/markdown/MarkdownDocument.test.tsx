@@ -1,5 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ThemeProvider } from "../theme"
 import { MarkdownDocument } from "./MarkdownDocument"
 
 const mermaidMock = vi.hoisted(() => ({
@@ -119,6 +121,117 @@ alert("escaped")
     expect(renderDiagram).toHaveBeenCalledOnce()
     expect(container.querySelector("svg text")).toHaveTextContent("Browser")
     expect(container.innerHTML).not.toMatch(/onload|script|foreignObject/i)
+  })
+
+  it("defers offscreen Mermaid work until the preload observer intersects", async () => {
+    let intersect: ((entries: Array<{ isIntersecting: boolean }>) => void) | undefined
+    const disconnect = vi.fn()
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
+          intersect = callback
+        }
+        observe() {}
+        disconnect() {
+          disconnect()
+        }
+      },
+    )
+    render(<MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />)
+    expect(screen.getByLabelText("Waiting to render Mermaid diagram")).toBeVisible()
+    expect(renderDiagram).not.toHaveBeenCalled()
+    act(() => intersect?.([{ isIntersecting: true }]))
+    await screen.findByLabelText("Mermaid diagram")
+    expect(renderDiagram).toHaveBeenCalledOnce()
+    expect(disconnect).toHaveBeenCalled()
+  })
+
+  it("retries an invalid diagram while preserving its source", async () => {
+    renderDiagram
+      .mockRejectedValueOnce(new Error("bad diagram"))
+      .mockResolvedValueOnce({ svg: '<svg viewBox="0 0 10 10"><text>Recovered</text></svg>' })
+    render(<MarkdownDocument content={"```mermaid\ngraph TD; Broken-->\n```"} />)
+    expect(await screen.findByText("This Mermaid diagram could not be rendered.")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Retry diagram" }))
+    expect(await screen.findByText("Recovered")).toBeVisible()
+    expect(renderDiagram).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps the previous SVG visible until a theme refresh succeeds", async () => {
+    let finishDark: ((value: { svg: string }) => void) | undefined
+    renderDiagram
+      .mockResolvedValueOnce({ svg: '<svg viewBox="0 0 10 10"><text>Light</text></svg>' })
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ svg: string }>((resolve) => {
+            finishDark = resolve
+          }),
+      )
+    localStorage.setItem("morsel-theme", "light")
+    render(
+      <ThemeProvider>
+        <MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />
+      </ThemeProvider>,
+    )
+    expect(await screen.findByText("Light")).toBeVisible()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("combobox", { name: "Theme" }))
+    await user.click(screen.getByRole("option", { name: "Dark" }))
+    await screen.findByText("Refreshing diagram theme…")
+    expect(screen.getByText("Light")).toBeVisible()
+    act(() => finishDark?.({ svg: '<svg viewBox="0 0 10 10"><text>Dark</text></svg>' }))
+    expect(await screen.findByText("Dark")).toBeVisible()
+    expect(mermaidMock.configuration).toMatchObject({ theme: "dark" })
+  })
+
+  it("retains the previous SVG and retries a failed theme refresh", async () => {
+    renderDiagram
+      .mockResolvedValueOnce({ svg: '<svg viewBox="0 0 10 10"><text>Original</text></svg>' })
+      .mockRejectedValueOnce(new Error("theme failed"))
+      .mockResolvedValueOnce({ svg: '<svg viewBox="0 0 10 10"><text>Retried</text></svg>' })
+    localStorage.setItem("morsel-theme", "light")
+    render(
+      <ThemeProvider>
+        <MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />
+      </ThemeProvider>,
+    )
+    expect(await screen.findByText("Original")).toBeVisible()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("combobox", { name: "Theme" }))
+    await user.click(screen.getByRole("option", { name: "Dark" }))
+    expect(await screen.findByText("This Mermaid diagram could not be rendered.")).toBeVisible()
+    expect(screen.getByText("Original")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Retry diagram" }))
+    expect(await screen.findByText("Retried")).toBeVisible()
+  })
+
+  it("discards a stale render after the source changes", async () => {
+    let finishOld: ((value: { svg: string }) => void) | undefined
+    let finishNew: ((value: { svg: string }) => void) | undefined
+    renderDiagram
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ svg: string }>((resolve) => {
+            finishOld = resolve
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ svg: string }>((resolve) => {
+            finishNew = resolve
+          }),
+      )
+    const { rerender } = render(
+      <MarkdownDocument content={"```mermaid\ngraph TD; Old-->Result\n```"} />,
+    )
+    await waitFor(() => expect(renderDiagram).toHaveBeenCalledOnce())
+    rerender(<MarkdownDocument content={"```mermaid\ngraph TD; New-->Result\n```"} />)
+    await act(async () => finishOld?.({ svg: '<svg viewBox="0 0 10 10"><text>Old</text></svg>' }))
+    await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText("Old")).not.toBeInTheDocument()
+    await act(async () => finishNew?.({ svg: '<svg viewBox="0 0 10 10"><text>New</text></svg>' }))
+    expect(await screen.findByText("New")).toBeVisible()
   })
 
   it("isolates invalid, oversized, and excess Mermaid diagrams", async () => {
