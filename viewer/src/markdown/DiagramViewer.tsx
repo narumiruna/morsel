@@ -1,5 +1,17 @@
-import { Button } from "@radix-ui/themes"
+import {
+  CodeIcon,
+  CopyIcon,
+  DownloadIcon,
+  EnterFullScreenIcon,
+  ExitFullScreenIcon,
+  EyeOpenIcon,
+  MinusIcon,
+  PlusIcon,
+  ResetIcon,
+} from "@radix-ui/react-icons"
+import * as Tooltip from "@radix-ui/react-tooltip"
 import { useEffect, useId, useRef, useState } from "react"
+import { ActionButton } from "../components/ActionButton"
 
 export function DiagramViewer({ svg, source }: { svg: string; source: string }) {
   const card = useRef<HTMLDivElement>(null)
@@ -44,46 +56,80 @@ export function DiagramViewer({ svg, source }: { svg: string; source: string }) 
 
   return (
     <div className="diagram-card" ref={card}>
-      <fieldset className="diagram-controls" aria-label="Diagram controls">
-        <Button
-          variant="soft"
-          disabled={showSource || zoom <= 25}
-          onClick={() => setZoom(Math.max(25, zoom - 25))}
-        >
-          Zoom out
-        </Button>
-        <output aria-label="Current zoom">{zoom}%</output>
-        <Button
-          variant="soft"
-          disabled={showSource || zoom >= 400}
-          onClick={() => setZoom(Math.min(400, zoom + 25))}
-        >
-          Zoom in
-        </Button>
-        <Button variant="soft" disabled={showSource} onClick={() => setZoom(100)}>
-          Reset zoom
-        </Button>
-        <Button variant="soft" onClick={toggleFullscreen}>
-          {fullscreen ? "Exit fullscreen" : "Fullscreen"}
-        </Button>
-        <Button
-          variant="soft"
-          aria-controls={sourceID}
-          aria-pressed={showSource}
-          onClick={() => setShowSource(!showSource)}
-        >
-          {showSource ? "Show diagram" : "Show source"}
-        </Button>
-        <Button variant="soft" onClick={() => copy(source)}>
-          Copy source
-        </Button>
-        <Button variant="soft" onClick={() => copy(svg)}>
-          Copy SVG
-        </Button>
-        <Button variant="soft" onClick={download}>
-          Download SVG
-        </Button>
-      </fieldset>
+      <Tooltip.Provider delayDuration={350}>
+        <fieldset className="diagram-controls" aria-label="Diagram controls">
+          <ActionButton
+            className="diagram-control"
+            label="Zoom out"
+            variant="soft"
+            disabled={showSource || zoom <= 25}
+            onClick={() => setZoom(Math.max(25, zoom - 25))}
+          >
+            <MinusIcon />
+          </ActionButton>
+          <output aria-label="Current zoom">{zoom}%</output>
+          <ActionButton
+            className="diagram-control"
+            label="Zoom in"
+            variant="soft"
+            disabled={showSource || zoom >= 400}
+            onClick={() => setZoom(Math.min(400, zoom + 25))}
+          >
+            <PlusIcon />
+          </ActionButton>
+          <ActionButton
+            className="diagram-control"
+            label="Reset zoom"
+            variant="soft"
+            disabled={showSource}
+            onClick={() => setZoom(100)}
+          >
+            <ResetIcon />
+          </ActionButton>
+          <ActionButton
+            className="diagram-control"
+            label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            variant="soft"
+            onClick={toggleFullscreen}
+          >
+            {fullscreen ? <ExitFullScreenIcon /> : <EnterFullScreenIcon />}
+          </ActionButton>
+          <ActionButton
+            className="diagram-control"
+            label={showSource ? "Show diagram" : "Show source"}
+            variant="soft"
+            aria-controls={sourceID}
+            aria-pressed={showSource}
+            onClick={() => setShowSource(!showSource)}
+          >
+            {showSource ? <EyeOpenIcon /> : <CodeIcon />}
+          </ActionButton>
+          <ActionButton
+            className="diagram-control"
+            label="Copy source"
+            variant="soft"
+            onClick={() => copy(source)}
+          >
+            <CopyIcon />
+          </ActionButton>
+          <ActionButton
+            className="diagram-control"
+            label="Copy SVG"
+            variant="soft"
+            onClick={() => copy(svg)}
+          >
+            <CopyIcon />
+          </ActionButton>
+          <ActionButton
+            className="diagram-control"
+            label="Download SVG"
+            variant="soft"
+            onClick={download}
+          >
+            <DownloadIcon />
+          </ActionButton>
+        </fieldset>
+      </Tooltip.Provider>
       <div className="diagram-viewport" hidden={showSource}>
         <div
           className="mermaid-diagram"

@@ -320,6 +320,11 @@ summary {
   min-height: 2.75rem;
 }
 
+.diagram-controls .diagram-control {
+  width: 2.75rem;
+  padding: 0;
+}
+
 .diagram-controls output {
   min-width: 3rem;
   text-align: center;
