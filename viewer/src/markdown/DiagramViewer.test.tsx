@@ -58,7 +58,6 @@ describe("DiagramViewer", () => {
       "Fullscreen",
       "Show source",
       "Copy source",
-      "Copy SVG",
       "Download SVG",
       "Download PNG",
     ].map((name) => screen.getByRole("button", { name }))
@@ -185,7 +184,7 @@ describe("DiagramViewer", () => {
     expect(status.matches(".diagram-status:not(:empty)")).toBe(true)
     expect(writeText).toHaveBeenCalledWith("graph TD; A-->B")
     writeText.mockRejectedValueOnce(new Error("Denied"))
-    fireEvent.click(screen.getByRole("button", { name: "Copy SVG" }))
+    fireEvent.click(screen.getByRole("button", { name: "Copy source" }))
     expect(await screen.findByText("Copy failed. Check clipboard permissions.")).toBeVisible()
   })
 
