@@ -1,0 +1,265 @@
+openapi: 3.1.0
+info:
+  title: Morsel API
+  version: 1.0.0
+  description: API for creating, consuming, and revoking capability-based Markdown shares.
+  license:
+    name: MIT
+    identifier: MIT
+security: []
+servers:
+  - url: https://{apiHost}
+    variables:
+      apiHost:
+        default: api.your-domain.invalid
+        description: Hostname of the self-hosted Morsel API
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Report process liveness
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Report PostgreSQL readiness
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/shares:
+    post:
+      operationId: createShare
+      summary: Create a Markdown share
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateShareRequest"
+      responses:
+        "201":
+          description: Share created; the raw capability appears only in share_url
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateShareResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/ContentTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/shares/{share}:
+    get:
+      operationId: consumeShare
+      summary: Atomically consume one view and retrieve a share
+      parameters:
+        - $ref: "#/components/parameters/ShareCapability"
+      responses:
+        "200":
+          description: One view was consumed
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Always no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Share"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: revokeShare
+      summary: Idempotently revoke a share
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: share
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Share is revoked
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    ShareCapability:
+      name: share
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{43}$"
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    CreateShareRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: Markdown limited by MORSEL_MAX_DOCUMENT_BYTES, measured in UTF-8 bytes.
+        expires_in:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 315360000
+        max_views:
+          type: integer
+          format: int64
+          minimum: 1
+    CreateShareResponse:
+      type: object
+      additionalProperties: false
+      required: [id, share_url, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        share_url:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+        max_views:
+          type: [integer, "null"]
+          format: int64
+    Share:
+      type: object
+      additionalProperties: false
+      required: [content, created_at, view_count]
+      properties:
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+        max_views:
+          type: [integer, "null"]
+          format: int64
+        view_count:
+          type: integer
+          format: int64
+          minimum: 1
+        views_remaining:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_request
+            - content_too_large
+            - unauthorized
+            - not_found
+            - expired
+            - revoked
+            - view_limit_exhausted
+            - internal_error
+            - service_unavailable
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: API-key authentication failed
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ContentTooLarge:
+      description: Request or Markdown content exceeded configured limits
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Share was not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Gone:
+      description: Share is expired, revoked, or exhausted
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Internal dependency or processing failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: PostgreSQL is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

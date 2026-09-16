@@ -1,0 +1,23 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
+  "files": {
+    "includes": ["**", "!dist", "!coverage", "!playwright-report", "!test-results"]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "asNeeded"
+    }
+  }
+}
