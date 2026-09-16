@@ -2,7 +2,7 @@ name: morsel
 
 x-morsel-build: &morsel-build
   context: .
-  dockerfile: api/Dockerfile
+  dockerfile: Dockerfile
 
 services:
   postgres:
