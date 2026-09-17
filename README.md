@@ -5,7 +5,7 @@ Morsel is a small, self-hosted service for sharing Markdown through revocable ca
 Morsel supports:
 
 - API-first share creation and revocation
-- optional expiration times and view limits
+- optional expiration times, view limits, and Telegram-compatible Open Graph previews
 - GitHub Flavored Markdown, syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts
 - sanitized output with authored HTML disabled
 - a single production image with no Node.js runtime
@@ -59,7 +59,7 @@ Create a share:
 curl --fail-with-body \
   -H "Authorization: Bearer $MORSEL_API_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"content":"# Hello\n\n$x^2$","expires_in":3600,"max_views":3}' \
+  -d '{"content":"# Hello\n\n$x^2$","expires_in":3600,"max_views":3,"preview":true}' \
   http://127.0.0.1:12647/v1/shares
 ```
 
@@ -67,11 +67,14 @@ The response includes:
 
 - `id`: the administrative UUID used to revoke the share
 - `share_url`: the reader-facing URL containing the raw capability token
+- `preview`: whether the URL exposes a non-consuming Open Graph excerpt
 - creation, expiration, and view-limit metadata
 
 The raw capability appears only in `share_url`; Morsel stores its SHA-256 hash. Anyone with the URL can read the share and consume one view.
 
-Retrieve a share directly with the token after `#/s/`:
+`preview` defaults to `false`, which keeps the existing `#/s/<token>` URL. Setting it to `true` returns `/s/<token>` so Telegram can request server-rendered Open Graph metadata. The preview contains only an escaped, length-limited text excerpt.
+
+Retrieve a share directly with the token after `/s/` or `#/s/`:
 
 ```sh
 curl --fail-with-body \
@@ -95,7 +98,7 @@ flowchart LR
     Client[CLI / agent / internal app] -->|Bearer API key| Morsel[Go service]
     Reader[Reader] -->|viewer and same-origin API| Morsel
     Morsel --> DB[(PostgreSQL)]
-    Morsel -->|hash-route share URL| Client
+    Morsel -->|capability share URL| Client
 ```
 
 ```mermaid
@@ -110,11 +113,11 @@ sequenceDiagram
     Morsel->>Morsel: Generate capability and SHA-256 hash
     Morsel->>DB: Store Markdown and capability hash
     DB-->>Morsel: Share metadata
-    Morsel-->>Creator: 201 JSON with id and #/s/RAW_CAPABILITY_TOKEN URL
+    Morsel-->>Creator: 201 JSON with id and capability URL
     Creator-->>Reader: Send share URL
     Reader->>Viewer: Open share URL
-    Viewer->>Morsel: GET / (fragment remains in browser)
-    Morsel-->>Viewer: React viewer
+    Viewer->>Morsel: GET / or /s/RAW_CAPABILITY_TOKEN
+    Morsel-->>Viewer: React shell with optional Open Graph excerpt
     Viewer->>Morsel: GET /v1/shares/RAW_CAPABILITY_TOKEN
     Morsel->>Morsel: Hash capability token
     Morsel->>DB: Conditional UPDATE ... RETURNING
@@ -123,11 +126,13 @@ sequenceDiagram
     Viewer->>Viewer: Sanitize and render Markdown
 ```
 
-The service handles `/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Morsel v1 has no Redis, object storage, queue, account system, separate static host, or Node.js runtime server.
+The service handles `/`, `/s/*`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell; JavaScript and CSS remain static assets. Morsel v1 has no Redis, object storage, queue, account system, separate static host, or Node.js runtime server.
 
 ### View and availability semantics
 
-- Every successful `GET` consumes exactly one view, including refreshes, command-line requests, crawlers, previews, and bots.
+- Every successful `GET /v1/shares/<token>` consumes exactly one view, including browser refreshes, command-line requests, and bots that call the API.
+- Fetching an enabled `/s/<token>` Open Graph preview does not consume a view. Telegram does not execute the viewer JavaScript, while a browser does and therefore consumes a view through the API.
+- A preview excerpt can be fetched repeatedly by anyone holding its capability URL. Disable preview for content where even a short non-consuming excerpt is unacceptable.
 - Morsel does not identify people or deduplicate clients. `max_views` counts successful retrievals, not unique readers.
 - A conditional PostgreSQL `UPDATE ... RETURNING` protects the final view, so concurrent requests cannot exceed the configured limit.
 - Retrieval responses use `Cache-Control: no-store`; proxies must not cache them.
@@ -142,7 +147,7 @@ The API reads these environment variables:
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
 | `MORSEL_API_KEY` or `MORSEL_API_KEY_FILE` | yes | — | Comma-separated keys or a newline-delimited key file. Each key must contain at least 32 characters. Both sources may be combined during rotation. |
-| `MORSEL_URL` | yes | — | Public origin used to construct `#/s/<token>` links. Non-root paths, queries, fragments, and credentials are rejected. |
+| `MORSEL_URL` | yes | — | Public origin used to construct hash-route or preview-enabled path links. Non-root paths, queries, fragments, and credentials are rejected. |
 | `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Production viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require an HTTPS public URL. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
@@ -173,10 +178,10 @@ Set `MORSEL_ENVIRONMENT=production`, set `MORSEL_URL` to the public HTTPS origin
 The reverse proxy must:
 
 - preserve `X-Request-ID` response headers
-- avoid logging authorization headers
-- never cache `/v1/shares/*`
+- avoid logging authorization headers or raw `/s/<token>` paths
+- never cache `/v1/shares/*` or `/s/*`
 
-The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. Hash routing keeps the capability out of the initial document request; the viewer sends it only to the same-origin retrieval endpoint.
+The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. Default hash routing keeps the capability out of the initial document request. Enabling preview intentionally uses a path capability so Telegram can fetch Open Graph metadata; the Go request logger records this route as `unmatched` rather than logging the raw path.
 
 ### Backup, restore, and rollback
 
@@ -277,6 +282,7 @@ The runner rejects dirty, unknown, or gapped migration histories. Apply migratio
 ## Security model
 
 - Capability tokens contain 256 random bits, are base64url encoded, and are never stored raw.
+- Preview is disabled by default. Hash-route URLs keep the capability out of the initial document request; enabled previews intentionally place it in `/s/<token>` so link crawlers can request metadata.
 - Administrative API keys are hashed before constant-time comparison.
 - Request logs use route templates instead of token-bearing paths and omit bodies and authorization headers.
 - Authored HTML is disabled. Markdown and KaTeX output pass through a reviewed sanitation schema.

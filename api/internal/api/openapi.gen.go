@@ -76,6 +76,9 @@ type CreateShareRequest struct {
 	Content   string `json:"content"`
 	ExpiresIn *int64 `json:"expires_in,omitempty"`
 	MaxViews  *int64 `json:"max_views,omitempty"`
+
+	// Preview Enable a non-consuming Open Graph excerpt at the path-based share URL.
+	Preview *bool `json:"preview,omitempty"`
 }
 
 // CreateShareResponse defines model for CreateShareResponse.
@@ -84,7 +87,10 @@ type CreateShareResponse struct {
 	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
 	Id        openapi_types.UUID `json:"id"`
 	MaxViews  *int64             `json:"max_views,omitempty"`
-	ShareUrl  string             `json:"share_url"`
+
+	// Preview Whether the share URL exposes a non-consuming Open Graph excerpt.
+	Preview  bool   `json:"preview"`
+	ShareUrl string `json:"share_url"`
 }
 
 // Error defines model for Error.

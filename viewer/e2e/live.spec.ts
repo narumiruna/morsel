@@ -7,11 +7,12 @@ const apiKey = process.env.MORSEL_E2E_API_KEY ?? ""
 interface CreatedShare {
   id: string
   share_url: string
+  preview: boolean
 }
 
 async function createShare(
   content: string,
-  options: { max_views?: number; expires_in?: number } = {},
+  options: { max_views?: number; expires_in?: number; preview?: boolean } = {},
 ): Promise<CreatedShare> {
   const response = await fetch(`${apiBase}/v1/shares`, {
     method: "POST",
@@ -26,7 +27,8 @@ async function createShare(
 }
 
 function tokenFrom(created: CreatedShare): string {
-  return new URL(created.share_url).hash.replace("#/s/", "")
+  const url = new URL(created.share_url)
+  return url.hash ? url.hash.replace("#/s/", "") : url.pathname.replace("/s/", "")
 }
 
 test.skip(!live, "requires the live Compose stack")
@@ -49,6 +51,17 @@ graph LR
   await expect(page.getByRole("table")).toBeVisible()
   await expect(page.locator(".katex")).toBeVisible()
   await expect(page.getByLabel("Mermaid diagram")).toBeVisible()
+
+  const previewed = await createShare("# Telegram preview\n\nA safe excerpt.", {
+    max_views: 1,
+    preview: true,
+  })
+  expect(previewed.preview).toBe(true)
+  const previewResponse = await fetch(previewed.share_url)
+  expect(previewResponse.status).toBe(200)
+  await expect(previewResponse.text()).resolves.toContain('property="og:title"')
+  expect((await fetch(`${apiBase}/v1/shares/${tokenFrom(previewed)}`)).status).toBe(200)
+  expect((await fetch(`${apiBase}/v1/shares/${tokenFrom(previewed)}`)).status).toBe(410)
 
   const limited = await createShare("limited", { max_views: 3 })
   const limitedToken = tokenFrom(limited)

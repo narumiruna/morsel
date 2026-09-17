@@ -90,6 +90,7 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 			Content   *string `json:"content"`
 			ExpiresIn *int64  `json:"expires_in"`
 			MaxViews  *int64  `json:"max_views"`
+			Preview   *bool   `json:"preview"`
 		}
 		if err := decoder.Decode(&parsed); err != nil {
 			writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "invalid request")

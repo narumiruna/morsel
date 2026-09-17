@@ -41,11 +41,6 @@ func run() int {
 		return 2
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
-	viewer, err := viewerfiles.New(cfg.ViewerDir)
-	if err != nil {
-		logger.Error("initialize viewer", "error", err)
-		return 1
-	}
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		logger.Error("invalid database configuration")
@@ -61,6 +56,11 @@ func run() int {
 	defer pool.Close()
 
 	repository := share.NewPostgresRepository(pool)
+	viewer, err := viewerfiles.New(cfg.ViewerDir, repository)
+	if err != nil {
+		logger.Error("initialize viewer", "error", err)
+		return 1
+	}
 	handler := morselapi.NewService(repository, share.TokenGenerator{}, cfg.PublicViewerURL, cfg.MaxDocumentBytes, logger)
 	router := morselapi.NewRouter(handler, morselapi.RouterConfig{
 		APIKeys: cfg.APIKeys, Viewer: viewer,

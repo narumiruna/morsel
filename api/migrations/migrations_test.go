@@ -16,7 +16,18 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 		t.Fatalf("second up: %v", err)
 	}
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
-		t.Fatalf("down: %v", err)
+		t.Fatalf("down preview migration: %v", err)
+	}
+	var previewColumns int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'shares' AND column_name = 'preview_enabled'`).Scan(&previewColumns); err != nil {
+		t.Fatal(err)
+	}
+	if previewColumns != 0 {
+		t.Fatal("preview_enabled still exists")
+	}
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("down shares migration: %v", err)
 	}
 	var table *string
 	if err := pool.QueryRow(ctx, "SELECT to_regclass('shares')::text").Scan(&table); err != nil {

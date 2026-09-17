@@ -27,6 +27,8 @@ type repositoryStub struct {
 	created       []share.CreateParams
 	consumeResult share.Share
 	consumeError  error
+	previewResult share.Share
+	previewError  error
 	revokeFound   bool
 	revokeError   error
 	pingError     error
@@ -44,6 +46,7 @@ func (r *repositoryStub) Create(_ context.Context, params share.CreateParams) (s
 		result.Content = params.Content
 		result.CreatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 		result.MaxViews = params.MaxViews
+		result.PreviewEnabled = params.PreviewEnabled
 	}
 	if index < len(r.createErrors) {
 		return result, r.createErrors[index]
@@ -52,6 +55,9 @@ func (r *repositoryStub) Create(_ context.Context, params share.CreateParams) (s
 }
 func (r *repositoryStub) Consume(context.Context, [32]byte) (share.Share, error) {
 	return r.consumeResult, r.consumeError
+}
+func (r *repositoryStub) Preview(context.Context, [32]byte) (share.Share, error) {
+	return r.previewResult, r.previewError
 }
 func (r *repositoryStub) Revoke(context.Context, uuid.UUID) (bool, error) {
 	return r.revokeFound, r.revokeError
@@ -134,7 +140,7 @@ func TestCreateShareCollisionRecoveryAndFailure(t *testing.T) {
 	repository := &repositoryStub{createErrors: []error{share.ErrTokenCollision, nil}}
 	entropy := bytes.NewReader(append(bytes.Repeat([]byte{1}, 32), bytes.Repeat([]byte{2}, 32)...))
 	handler := testRouter(t, repository, entropy, nil, 100)
-	response := request(t, handler, http.MethodPost, "/v1/shares", `{"content":"hello","max_views":2}`, "Bearer "+testAPIKey)
+	response := request(t, handler, http.MethodPost, "/v1/shares", `{"content":"hello","max_views":2,"preview":true}`, "Bearer "+testAPIKey)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -142,8 +148,11 @@ func TestCreateShareCollisionRecoveryAndFailure(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(body.ShareUrl, "https://morsel.example/#/s/") || len(repository.created) != 2 {
+	if !strings.HasPrefix(body.ShareUrl, "https://morsel.example/s/") || !body.Preview || len(repository.created) != 2 {
 		t.Fatalf("response=%+v calls=%d", body, len(repository.created))
+	}
+	if !repository.created[0].PreviewEnabled || !repository.created[1].PreviewEnabled {
+		t.Fatalf("preview setting not persisted: %+v", repository.created)
 	}
 	if repository.created[0].TokenHash == repository.created[1].TokenHash {
 		t.Fatal("collision retry reused token")
@@ -154,6 +163,22 @@ func TestCreateShareCollisionRecoveryAndFailure(t *testing.T) {
 	response = request(t, handler, http.MethodPost, "/v1/shares", `{"content":"hello"}`, "Bearer "+testAPIKey)
 	if response.Code != http.StatusInternalServerError || len(failed.created) != maxTokenAttempts {
 		t.Fatalf("status=%d attempts=%d", response.Code, len(failed.created))
+	}
+}
+
+func TestCreateShareDefaultsPreviewOff(t *testing.T) {
+	repository := &repositoryStub{}
+	handler := testRouter(t, repository, nil, nil, 100)
+	response := request(t, handler, http.MethodPost, "/v1/shares", `{"content":"hello"}`, "Bearer "+testAPIKey)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body CreateShareResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(body.ShareUrl, "https://morsel.example/#/s/") || body.Preview || repository.created[0].PreviewEnabled {
+		t.Fatalf("default preview response=%+v params=%+v", body, repository.created[0])
 	}
 }
 

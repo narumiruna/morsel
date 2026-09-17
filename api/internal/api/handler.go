@@ -59,6 +59,7 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 		return createBadRequest("max_views must be positive"), nil
 	}
 
+	previewEnabled := body.Preview != nil && *body.Preview
 	id := uuid.New()
 	for range maxTokenAttempts {
 		token, tokenHash, err := h.tokens.Generate()
@@ -68,7 +69,7 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 		}
 		created, err := h.repository.Create(ctx, share.CreateParams{
 			ID: id, TokenHash: tokenHash, Content: body.Content,
-			ExpiresIn: body.ExpiresIn, MaxViews: body.MaxViews,
+			ExpiresIn: body.ExpiresIn, MaxViews: body.MaxViews, PreviewEnabled: previewEnabled,
 		})
 		if errors.Is(err, share.ErrTokenCollision) {
 			continue
@@ -79,10 +80,14 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 		}
 		telemetry.SetShareID(ctx, created.ID.String())
 		viewerURL := *h.publicViewerURL
-		viewerURL.Fragment = "/s/" + token
+		if previewEnabled {
+			viewerURL.Path = "/s/" + token
+		} else {
+			viewerURL.Fragment = "/s/" + token
+		}
 		return CreateShare201JSONResponse{
 			Id: created.ID, ShareUrl: viewerURL.String(), CreatedAt: created.CreatedAt,
-			ExpiresAt: created.ExpiresAt, MaxViews: created.MaxViews,
+			ExpiresAt: created.ExpiresAt, MaxViews: created.MaxViews, Preview: previewEnabled,
 		}, nil
 	}
 	h.logError(ctx, "create share", errors.New("token collision retry limit reached"))

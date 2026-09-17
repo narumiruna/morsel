@@ -7,9 +7,10 @@ The public service is available at `https://morsel.narumi.dev/`. It supports Git
 Important usage notes:
 
 - Creating and revoking shares requires an administrative bearer API key.
-- Every successful `GET /v1/shares/{share}` consumes exactly one view. Do not retrieve, preview, crawl, or validate a share unless the user explicitly asks you to access it.
+- Every successful `GET /v1/shares/{share}` consumes exactly one view. Do not retrieve or validate a share unless the user explicitly asks you to access it.
+- An opt-in `GET /s/{capability}` Open Graph excerpt does not consume a view, but it still exposes share content and must not be fetched without the user's request.
 - Treat API keys, raw capability tokens, and complete share URLs as secrets. Do not expose or log them.
-- A viewer URL uses `#/s/{capability}`. The browser sends the capability to the same-origin retrieval API; the URL fragment itself is not sent in the initial HTTP request.
+- Viewer URLs use `#/s/{capability}` by default. Preview-enabled shares use `/s/{capability}` so Telegram can fetch metadata; a browser then sends the capability to the same-origin retrieval API.
 - Retrieval responses must not be cached. Expired, revoked, and exhausted shares are unavailable.
 
 ## Documentation

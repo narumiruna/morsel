@@ -153,10 +153,14 @@ components:
           type: integer
           format: int64
           minimum: 1
+        preview:
+          type: boolean
+          default: false
+          description: Enable a non-consuming Open Graph excerpt at the path-based share URL.
     CreateShareResponse:
       type: object
       additionalProperties: false
-      required: [id, share_url, created_at]
+      required: [id, share_url, created_at, preview]
       properties:
         id:
           type: string
@@ -173,6 +177,9 @@ components:
         max_views:
           type: [integer, "null"]
           format: int64
+        preview:
+          type: boolean
+          description: Whether the share URL exposes a non-consuming Open Graph excerpt.
     Share:
       type: object
       additionalProperties: false

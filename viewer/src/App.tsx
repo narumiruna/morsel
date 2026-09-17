@@ -2,16 +2,24 @@ import * as Tooltip from "@radix-ui/react-tooltip"
 import { type ReactNode, useEffect, useState } from "react"
 import { SharePage } from "./pages/SharePage"
 import { ErrorPage, HomePage } from "./pages/StatusPage"
-import { parseHash } from "./route"
+import { parseRoute } from "./route"
 
 export function App() {
-  const [hash, setHash] = useState(window.location.hash)
+  const [location, setLocation] = useState(() => ({
+    pathname: window.location.pathname,
+    hash: window.location.hash,
+  }))
   useEffect(() => {
-    const update = () => setHash(window.location.hash)
+    const update = () =>
+      setLocation({ pathname: window.location.pathname, hash: window.location.hash })
     window.addEventListener("hashchange", update)
-    return () => window.removeEventListener("hashchange", update)
+    window.addEventListener("popstate", update)
+    return () => {
+      window.removeEventListener("hashchange", update)
+      window.removeEventListener("popstate", update)
+    }
   }, [])
-  const route = parseHash(hash)
+  const route = parseRoute(location.pathname, location.hash)
 
   let page: ReactNode
   switch (route.kind) {

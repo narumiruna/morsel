@@ -25,12 +25,20 @@ func TestPostgresRepositoryLifecycle(t *testing.T) {
 	before := time.Now()
 	created, err := repository.Create(ctx, CreateParams{
 		ID: uuid.New(), TokenHash: tokenHash, Content: "hello", ExpiresIn: &expiresIn, MaxViews: &maxViews,
+		PreviewEnabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.CreatedAt.Before(before.Add(-time.Second)) || created.ExpiresAt == nil || created.ExpiresAt.Sub(created.CreatedAt) < 59*time.Second {
-		t.Fatalf("timestamps were not derived by PostgreSQL: %+v", created)
+	if created.CreatedAt.Before(before.Add(-time.Second)) || created.ExpiresAt == nil || created.ExpiresAt.Sub(created.CreatedAt) < 59*time.Second || !created.PreviewEnabled {
+		t.Fatalf("created share metadata is incorrect: %+v", created)
+	}
+	preview, err := repository.Preview(ctx, tokenHash)
+	if err != nil || preview.Content != "hello" || !preview.PreviewEnabled {
+		t.Fatalf("preview = %+v, %v", preview, err)
+	}
+	if got := testdb.Count(t, pool, "SELECT view_count FROM shares WHERE id=$1", created.ID); got != 0 {
+		t.Fatalf("preview incremented view_count to %d", got)
 	}
 	first, err := repository.Consume(ctx, tokenHash)
 	if err != nil || first.ViewCount != 1 || first.ViewsRemaining == nil || *first.ViewsRemaining != 1 {
@@ -98,6 +106,46 @@ func TestPostgresRepositoryUnavailableStates(t *testing.T) {
 				t.Fatalf("want %v, got %v", test.want, err)
 			}
 		})
+	}
+}
+
+func TestPostgresRepositoryPreviewRequiresOptInAndAvailability(t *testing.T) {
+	pool := testdb.Open(t)
+	repository := NewPostgresRepository(pool)
+	ctx := context.Background()
+
+	for _, test := range []struct {
+		name    string
+		enabled bool
+		mutate  string
+	}{
+		{name: "disabled"},
+		{name: "expired", enabled: true, mutate: "UPDATE shares SET expires_at=now()-interval '1 second' WHERE id=$1"},
+		{name: "revoked", enabled: true, mutate: "UPDATE shares SET revoked_at=now() WHERE id=$1"},
+		{name: "exhausted", enabled: true, mutate: "UPDATE shares SET max_views=1, view_count=1 WHERE id=$1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, hash, _ := (TokenGenerator{}).Generate()
+			created, err := repository.Create(ctx, CreateParams{
+				ID: uuid.New(), TokenHash: hash, Content: "private", PreviewEnabled: test.enabled,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.mutate != "" {
+				if _, err := pool.Exec(ctx, test.mutate, created.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := repository.Preview(ctx, hash); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("preview error=%v", err)
+			}
+		})
+	}
+
+	_, unknownHash, _ := (TokenGenerator{}).Generate()
+	if _, err := repository.Preview(ctx, unknownHash); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown preview error=%v", err)
 	}
 }
 
