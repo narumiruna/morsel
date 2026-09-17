@@ -1,7 +1,10 @@
 import { defineConfig, devices } from "@playwright/test"
 
 const live = process.env.MORSEL_E2E_LIVE === "1"
-const liveBaseURL = process.env.MORSEL_E2E_API_BASE ?? "http://127.0.0.1:12647"
+const liveBaseURL = (process.env.MORSEL_E2E_API_BASE ?? "http://127.0.0.1:12647").replace(
+  /\/+$/,
+  "",
+)
 
 export default defineConfig({
   testDir: "./e2e",

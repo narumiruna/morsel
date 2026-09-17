@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 const live = process.env.MORSEL_E2E_LIVE === "1"
-const apiBase = process.env.MORSEL_E2E_API_BASE ?? "http://127.0.0.1:12647"
+const apiBase = (process.env.MORSEL_E2E_API_BASE ?? "http://127.0.0.1:12647").replace(/\/+$/, "")
 const apiKey = process.env.MORSEL_E2E_API_KEY ?? ""
 
 interface PreviewMetadata {

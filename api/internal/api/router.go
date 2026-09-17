@@ -107,11 +107,15 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 		if len(parsed.Preview) > 0 {
 			previewDecoder := json.NewDecoder(bytes.NewReader(parsed.Preview))
 			previewDecoder.DisallowUnknownFields()
-			var preview struct {
+			var preview *struct {
 				Title       *string `json:"title"`
 				Description *string `json:"description"`
 			}
-			if err := previewDecoder.Decode(&preview); err != nil || preview.Title == nil || preview.Description == nil {
+			if err := previewDecoder.Decode(&preview); err != nil || preview == nil {
+				writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "invalid preview")
+				return
+			}
+			if preview.Title == nil || preview.Description == nil {
 				writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "preview requires title and description")
 				return
 			}

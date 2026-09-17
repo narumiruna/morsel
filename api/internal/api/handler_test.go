@@ -138,15 +138,18 @@ func TestCreateShareRequiresContentAndRejectsNUL(t *testing.T) {
 
 func TestCreateShareValidatesPreviewMetadata(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
+		name    string
+		body    string
+		message string
 	}{
-		{name: "boolean true", body: `{"content":"ok","preview":true}`},
-		{name: "boolean false", body: `{"content":"ok","preview":false}`},
-		{name: "null", body: `{"content":"ok","preview":null}`},
-		{name: "missing title", body: `{"content":"ok","preview":{"description":"description"}}`},
-		{name: "missing description", body: `{"content":"ok","preview":{"title":"title"}}`},
-		{name: "unknown field", body: `{"content":"ok","preview":{"title":"title","description":"description","image":"no"}}`},
+		{name: "boolean true", body: `{"content":"ok","preview":true}`, message: "invalid preview"},
+		{name: "boolean false", body: `{"content":"ok","preview":false}`, message: "invalid preview"},
+		{name: "null", body: `{"content":"ok","preview":null}`, message: "invalid preview"},
+		{name: "array", body: `{"content":"ok","preview":[]}`, message: "invalid preview"},
+		{name: "string", body: `{"content":"ok","preview":"metadata"}`, message: "invalid preview"},
+		{name: "missing title", body: `{"content":"ok","preview":{"description":"description"}}`, message: "preview requires title and description"},
+		{name: "missing description", body: `{"content":"ok","preview":{"title":"title"}}`, message: "preview requires title and description"},
+		{name: "unknown field", body: `{"content":"ok","preview":{"title":"title","description":"description","image":"no"}}`, message: "invalid preview"},
 		{name: "blank title", body: `{"content":"ok","preview":{"title":"　 ","description":"description"}}`},
 		{name: "blank description", body: `{"content":"ok","preview":{"title":"title","description":"  "}}`},
 		{name: "title control", body: `{"content":"ok","preview":{"title":"title\nline","description":"description"}}`},
@@ -160,7 +163,8 @@ func TestCreateShareValidatesPreviewMetadata(t *testing.T) {
 			repository := &repositoryStub{}
 			handler := testRouter(t, repository, nil, nil, 100)
 			response := request(t, handler, http.MethodPost, "/v1/shares", test.body, "Bearer "+testAPIKey)
-			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_request") || len(repository.created) != 0 {
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_request") ||
+				(test.message != "" && !strings.Contains(response.Body.String(), test.message)) || len(repository.created) != 0 {
 				t.Fatalf("status=%d body=%s created=%d", response.Code, response.Body.String(), len(repository.created))
 			}
 		})
