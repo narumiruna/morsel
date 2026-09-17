@@ -50,6 +50,17 @@ describe("parseVegaLiteSpec", () => {
     expect(() => parseVegaLiteSpec(source(spec))).toThrow(/repeat.*limit/i)
   })
 
+  it("accepts nested repeat compositions at the view limit", () => {
+    const rows = Array.from({ length: 4 }, (_, index) => `row-${index}`)
+    const columns = Array.from({ length: 5 }, (_, index) => `column-${index}`)
+    const spec = {
+      repeat: rows,
+      spec: { repeat: columns, spec: { mark: "bar" } },
+    }
+
+    expect(parseVegaLiteSpec(source(spec))).toEqual(spec)
+  })
+
   it("counts nested repeat compositions toward the view limit", () => {
     const fields = Array.from({ length: 5 }, (_, index) => `field-${index}`)
     const spec = {
@@ -59,6 +70,20 @@ describe("parseVegaLiteSpec", () => {
 
     expect(() => parseVegaLiteSpec(source(spec))).toThrow(/repeat.*limit/i)
   })
+
+  it.each(["concat", "hconcat", "vconcat"])(
+    "aggregates repeated views across sibling %s compositions",
+    (composition) => {
+      const fields = Array.from({ length: 10 }, (_, index) => `field-${index}`)
+      const repeatedSpec = { repeat: fields, spec: { mark: "bar" } }
+      const atLimit = { [composition]: [repeatedSpec, repeatedSpec] }
+
+      expect(parseVegaLiteSpec(source(atLimit))).toEqual(atLimit)
+      expect(() =>
+        parseVegaLiteSpec(source({ [composition]: [repeatedSpec, repeatedSpec, repeatedSpec] })),
+      ).toThrow(/repeat.*limit/i)
+    },
+  )
 
   it.each([
     ["sequence data", { data: { sequence: { start: 0, stop: 1_000_000_000 } } }],
