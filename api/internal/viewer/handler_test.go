@@ -148,6 +148,42 @@ func TestPreviewTextExtractsReadableLinkAndCodeText(t *testing.T) {
 	}
 }
 
+func TestPreviewTextPreservesAutolinks(t *testing.T) {
+	title, description := previewText("https://example.com\n\nEmail <user@example.com>.")
+	if title != "https://example.com" || description != "https://example.com Email user@example.com." {
+		t.Fatalf("title=%q description=%q", title, description)
+	}
+}
+
+func TestPreviewTextPreservesEntitiesInsideCode(t *testing.T) {
+	content := "# Entities\n\nText &lt;tag&gt; and `&lt;code&gt;`.\n\n```html\n&lt;div&gt;\n```"
+	title, description := previewText(content)
+	if title != "Entities" || description != "Text <tag> and &lt;code&gt;. &lt;div&gt;" {
+		t.Fatalf("title=%q description=%q", title, description)
+	}
+}
+
+func TestPreviewTextUsesFirstItemAsFallbackTitle(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		title       string
+		description string
+	}{
+		{name: "list", content: "- First\n- Second", title: "First", description: "First Second"},
+		{name: "table", content: "| Name | Value |\n| --- | --- |\n| First | Second |", title: "Name", description: "Name Value First Second"},
+		{name: "blockquote", content: "> First\n>\n> Second", title: "First", description: "First Second"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			title, description := previewText(test.content)
+			if title != test.title || description != test.description {
+				t.Fatalf("title=%q description=%q", title, description)
+			}
+		})
+	}
+}
+
 func TestPreviewTextIsBounded(t *testing.T) {
 	title, description := previewText("# " + strings.Repeat("界", 100) + "\n\n" + strings.Repeat("文 ", 150))
 	if got := utf8.RuneCountInString(title); got > maxPreviewTitleRunes || !strings.HasSuffix(title, "…") {

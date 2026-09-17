@@ -1,6 +1,7 @@
 package viewer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	markdownhtml "github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 )
 
@@ -26,7 +28,10 @@ const (
 	maxPreviewSourceBytes      = 4 << 10
 )
 
-var previewMarkdown = goldmark.New(goldmark.WithExtensions(extension.GFM))
+var (
+	previewMarkdown   = goldmark.New(goldmark.WithExtensions(extension.GFM))
+	previewTextWriter = markdownhtml.NewWriter()
+)
 
 type PreviewSource interface {
 	Preview(context.Context, [32]byte) (share.Share, error)
@@ -127,7 +132,7 @@ func previewText(content string) (string, string) {
 			continue
 		}
 		if !titleFound {
-			title = plainText
+			title = previewTitleText(block, source)
 			titleFound = true
 			if _, isHeading := block.(*ast.Heading); isHeading {
 				continue
@@ -142,40 +147,64 @@ func previewText(content string) (string, string) {
 	return truncateRunes(title, maxPreviewTitleRunes), truncateRunes(description, maxPreviewDescriptionRunes)
 }
 
+func previewTitleText(node ast.Node, source []byte) string {
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if child.Type() != ast.TypeBlock {
+			continue
+		}
+		if title := previewTitleText(child, source); title != "" {
+			return title
+		}
+	}
+	return previewNodeText(node, source)
+}
+
 func previewNodeText(node ast.Node, source []byte) string {
 	var result strings.Builder
+	buffered := bufio.NewWriter(&result)
 	_ = ast.Walk(node, func(current ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			if current.Type() == ast.TypeBlock {
-				result.WriteByte(' ')
+				_ = buffered.WriteByte(' ')
 			}
 			return ast.WalkContinue, nil
 		}
 		switch current := current.(type) {
 		case *ast.Text:
-			result.Write(current.Value(source))
+			if current.IsRaw() {
+				previewTextWriter.RawWrite(buffered, current.Value(source))
+			} else {
+				previewTextWriter.Write(buffered, current.Value(source))
+			}
 			if current.SoftLineBreak() || current.HardLineBreak() {
-				result.WriteByte(' ')
+				_ = buffered.WriteByte(' ')
 			}
 		case *ast.String:
-			result.Write(current.Value)
+			if current.IsRaw() || current.IsCode() {
+				previewTextWriter.RawWrite(buffered, current.Value)
+			} else {
+				previewTextWriter.Write(buffered, current.Value)
+			}
+		case *ast.AutoLink:
+			previewTextWriter.RawWrite(buffered, current.Label(source))
 		case *ast.CodeBlock:
-			writePreviewLines(&result, current.Lines(), source)
+			writePreviewLines(buffered, current.Lines(), source)
 			return ast.WalkSkipChildren, nil
 		case *ast.FencedCodeBlock:
-			writePreviewLines(&result, current.Lines(), source)
+			writePreviewLines(buffered, current.Lines(), source)
 			return ast.WalkSkipChildren, nil
 		}
 		return ast.WalkContinue, nil
 	})
+	_ = buffered.Flush()
 	return html.UnescapeString(strings.Join(strings.Fields(result.String()), " "))
 }
 
-func writePreviewLines(result *strings.Builder, lines *text.Segments, source []byte) {
+func writePreviewLines(result *bufio.Writer, lines *text.Segments, source []byte) {
 	for index := 0; index < lines.Len(); index++ {
 		line := lines.At(index)
-		result.Write(line.Value(source))
-		result.WriteByte(' ')
+		previewTextWriter.RawWrite(result, line.Value(source))
+		_ = result.WriteByte(' ')
 	}
 }
 
