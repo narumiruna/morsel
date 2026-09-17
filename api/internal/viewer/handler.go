@@ -13,11 +13,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/narumiruna/morsel/api/internal/share"
+	"github.com/narumiruna/morsel/api/internal/telemetry"
 )
 
 const (
 	maxPreviewTitleRunes       = 80
 	maxPreviewDescriptionRunes = 200
+	maxPreviewSourceBytes      = 4 << 10
 )
 
 type PreviewSource interface {
@@ -79,6 +81,7 @@ func (h *Handler) serveShare(w http.ResponseWriter, r *http.Request, token strin
 	page := h.index
 	if tokenHash, err := share.HashToken(token); err == nil && h.previews != nil {
 		if preview, err := h.previews.Preview(r.Context(), tokenHash); err == nil {
+			telemetry.SetShareID(r.Context(), preview.ID.String())
 			page = addOpenGraphMetadata(page, preview.Content)
 		}
 	}
@@ -107,6 +110,7 @@ func addOpenGraphMetadata(index []byte, content string) []byte {
 }
 
 func previewText(content string) (string, string) {
+	content = previewSourcePrefix(content)
 	description := strings.Join(strings.Fields(content), " ")
 	title := "Morsel"
 	for line := range strings.SplitSeq(content, "\n") {
@@ -121,6 +125,17 @@ func previewText(content string) (string, string) {
 		description = "Shared with Morsel."
 	}
 	return truncateRunes(title, maxPreviewTitleRunes), truncateRunes(description, maxPreviewDescriptionRunes)
+}
+
+func previewSourcePrefix(content string) string {
+	if len(content) <= maxPreviewSourceBytes {
+		return content
+	}
+	content = content[:maxPreviewSourceBytes]
+	for !utf8.ValidString(content) {
+		content = content[:len(content)-1]
+	}
+	return content
 }
 
 func truncateRunes(value string, limit int) string {
