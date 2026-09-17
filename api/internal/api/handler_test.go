@@ -47,6 +47,7 @@ func (r *repositoryStub) Create(_ context.Context, params share.CreateParams) (s
 		result.CreatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 		result.MaxViews = params.MaxViews
 		result.Preview = params.Preview
+		result.TelegramInstantView = params.TelegramInstantView
 	}
 	if index < len(r.createErrors) {
 		return result, r.createErrors[index]
@@ -183,6 +184,54 @@ func TestCreateShareValidatesPreviewMetadata(t *testing.T) {
 	response := request(t, handler, http.MethodPost, "/v1/shares", string(payload), "Bearer "+testAPIKey)
 	if response.Code != http.StatusCreated || len(repository.created) != 1 || repository.created[0].Preview == nil || repository.created[0].Preview.Title != title || repository.created[0].Preview.Description != description {
 		t.Fatalf("status=%d body=%s created=%+v", response.Code, response.Body.String(), repository.created)
+	}
+}
+
+func TestCreateShareValidatesTelegramInstantView(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		message string
+	}{
+		{name: "null", body: `{"content":"ok","telegram_instant_view":null}`, message: "must be a boolean"},
+		{name: "string", body: `{"content":"ok","telegram_instant_view":"true"}`, message: "must be a boolean"},
+		{name: "missing preview", body: `{"content":"ok","telegram_instant_view":true}`, message: "requires preview"},
+		{name: "expiration", body: `{"content":"ok","expires_in":60,"preview":{"title":"Title","description":"Description"},"telegram_instant_view":true}`, message: "cannot be combined with expires_in"},
+		{name: "view limit", body: `{"content":"ok","max_views":2,"preview":{"title":"Title","description":"Description"},"telegram_instant_view":true}`, message: "cannot be combined with max_views"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &repositoryStub{}
+			handler := testRouter(t, repository, nil, nil, 500)
+			response := request(t, handler, http.MethodPost, "/v1/shares", test.body, "Bearer "+testAPIKey)
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), test.message) || len(repository.created) != 0 {
+				t.Fatalf("status=%d body=%s created=%d", response.Code, response.Body.String(), len(repository.created))
+			}
+		})
+	}
+
+	repository := &repositoryStub{}
+	handler := testRouter(t, repository, nil, nil, 500)
+	response := request(t, handler, http.MethodPost, "/v1/shares", `{"content":"# Article","preview":{"title":"Title","description":"Description"},"telegram_instant_view":true}`, "Bearer "+testAPIKey)
+	if response.Code != http.StatusCreated || len(repository.created) != 1 || !repository.created[0].TelegramInstantView {
+		t.Fatalf("status=%d body=%s created=%+v", response.Code, response.Body.String(), repository.created)
+	}
+	var body CreateShareResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.TelegramInstantView || !strings.HasPrefix(body.ShareUrl, "https://morsel.example/s/") {
+		t.Fatalf("response=%+v", body)
+	}
+
+	falseValue := false
+	payload, err := json.Marshal(CreateShareRequest{Content: "ok", TelegramInstantView: &falseValue})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = request(t, handler, http.MethodPost, "/v1/shares", string(payload), "Bearer "+testAPIKey)
+	if response.Code != http.StatusCreated || repository.created[1].TelegramInstantView {
+		t.Fatalf("explicit false status=%d body=%s created=%+v", response.Code, response.Body.String(), repository.created)
 	}
 }
 

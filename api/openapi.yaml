@@ -155,6 +155,10 @@ components:
           minimum: 1
         preview:
           $ref: "#/components/schemas/PreviewMetadata"
+        telegram_instant_view:
+          type: boolean
+          default: false
+          description: Expose a non-consuming, server-rendered article for Telegram Instant View. Requires preview and cannot be combined with expires_in or max_views because Telegram caches articles independently.
     PreviewMetadata:
       type: object
       additionalProperties: false
@@ -173,7 +177,7 @@ components:
     CreateShareResponse:
       type: object
       additionalProperties: false
-      required: [id, share_url, created_at]
+      required: [id, share_url, created_at, telegram_instant_view]
       properties:
         id:
           type: string
@@ -192,6 +196,8 @@ components:
           format: int64
         preview:
           $ref: "#/components/schemas/PreviewMetadata"
+        telegram_instant_view:
+          type: boolean
     Share:
       type: object
       additionalProperties: false

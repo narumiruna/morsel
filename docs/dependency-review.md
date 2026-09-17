@@ -1,6 +1,6 @@
 # Dependency review
 
-Reviewed for the Morsel v1 release candidate on 2026-09-16.
+Reviewed for the Morsel v1 release candidate on 2026-09-16; the Goldmark review was added on 2026-09-17.
 
 ## Production licenses
 
@@ -12,6 +12,7 @@ The direct Go runtime modules use licenses compatible with this MIT-licensed pro
 | `github.com/google/uuid` | 1.6.0 | BSD-3-Clause |
 | `github.com/jackc/pgx/v5` | 5.11.0 | MIT |
 | `github.com/oapi-codegen/runtime` | 1.7.0 | Apache-2.0 |
+| `github.com/yuin/goldmark` | 1.8.2 | MIT |
 
 All direct viewer runtime packages are MIT except DOMPurify, which is dual-licensed under MPL-2.0 or Apache-2.0. The Apache-2.0 option is compatible with distribution here. Transitive viewer packages report only MIT, Apache-2.0, BSD, ISC, BlueOak-1.0.0, CC0-1.0, Unlicense, MPL-2.0, and compatible dual-license expressions. No copyleft-only or unknown production license was found.
 

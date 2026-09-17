@@ -42,6 +42,9 @@ func New(directory string, previews PreviewSource) (*Handler, error) {
 	if !bytes.Contains(index, []byte("</head>")) {
 		return nil, fmt.Errorf("viewer index %q has no closing head element", indexPath)
 	}
+	if !bytes.Contains(index, []byte(viewerRoot)) {
+		return nil, fmt.Errorf("viewer index %q has no root element", indexPath)
+	}
 	return &Handler{
 		directory: directory,
 		files:     http.FileServer(http.Dir(directory)),
@@ -76,6 +79,11 @@ func (h *Handler) serveShare(w http.ResponseWriter, r *http.Request, token strin
 		if preview, err := h.previews.Preview(r.Context(), tokenHash); err == nil && preview.Preview != nil {
 			telemetry.SetShareID(r.Context(), preview.ID.String())
 			page = addOpenGraphMetadata(page, *preview.Preview)
+			if preview.TelegramInstantView {
+				if rendered, err := addInstantViewArticle(page, *preview.Preview, preview.Content); err == nil {
+					page = rendered
+				}
+			}
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")

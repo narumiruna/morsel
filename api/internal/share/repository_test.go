@@ -152,6 +152,52 @@ func TestPostgresRepositoryPreviewRequiresOptInAndAvailability(t *testing.T) {
 	}
 }
 
+func TestPostgresRepositoryTelegramInstantView(t *testing.T) {
+	pool := testdb.Open(t)
+	repository := NewPostgresRepository(pool)
+	ctx := context.Background()
+	_, hash, _ := (TokenGenerator{}).Generate()
+	metadata := &PreviewMetadata{Title: "Article", Description: "Summary"}
+	created, err := repository.Create(ctx, CreateParams{
+		ID: uuid.New(), TokenHash: hash, Content: "# Full article", Preview: metadata,
+		TelegramInstantView: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created.TelegramInstantView {
+		t.Fatalf("created=%+v", created)
+	}
+	preview, err := repository.Preview(ctx, hash)
+	if err != nil || !preview.TelegramInstantView || preview.Content != "# Full article" || preview.Preview == nil || *preview.Preview != *metadata {
+		t.Fatalf("preview=%+v err=%v", preview, err)
+	}
+	if got := testdb.Count(t, pool, "SELECT view_count FROM shares WHERE id=$1", created.ID); got != 0 {
+		t.Fatalf("Instant View preview incremented view_count to %d", got)
+	}
+
+	maxViews := int64(1)
+	expiresIn := int64(60)
+	for _, params := range []CreateParams{
+		{ID: uuid.New(), TokenHash: uniqueHash(t), Content: "missing metadata", TelegramInstantView: true},
+		{ID: uuid.New(), TokenHash: uniqueHash(t), Content: "limited", MaxViews: &maxViews, Preview: metadata, TelegramInstantView: true},
+		{ID: uuid.New(), TokenHash: uniqueHash(t), Content: "expiring", ExpiresIn: &expiresIn, Preview: metadata, TelegramInstantView: true},
+	} {
+		if _, err := repository.Create(ctx, params); err == nil {
+			t.Fatalf("expected Instant View database constraint failure for %+v", params)
+		}
+	}
+}
+
+func uniqueHash(t *testing.T) [32]byte {
+	t.Helper()
+	_, hash, err := (TokenGenerator{}).Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}
+
 func TestPostgresRepositoryUnlimitedViews(t *testing.T) {
 	pool := testdb.Open(t)
 	repository := NewPostgresRepository(pool)

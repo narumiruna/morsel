@@ -34,7 +34,7 @@ func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing
 	if err := os.Mkdir(filepath.Join(directory, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("<!doctype html><head><title>Morsel</title></head>"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte(`<!doctype html><head><title>Morsel</title></head><body><div id="root"></div></body>`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(directory, "assets", "app-abc.js"), []byte("export {}"), 0o644); err != nil {
@@ -77,7 +77,7 @@ func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing
 
 func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	directory := t.TempDir()
-	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("<!doctype html><head><title>Morsel</title></head><body></body>"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte(`<!doctype html><head><title>Morsel</title></head><body><div id="root"></div></body>`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	token, _, err := (share.TokenGenerator{Reader: strings.NewReader(strings.Repeat("x", share.TokenBytes))}).Generate()
@@ -149,6 +149,74 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	}
 }
 
+func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
+	directory := t.TempDir()
+	index := `<!doctype html><html><head><title>Morsel</title></head><body><div id="root"></div><script src="/assets/app.js"></script></body></html>`
+	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := (share.TokenGenerator{Reader: strings.NewReader(strings.Repeat("i", share.TokenBytes))}).Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &previewSourceStub{result: share.Share{
+		ID: uuid.New(),
+		Content: `## Section
+
+- one
+- two
+
+` + "```mermaid\ngraph LR\nA-->B\n```" + `
+
+<script>alert("unsafe")</script>
+
+[unsafe](javascript:alert(1))`,
+		Preview:             &share.PreviewMetadata{Title: `Title <unsafe>`, Description: `Summary & details`},
+		TelegramInstantView: true,
+	}}
+	handler, err := New(directory, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/s/"+token, nil))
+	body := response.Body.String()
+	for _, want := range []string{
+		`<article data-morsel-instant-view>`,
+		`<h1 data-morsel-instant-view-title>Title &lt;unsafe&gt;</h1>`,
+		`<p data-morsel-instant-view-description>Summary &amp; details</p>`,
+		`<div data-morsel-instant-view-body><h2>Section</h2>`,
+		`<code class="language-mermaid">graph LR`,
+		`<script src="/assets/app.js"></script>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("Instant View body missing %q: %s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`<script>alert`, `href="javascript:`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("Instant View body contains unsafe output %q: %s", unwanted, body)
+		}
+	}
+	if source.calls != 1 || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("calls=%d headers=%v", source.calls, response.Header())
+	}
+
+	head := httptest.NewRecorder()
+	handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/s/"+token, nil))
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != response.Header().Get("Content-Length") {
+		t.Fatalf("HEAD status=%d length=%q body=%q", head.Code, head.Header().Get("Content-Length"), head.Body.String())
+	}
+
+	source.err = share.ErrRevoked
+	unavailable := httptest.NewRecorder()
+	handler.ServeHTTP(unavailable, httptest.NewRequest(http.MethodGet, "/s/"+token, nil))
+	if strings.Contains(unavailable.Body.String(), "Full article") || strings.Contains(unavailable.Body.String(), "data-morsel-instant-view") {
+		t.Fatalf("unavailable share exposed Instant View content: %s", unavailable.Body.String())
+	}
+}
+
 func TestNewRequiresValidIndex(t *testing.T) {
 	if _, err := New(t.TempDir(), nil); err == nil {
 		t.Fatal("expected missing index error")
@@ -159,5 +227,11 @@ func TestNewRequiresValidIndex(t *testing.T) {
 	}
 	if _, err := New(directory, nil); err == nil {
 		t.Fatal("expected closing head error")
+	}
+	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("<head></head><body></body>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(directory, nil); err == nil {
+		t.Fatal("expected missing root error")
 	}
 }

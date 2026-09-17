@@ -69,6 +69,18 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 	if validationError != "" {
 		return createBadRequest(validationError), nil
 	}
+	telegramInstantView := body.TelegramInstantView != nil && *body.TelegramInstantView
+	if telegramInstantView {
+		if preview == nil {
+			return createBadRequest("telegram_instant_view requires preview"), nil
+		}
+		if body.ExpiresIn != nil {
+			return createBadRequest("telegram_instant_view cannot be combined with expires_in"), nil
+		}
+		if body.MaxViews != nil {
+			return createBadRequest("telegram_instant_view cannot be combined with max_views"), nil
+		}
+	}
 
 	id := uuid.New()
 	for range maxTokenAttempts {
@@ -80,6 +92,7 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 		created, err := h.repository.Create(ctx, share.CreateParams{
 			ID: id, TokenHash: tokenHash, Content: body.Content,
 			ExpiresIn: body.ExpiresIn, MaxViews: body.MaxViews, Preview: preview,
+			TelegramInstantView: telegramInstantView,
 		})
 		if errors.Is(err, share.ErrTokenCollision) {
 			continue
@@ -98,6 +111,7 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 		return CreateShare201JSONResponse{
 			Id: created.ID, ShareUrl: viewerURL.String(), CreatedAt: created.CreatedAt,
 			ExpiresAt: created.ExpiresAt, MaxViews: created.MaxViews, Preview: responsePreview(created.Preview),
+			TelegramInstantView: created.TelegramInstantView,
 		}, nil
 	}
 	h.logError(ctx, "create share", errors.New("token collision retry limit reached"))
