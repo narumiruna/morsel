@@ -73,12 +73,10 @@ func (e HealthStatus) Valid() bool {
 // CreateShareRequest defines model for CreateShareRequest.
 type CreateShareRequest struct {
 	// Content Markdown limited by MORSEL_MAX_DOCUMENT_BYTES, measured in UTF-8 bytes.
-	Content   string `json:"content"`
-	ExpiresIn *int64 `json:"expires_in,omitempty"`
-	MaxViews  *int64 `json:"max_views,omitempty"`
-
-	// Preview Enable a non-consuming Open Graph excerpt at the path-based share URL.
-	Preview *bool `json:"preview,omitempty"`
+	Content   string           `json:"content"`
+	ExpiresIn *int64           `json:"expires_in,omitempty"`
+	MaxViews  *int64           `json:"max_views,omitempty"`
+	Preview   *PreviewMetadata `json:"preview,omitempty"`
 }
 
 // CreateShareResponse defines model for CreateShareResponse.
@@ -87,10 +85,8 @@ type CreateShareResponse struct {
 	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
 	Id        openapi_types.UUID `json:"id"`
 	MaxViews  *int64             `json:"max_views,omitempty"`
-
-	// Preview Whether the share URL exposes a non-consuming Open Graph excerpt.
-	Preview  bool   `json:"preview"`
-	ShareUrl string `json:"share_url"`
+	Preview   *PreviewMetadata   `json:"preview,omitempty"`
+	ShareUrl  string             `json:"share_url"`
 }
 
 // Error defines model for Error.
@@ -109,6 +105,15 @@ type Health struct {
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// PreviewMetadata defines model for PreviewMetadata.
+type PreviewMetadata struct {
+	// Description Plain-text Open Graph description; surrounding whitespace is trimmed and control or line-separator characters are rejected.
+	Description string `json:"description"`
+
+	// Title Plain-text Open Graph title; surrounding whitespace is trimmed and control or line-separator characters are rejected.
+	Title string `json:"title"`
+}
 
 // Share defines model for Share.
 type Share struct {

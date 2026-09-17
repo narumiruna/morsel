@@ -46,7 +46,7 @@ func (r *repositoryStub) Create(_ context.Context, params share.CreateParams) (s
 		result.Content = params.Content
 		result.CreatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 		result.MaxViews = params.MaxViews
-		result.PreviewEnabled = params.PreviewEnabled
+		result.Preview = params.Preview
 	}
 	if index < len(r.createErrors) {
 		return result, r.createErrors[index]
@@ -77,7 +77,7 @@ func testRouter(t *testing.T, repository share.Repository, tokenReader io.Reader
 	service := NewService(repository, share.TokenGenerator{Reader: tokenReader}, viewerURL, maxDocumentBytes, logger)
 	return NewRouter(service, RouterConfig{
 		APIKeys:        []string{testAPIKey},
-		MaxRequestBody: 256, RequestTimeout: time.Second, Logger: logger,
+		MaxRequestBody: maxDocumentBytes + 4096, RequestTimeout: time.Second, Logger: logger,
 	})
 }
 
@@ -136,11 +136,61 @@ func TestCreateShareRequiresContentAndRejectsNUL(t *testing.T) {
 	}
 }
 
+func TestCreateShareValidatesPreviewMetadata(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		message string
+	}{
+		{name: "boolean true", body: `{"content":"ok","preview":true}`, message: "invalid preview"},
+		{name: "boolean false", body: `{"content":"ok","preview":false}`, message: "invalid preview"},
+		{name: "null", body: `{"content":"ok","preview":null}`, message: "invalid preview"},
+		{name: "array", body: `{"content":"ok","preview":[]}`, message: "invalid preview"},
+		{name: "string", body: `{"content":"ok","preview":"metadata"}`, message: "invalid preview"},
+		{name: "missing title", body: `{"content":"ok","preview":{"description":"description"}}`, message: "preview requires title and description"},
+		{name: "missing description", body: `{"content":"ok","preview":{"title":"title"}}`, message: "preview requires title and description"},
+		{name: "unknown field", body: `{"content":"ok","preview":{"title":"title","description":"description","image":"no"}}`, message: "invalid preview"},
+		{name: "blank title", body: `{"content":"ok","preview":{"title":"　 ","description":"description"}}`},
+		{name: "blank description", body: `{"content":"ok","preview":{"title":"title","description":"  "}}`},
+		{name: "title control", body: `{"content":"ok","preview":{"title":"title\nline","description":"description"}}`},
+		{name: "description control", body: `{"content":"ok","preview":{"title":"title","description":"description\u0085line"}}`},
+		{name: "title line separator", body: `{"content":"ok","preview":{"title":"title\u2028line","description":"description"}}`},
+		{name: "title too long", body: `{"content":"ok","preview":{"title":"` + strings.Repeat("界", maxPreviewTitleRunes+1) + `","description":"description"}}`},
+		{name: "description too long", body: `{"content":"ok","preview":{"title":"title","description":"` + strings.Repeat("界", maxPreviewDescriptionRunes+1) + `"}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &repositoryStub{}
+			handler := testRouter(t, repository, nil, nil, 100)
+			response := request(t, handler, http.MethodPost, "/v1/shares", test.body, "Bearer "+testAPIKey)
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_request") ||
+				(test.message != "" && !strings.Contains(response.Body.String(), test.message)) || len(repository.created) != 0 {
+				t.Fatalf("status=%d body=%s created=%d", response.Code, response.Body.String(), len(repository.created))
+			}
+		})
+	}
+
+	repository := &repositoryStub{}
+	handler := testRouter(t, repository, nil, nil, 100)
+	title := strings.Repeat("界", maxPreviewTitleRunes)
+	description := strings.Repeat("文", maxPreviewDescriptionRunes)
+	payload, err := json.Marshal(CreateShareRequest{
+		Content: "ok", Preview: &PreviewMetadata{Title: title, Description: description},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := request(t, handler, http.MethodPost, "/v1/shares", string(payload), "Bearer "+testAPIKey)
+	if response.Code != http.StatusCreated || len(repository.created) != 1 || repository.created[0].Preview == nil || repository.created[0].Preview.Title != title || repository.created[0].Preview.Description != description {
+		t.Fatalf("status=%d body=%s created=%+v", response.Code, response.Body.String(), repository.created)
+	}
+}
+
 func TestCreateShareCollisionRecoveryAndFailure(t *testing.T) {
 	repository := &repositoryStub{createErrors: []error{share.ErrTokenCollision, nil}}
 	entropy := bytes.NewReader(append(bytes.Repeat([]byte{1}, 32), bytes.Repeat([]byte{2}, 32)...))
 	handler := testRouter(t, repository, entropy, nil, 100)
-	response := request(t, handler, http.MethodPost, "/v1/shares", `{"content":"hello","max_views":2,"preview":true}`, "Bearer "+testAPIKey)
+	response := request(t, handler, http.MethodPost, "/v1/shares", `{"content":"hello","max_views":2,"preview":{"title":"  分享標題  ","description":"Safe <summary> & details."}}`, "Bearer "+testAPIKey)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -148,11 +198,14 @@ func TestCreateShareCollisionRecoveryAndFailure(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(body.ShareUrl, "https://morsel.example/s/") || !body.Preview || len(repository.created) != 2 {
+	wantPreview := PreviewMetadata{Title: "分享標題", Description: "Safe <summary> & details."}
+	if !strings.HasPrefix(body.ShareUrl, "https://morsel.example/s/") || body.Preview == nil || *body.Preview != wantPreview || len(repository.created) != 2 {
 		t.Fatalf("response=%+v calls=%d", body, len(repository.created))
 	}
-	if !repository.created[0].PreviewEnabled || !repository.created[1].PreviewEnabled {
-		t.Fatalf("preview setting not persisted: %+v", repository.created)
+	wantStoredPreview := share.PreviewMetadata{Title: wantPreview.Title, Description: wantPreview.Description}
+	if repository.created[0].Preview == nil || repository.created[1].Preview == nil ||
+		*repository.created[0].Preview != wantStoredPreview || *repository.created[1].Preview != wantStoredPreview {
+		t.Fatalf("preview metadata not persisted across retries: %+v", repository.created)
 	}
 	if repository.created[0].TokenHash == repository.created[1].TokenHash {
 		t.Fatal("collision retry reused token")
@@ -177,7 +230,7 @@ func TestCreateShareDefaultsPreviewOff(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(body.ShareUrl, "https://morsel.example/#/s/") || body.Preview || repository.created[0].PreviewEnabled {
+	if !strings.HasPrefix(body.ShareUrl, "https://morsel.example/#/s/") || body.Preview != nil || repository.created[0].Preview != nil {
 		t.Fatalf("default preview response=%+v params=%+v", body, repository.created[0])
 	}
 }
@@ -313,9 +366,16 @@ func TestSecurityHeadersAndSecretFreeLogs(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("successful consume status=%d", response.Code)
 	}
+	repository.createErrors = []error{errors.New("database unavailable")}
+	response = request(t, handler, http.MethodPost, "/v1/shares", `{"content":"private","preview":{"title":"secret title","description":"secret description"}}`, "Bearer "+testAPIKey)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("failed create status=%d", response.Code)
+	}
 	logText := logs.String()
-	if strings.Contains(logText, token) || strings.Contains(logText, testAPIKey) || strings.Contains(logText, "# hello") {
-		t.Fatalf("secret leaked in log: %s", logText)
+	for _, secret := range []string{token, testAPIKey, "# hello", "private", "secret title", "secret description"} {
+		if strings.Contains(logText, secret) {
+			t.Fatalf("secret %q leaked in log: %s", secret, logText)
+		}
 	}
 	for _, field := range []string{`"method":"GET"`, `"route":"/v1/shares/{share}"`, `"status":500`, `"request_id"`, `"latency_ms"`, `"share_id":"` + knownID.String() + `"`} {
 		if !strings.Contains(logText, field) {

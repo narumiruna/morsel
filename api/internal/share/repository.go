@@ -20,6 +20,11 @@ var (
 	ErrViewLimitExhausted = errors.New("share view limit exhausted")
 )
 
+type PreviewMetadata struct {
+	Title       string
+	Description string
+}
+
 type Share struct {
 	ID             uuid.UUID
 	Content        string
@@ -29,16 +34,16 @@ type Share struct {
 	ViewCount      int64
 	ViewsRemaining *int64
 	RevokedAt      *time.Time
-	PreviewEnabled bool
+	Preview        *PreviewMetadata
 }
 
 type CreateParams struct {
-	ID             uuid.UUID
-	TokenHash      [32]byte
-	Content        string
-	ExpiresIn      *int64
-	MaxViews       *int64
-	PreviewEnabled bool
+	ID        uuid.UUID
+	TokenHash [32]byte
+	Content   string
+	ExpiresIn *int64
+	MaxViews  *int64
+	Preview   *PreviewMetadata
 }
 
 type Repository interface {
@@ -63,15 +68,21 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 
 func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share, error) {
 	const query = `
-		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_enabled)
+		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_title, preview_description)
 		VALUES ($1, $2, $3,
 			CASE WHEN $4::bigint IS NULL THEN NULL ELSE statement_timestamp() + make_interval(secs => $4::double precision) END,
-			$5, $6)
-		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at, preview_enabled`
+			$5, $6, $7)
+		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at,
+			preview_title, preview_description`
+	var previewTitle, previewDescription *string
+	if p.Preview != nil {
+		previewTitle = &p.Preview.Title
+		previewDescription = &p.Preview.Description
+	}
 	var result Share
-	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews, p.PreviewEnabled).Scan(
+	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews, previewTitle, previewDescription).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
-		&result.ViewCount, &result.RevokedAt, &result.PreviewEnabled,
+		&result.ViewCount, &result.RevokedAt, &previewTitle, &previewDescription,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -80,6 +91,7 @@ func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share,
 		}
 		return Share{}, fmt.Errorf("insert share: %w", err)
 	}
+	result.Preview = previewMetadata(previewTitle, previewDescription)
 	return result, nil
 }
 
@@ -92,11 +104,11 @@ func (r *PostgresRepository) Consume(ctx context.Context, tokenHash [32]byte) (S
 		  AND (expires_at IS NULL OR expires_at > statement_timestamp())
 		  AND (max_views IS NULL OR view_count < max_views)
 		RETURNING id, content, created_at, expires_at, max_views, view_count,
-			CASE WHEN max_views IS NULL THEN NULL ELSE max_views - view_count END, revoked_at, preview_enabled`
+			CASE WHEN max_views IS NULL THEN NULL ELSE max_views - view_count END, revoked_at`
 	var result Share
 	err := r.pool.QueryRow(ctx, query, tokenHash[:]).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
-		&result.ViewCount, &result.ViewsRemaining, &result.RevokedAt, &result.PreviewEnabled,
+		&result.ViewCount, &result.ViewsRemaining, &result.RevokedAt,
 	)
 	if err == nil {
 		return result, nil
@@ -109,22 +121,31 @@ func (r *PostgresRepository) Consume(ctx context.Context, tokenHash [32]byte) (S
 
 func (r *PostgresRepository) Preview(ctx context.Context, tokenHash [32]byte) (Share, error) {
 	const query = `
-		SELECT id, content
+		SELECT id, preview_title, preview_description
 		FROM shares
 		WHERE token_hash = $1
-		  AND preview_enabled
+		  AND preview_title IS NOT NULL
+		  AND preview_description IS NOT NULL
 		  AND revoked_at IS NULL
 		  AND (expires_at IS NULL OR expires_at > statement_timestamp())
 		  AND (max_views IS NULL OR view_count < max_views)`
 	var result Share
-	if err := r.pool.QueryRow(ctx, query, tokenHash[:]).Scan(&result.ID, &result.Content); err != nil {
+	var previewTitle, previewDescription *string
+	if err := r.pool.QueryRow(ctx, query, tokenHash[:]).Scan(&result.ID, &previewTitle, &previewDescription); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Share{}, ErrNotFound
 		}
 		return Share{}, fmt.Errorf("preview share: %w", err)
 	}
-	result.PreviewEnabled = true
+	result.Preview = previewMetadata(previewTitle, previewDescription)
 	return result, nil
+}
+
+func previewMetadata(title, description *string) *PreviewMetadata {
+	if title == nil || description == nil {
+		return nil
+	}
+	return &PreviewMetadata{Title: *title, Description: *description}
 }
 
 func (r *PostgresRepository) diagnose(ctx context.Context, tokenHash [32]byte) error {

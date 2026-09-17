@@ -154,13 +154,26 @@ components:
           format: int64
           minimum: 1
         preview:
-          type: boolean
-          default: false
-          description: Enable a non-consuming Open Graph excerpt at the path-based share URL.
+          $ref: "#/components/schemas/PreviewMetadata"
+    PreviewMetadata:
+      type: object
+      additionalProperties: false
+      required: [title, description]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Plain-text Open Graph title; surrounding whitespace is trimmed and control or line-separator characters are rejected.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Plain-text Open Graph description; surrounding whitespace is trimmed and control or line-separator characters are rejected.
     CreateShareResponse:
       type: object
       additionalProperties: false
-      required: [id, share_url, created_at, preview]
+      required: [id, share_url, created_at]
       properties:
         id:
           type: string
@@ -178,8 +191,7 @@ components:
           type: [integer, "null"]
           format: int64
         preview:
-          type: boolean
-          description: Whether the share URL exposes a non-consuming Open Graph excerpt.
+          $ref: "#/components/schemas/PreviewMetadata"
     Share:
       type: object
       additionalProperties: false

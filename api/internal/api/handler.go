@@ -3,16 +3,23 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/narumiruna/morsel/api/internal/share"
 	"github.com/narumiruna/morsel/api/internal/telemetry"
 )
 
-const maxTokenAttempts = 3
+const (
+	maxTokenAttempts           = 3
+	maxPreviewTitleRunes       = 80
+	maxPreviewDescriptionRunes = 200
+)
 
 type Service struct {
 	repository       share.Repository
@@ -58,8 +65,11 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 	if body.MaxViews != nil && *body.MaxViews <= 0 {
 		return createBadRequest("max_views must be positive"), nil
 	}
+	preview, validationError := normalizePreview(body.Preview)
+	if validationError != "" {
+		return createBadRequest(validationError), nil
+	}
 
-	previewEnabled := body.Preview != nil && *body.Preview
 	id := uuid.New()
 	for range maxTokenAttempts {
 		token, tokenHash, err := h.tokens.Generate()
@@ -69,7 +79,7 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 		}
 		created, err := h.repository.Create(ctx, share.CreateParams{
 			ID: id, TokenHash: tokenHash, Content: body.Content,
-			ExpiresIn: body.ExpiresIn, MaxViews: body.MaxViews, PreviewEnabled: previewEnabled,
+			ExpiresIn: body.ExpiresIn, MaxViews: body.MaxViews, Preview: preview,
 		})
 		if errors.Is(err, share.ErrTokenCollision) {
 			continue
@@ -80,18 +90,54 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 		}
 		telemetry.SetShareID(ctx, created.ID.String())
 		viewerURL := *h.publicViewerURL
-		if previewEnabled {
+		if created.Preview != nil {
 			viewerURL.Path = "/s/" + token
 		} else {
 			viewerURL.Fragment = "/s/" + token
 		}
 		return CreateShare201JSONResponse{
 			Id: created.ID, ShareUrl: viewerURL.String(), CreatedAt: created.CreatedAt,
-			ExpiresAt: created.ExpiresAt, MaxViews: created.MaxViews, Preview: previewEnabled,
+			ExpiresAt: created.ExpiresAt, MaxViews: created.MaxViews, Preview: responsePreview(created.Preview),
 		}, nil
 	}
 	h.logError(ctx, "create share", errors.New("token collision retry limit reached"))
 	return createInternalError(), nil
+}
+
+func normalizePreview(preview *PreviewMetadata) (*share.PreviewMetadata, string) {
+	if preview == nil {
+		return nil, ""
+	}
+	title := strings.TrimSpace(preview.Title)
+	description := strings.TrimSpace(preview.Description)
+	for _, field := range []struct {
+		name  string
+		value string
+		limit int
+	}{
+		{name: "preview.title", value: title, limit: maxPreviewTitleRunes},
+		{name: "preview.description", value: description, limit: maxPreviewDescriptionRunes},
+	} {
+		if field.value == "" {
+			return nil, field.name + " must not be empty"
+		}
+		for _, character := range field.value {
+			if unicode.IsControl(character) || unicode.In(character, unicode.Zl, unicode.Zp) {
+				return nil, field.name + " must not contain control or line-separator characters"
+			}
+		}
+		if utf8.RuneCountInString(field.value) > field.limit {
+			return nil, fmt.Sprintf("%s must not exceed %d characters", field.name, field.limit)
+		}
+	}
+	return &share.PreviewMetadata{Title: title, Description: description}, ""
+}
+
+func responsePreview(preview *share.PreviewMetadata) *PreviewMetadata {
+	if preview == nil {
+		return nil
+	}
+	return &PreviewMetadata{Title: preview.Title, Description: preview.Description}
 }
 
 func (h *Service) ConsumeShare(ctx context.Context, request ConsumeShareRequestObject) (ConsumeShareResponseObject, error) {

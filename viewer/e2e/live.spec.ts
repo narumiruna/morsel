@@ -1,18 +1,23 @@
 import { expect, test } from "@playwright/test"
 
 const live = process.env.MORSEL_E2E_LIVE === "1"
-const apiBase = "http://127.0.0.1:12647"
+const apiBase = (process.env.MORSEL_E2E_API_BASE ?? "http://127.0.0.1:12647").replace(/\/+$/, "")
 const apiKey = process.env.MORSEL_E2E_API_KEY ?? ""
+
+interface PreviewMetadata {
+  title: string
+  description: string
+}
 
 interface CreatedShare {
   id: string
   share_url: string
-  preview: boolean
+  preview?: PreviewMetadata
 }
 
 async function createShare(
   content: string,
-  options: { max_views?: number; expires_in?: number; preview?: boolean } = {},
+  options: { max_views?: number; expires_in?: number; preview?: PreviewMetadata } = {},
 ): Promise<CreatedShare> {
   const response = await fetch(`${apiBase}/v1/shares`, {
     method: "POST",
@@ -52,14 +57,23 @@ graph LR
   await expect(page.locator(".katex")).toBeVisible()
   await expect(page.getByLabel("Mermaid diagram")).toBeVisible()
 
-  const previewed = await createShare("# Telegram preview\n\nA safe excerpt.", {
+  const preview = {
+    title: 'Telegram "preview"',
+    description: "A safe <summary> & details.",
+  }
+  const previewed = await createShare("# Document content must not become metadata", {
     max_views: 1,
-    preview: true,
+    preview,
   })
-  expect(previewed.preview).toBe(true)
+  expect(previewed.preview).toEqual(preview)
   const previewResponse = await fetch(previewed.share_url)
   expect(previewResponse.status).toBe(200)
-  await expect(previewResponse.text()).resolves.toContain('property="og:title"')
+  const previewHTML = await previewResponse.text()
+  expect(previewHTML).toContain('property="og:title" content="Telegram &#34;preview&#34;"')
+  expect(previewHTML).toContain(
+    'property="og:description" content="A safe &lt;summary&gt; &amp; details."',
+  )
+  expect(previewHTML).not.toContain("Document content must not become metadata")
   expect((await fetch(`${apiBase}/v1/shares/${tokenFrom(previewed)}`)).status).toBe(200)
   expect((await fetch(`${apiBase}/v1/shares/${tokenFrom(previewed)}`)).status).toBe(410)
 

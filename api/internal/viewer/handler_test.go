@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -86,7 +85,10 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	previewID := uuid.New()
-	source := &previewSourceStub{result: share.Share{ID: previewID, Content: "# A &quot; <unsafe>\n\nBody " + strings.Repeat("長", 220)}}
+	source := &previewSourceStub{result: share.Share{
+		ID: previewID, Content: "SECRET MARKDOWN",
+		Preview: &share.PreviewMetadata{Title: `A " & <unsafe>`, Description: "Body > details"},
+	}}
 	handler, err := New(directory, source)
 	if err != nil {
 		t.Fatal(err)
@@ -103,17 +105,26 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d headers=%v", response.Code, response.Header())
 	}
-	for _, want := range []string{`property="og:title"`, `content="A &amp;quot; &lt;unsafe&gt;"`, `property="og:description"`} {
+	for _, want := range []string{
+		`property="og:title"`, `content="A &#34; &amp; &lt;unsafe&gt;"`,
+		`property="og:description"`, `content="Body &gt; details"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("preview body missing %q: %s", want, body)
 		}
 	}
-	if strings.Contains(body, "<unsafe>") || source.calls != 1 {
-		t.Fatalf("unsafe or unexpected calls: calls=%d body=%s", source.calls, body)
+	if strings.Contains(body, "<unsafe>") || strings.Contains(body, source.result.Content) || source.calls != 1 {
+		t.Fatalf("unsafe, content-derived, or unexpected result: calls=%d body=%s", source.calls, body)
 	}
 	logText := logs.String()
 	if !strings.Contains(logText, `"route":"unmatched"`) || !strings.Contains(logText, `"share_id":"`+previewID.String()+`"`) || strings.Contains(logText, token) || strings.Contains(logText, source.result.Content) {
 		t.Fatalf("preview log missing route/share ID or exposed content: %s", logText)
+	}
+
+	head := httptest.NewRecorder()
+	handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/s/"+token, nil))
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") == "" || source.calls != 2 {
+		t.Fatalf("HEAD status=%d length=%q body=%q calls=%d", head.Code, head.Header().Get("Content-Length"), head.Body.String(), source.calls)
 	}
 
 	source.err = errors.New("preview unavailable")
@@ -123,30 +134,18 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 		t.Fatalf("unavailable preview exposed metadata: %s", response.Body.String())
 	}
 
+	source.err = nil
+	source.result.Preview = nil
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/s/"+token, nil))
+	if strings.Contains(response.Body.String(), `property="og:title"`) {
+		t.Fatalf("missing preview metadata generated a fallback: %s", response.Body.String())
+	}
+
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/s/short", nil))
-	if strings.Contains(response.Body.String(), `property="og:title"`) || source.calls != 2 {
+	if strings.Contains(response.Body.String(), `property="og:title"`) || source.calls != 4 {
 		t.Fatalf("malformed preview called source or exposed metadata: calls=%d body=%s", source.calls, response.Body.String())
-	}
-}
-
-func TestPreviewTextIsBounded(t *testing.T) {
-	title, description := previewText("# " + strings.Repeat("界", 100) + "\n\n" + strings.Repeat("文 ", 150))
-	if got := utf8.RuneCountInString(title); got > maxPreviewTitleRunes || !strings.HasSuffix(title, "…") {
-		t.Fatalf("title length=%d value=%q", got, title)
-	}
-	if got := utf8.RuneCountInString(description); got > maxPreviewDescriptionRunes || !strings.HasSuffix(description, "…") {
-		t.Fatalf("description length=%d value=%q", got, description)
-	}
-
-	title, description = previewText(strings.Repeat(" ", maxPreviewSourceBytes) + "outside prefix")
-	if title != "Morsel" || description != "Shared with Morsel." {
-		t.Fatalf("preview scanned beyond source bound: title=%q description=%q", title, description)
-	}
-
-	prefix := previewSourcePrefix(strings.Repeat("x", maxPreviewSourceBytes-1) + "界outside")
-	if len(prefix) > maxPreviewSourceBytes || !utf8.ValidString(prefix) {
-		t.Fatalf("prefix length=%d valid=%t", len(prefix), utf8.ValidString(prefix))
 	}
 }
 
