@@ -7,6 +7,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
 import { MermaidDiagram } from "./MermaidDiagram"
+import { VegaLiteChart } from "./VegaLiteChart"
 
 const mathTags = [
   "math",
@@ -97,13 +98,14 @@ function safeURL(url: string, key: string, node: { tagName: string }): string {
 
 export function MarkdownDocument({ content }: { content: string }) {
   let mermaidIndex = 0
+  let vegaLiteIndex = 0
   return (
     <article className="markdown-document">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
           [rehypeKatex, { strict: "error", trust: false, throwOnError: false }],
-          [rehypeHighlight, { detect: false, plainText: ["mermaid"] }],
+          [rehypeHighlight, { detect: false, plainText: ["mermaid", "vega-lite"] }],
           [rehypeSanitize, sanitizeSchema],
         ]}
         urlTransform={safeURL}
@@ -129,6 +131,9 @@ export function MarkdownDocument({ content }: { content: string }) {
             if (className === "language-mermaid") {
               return <MermaidDiagram source={source} index={mermaidIndex++} />
             }
+            if (className === "language-vega-lite") {
+              return <VegaLiteChart source={source} index={vegaLiteIndex++} />
+            }
             return (
               <code className={className} {...props}>
                 {children}
@@ -136,7 +141,8 @@ export function MarkdownDocument({ content }: { content: string }) {
             )
           },
           pre: ({ children }) =>
-            isValidElement(children) && children.type === MermaidDiagram ? (
+            isValidElement(children) &&
+            (children.type === MermaidDiagram || children.type === VegaLiteChart) ? (
               children
             ) : (
               <pre>{children}</pre>

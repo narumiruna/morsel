@@ -2,7 +2,7 @@
 
 > Morsel is a small, self-hosted, API-first service for creating capability-protected Markdown shares and rendering them in a same-origin web viewer.
 
-The public service is available at `https://morsel.narumi.dev/`. It supports GitHub Flavored Markdown, syntax-highlighted fenced code, KaTeX, and Mermaid. Authored HTML is not executed.
+The public service is available at `https://morsel.narumi.dev/`. It supports GitHub Flavored Markdown, syntax-highlighted fenced code, KaTeX, Mermaid, and fenced `vega-lite` charts with inline data. Authored HTML is not executed, and Vega-Lite charts cannot load external resources.
 
 Important usage notes:
 

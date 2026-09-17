@@ -16,12 +16,15 @@ vi.mock("mermaid", () => ({
     render: mermaidMock.render,
   },
 }))
+const vegaEmbedMock = vi.hoisted(() => vi.fn())
+vi.mock("vega-embed", () => ({ default: vegaEmbedMock }))
 const exportMock = vi.hoisted(() => ({
   createPngExport: vi.fn(),
   downloadDiagram: vi.fn(),
 }))
 vi.mock("./diagramExport", () => exportMock)
 const renderDiagram = mermaidMock.render
+const finalizeChart = vi.fn()
 
 beforeEach(() => {
   renderDiagram.mockReset()
@@ -31,6 +34,12 @@ beforeEach(() => {
   exportMock.createPngExport.mockReset()
   exportMock.createPngExport.mockResolvedValue(new Blob(["png"], { type: "image/png" }))
   exportMock.downloadDiagram.mockReset()
+  finalizeChart.mockReset()
+  vegaEmbedMock.mockReset()
+  vegaEmbedMock.mockImplementation(async (element: HTMLElement) => {
+    element.innerHTML = '<svg viewBox="0 0 10 10"><text>Vega chart</text></svg>'
+    return { finalize: finalizeChart }
+  })
 })
 
 describe("MarkdownDocument", () => {
@@ -114,6 +123,98 @@ alert("escaped")
     )
     expect(screen.getByAltText("vector")).not.toHaveAttribute("src")
     expect(container.innerHTML).not.toMatch(/onerror|onload|<svg/i)
+  })
+
+  it("renders Vega-Lite blocks locally with locked embed options", async () => {
+    const source = JSON.stringify({
+      usermeta: { embedOptions: { actions: true, loader: { baseURL: "https://evil.example" } } },
+      data: { values: [{ week: "W1", requests: 120 }] },
+      mark: "bar",
+      encoding: {
+        x: { field: "week", type: "nominal" },
+        y: { field: "requests", type: "quantitative" },
+      },
+    })
+    const { container } = render(
+      <MarkdownDocument content={`Before\n\n\`\`\`vega-lite\n${source}\n\`\`\`\n\nAfter`} />,
+    )
+
+    expect(await screen.findByText("Vega chart")).toBeVisible()
+    expect(screen.getByLabelText("Vega-Lite chart")).toBeVisible()
+    expect(container.querySelector("pre code.language-vega-lite")).not.toBeInTheDocument()
+    expect(screen.getByText("Before")).toBeInTheDocument()
+    expect(screen.getByText("After")).toBeInTheDocument()
+
+    const [element, spec, options] = vegaEmbedMock.mock.calls[0] as [
+      HTMLElement,
+      Record<string, unknown>,
+      {
+        actions: boolean
+        ast: boolean
+        loader: {
+          load: (uri: string) => Promise<string>
+          sanitize: (uri: string) => Promise<{ href: string }>
+        }
+        mode: string
+        renderer: string
+        tooltip: boolean
+      },
+    ]
+    expect(element).toHaveClass("vega-lite-chart")
+    expect(spec).not.toHaveProperty("usermeta")
+    expect(options).toMatchObject({
+      actions: false,
+      ast: true,
+      mode: "vega-lite",
+      renderer: "svg",
+      tooltip: false,
+    })
+    await expect(options.loader.load("https://evil.example/data.csv")).rejects.toThrow(
+      "External resources are disabled",
+    )
+    await expect(options.loader.sanitize("https://evil.example/image.png")).rejects.toThrow(
+      "External resources are disabled",
+    )
+  })
+
+  it("rerenders Vega-Lite charts for the dark theme and finalizes old views", async () => {
+    localStorage.setItem("morsel-theme", "light")
+    render(
+      <ThemeProvider>
+        <MarkdownDocument content={'```vega-lite\n{"mark":"bar"}\n```'} />
+      </ThemeProvider>,
+    )
+    await waitFor(() => expect(vegaEmbedMock).toHaveBeenCalledOnce())
+    expect(vegaEmbedMock.mock.calls[0]?.[2]).toMatchObject({ theme: undefined })
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("combobox", { name: "Theme" }))
+    await user.click(screen.getByRole("option", { name: "Dark" }))
+    await waitFor(() => expect(vegaEmbedMock).toHaveBeenCalledTimes(2))
+    expect(finalizeChart).toHaveBeenCalledOnce()
+    expect(vegaEmbedMock.mock.calls[1]?.[2]).toMatchObject({ theme: "dark" })
+  })
+
+  it("isolates invalid, oversized, and excess Vega-Lite charts", async () => {
+    const { rerender } = render(
+      <MarkdownDocument content={"Before\n\n```vega-lite\nnot JSON\n```\n\nAfter"} />,
+    )
+    expect(
+      await screen.findByText("This Vega-Lite chart could not be rendered."),
+    ).toBeInTheDocument()
+    expect(screen.getByText("Before")).toBeInTheDocument()
+    expect(screen.getByText("After")).toBeInTheDocument()
+
+    rerender(<MarkdownDocument content={`\`\`\`vega-lite\n${"x".repeat(50 * 1024 + 1)}\n\`\`\``} />)
+    expect(screen.getByText("This chart exceeds the 50 KiB source limit.")).toBeInTheDocument()
+
+    const charts = Array.from(
+      { length: 21 },
+      (_, index) => `\`\`\`vega-lite\n{"mark":"bar","description":"${index}"}\n\`\`\``,
+    ).join("\n\n")
+    rerender(<MarkdownDocument content={charts} />)
+    expect(screen.getByText("Only the first 20 Vega-Lite charts are rendered.")).toBeInTheDocument()
+    await waitFor(() => expect(vegaEmbedMock).toHaveBeenCalled())
   })
 
   it("renders Mermaid labels as sanitized SVG text", async () => {

@@ -1,6 +1,6 @@
 ---
 name: morsel-share-markdown
-description: Create Markdown shares through the Morsel API and return share URLs, including documents with LaTeX, Mermaid, and code blocks; use when the user asks to publish or share content with Morsel, retrieve or revoke a Morsel share, or diagnose a failed Morsel API request.
+description: Create Markdown shares through the Morsel API and return share URLs, including documents with LaTeX, Mermaid, Vega-Lite charts, and code blocks; use when the user asks to publish or share content with Morsel, retrieve or revoke a Morsel share, or diagnose a failed Morsel API request.
 ---
 
 # Morsel Markdown Shares
@@ -55,7 +55,9 @@ Do not change `.env`, Docker ports, Tunnel settings, or Cloudflare rules as part
 
 Preserve the requested language and content.
 Use `$...$` for inline LaTeX and `$$` on separate lines for display equations.
-Use fenced `mermaid` blocks for diagrams and language-tagged fences such as `python`, `rust`, and `go` for code.
+Use fenced `mermaid` blocks for diagrams and fenced `vega-lite` JSON blocks for charts.
+Keep Vega-Lite data inline because the viewer blocks external chart resources.
+Use language-tagged fences such as `python`, `rust`, and `go` for code.
 Do not rely on authored HTML or JavaScript execution in the viewer.
 Serialize the Markdown with a JSON library so backslashes, quotes, newlines, and Unicode survive unchanged.
 Send `content` as a string, not a filename.
