@@ -1,8 +1,10 @@
 package viewer
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,7 +13,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/narumiruna/morsel/api/internal/share"
+	"github.com/narumiruna/morsel/api/internal/telemetry"
 )
 
 type previewSourceStub struct {
@@ -80,14 +85,20 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := &previewSourceStub{result: share.Share{Content: "# A &quot; <unsafe>\n\nBody " + strings.Repeat("長", 220)}}
+	previewID := uuid.New()
+	source := &previewSourceStub{result: share.Share{ID: previewID, Content: "# A &quot; <unsafe>\n\nBody " + strings.Repeat("長", 220)}}
 	handler, err := New(directory, source)
 	if err != nil {
 		t.Fatal(err)
 	}
+	logs := &bytes.Buffer{}
+	router := chi.NewRouter()
+	router.Use(telemetry.RequestLogger(slog.New(slog.NewJSONHandler(logs, nil))))
+	router.Get("/registered", func(http.ResponseWriter, *http.Request) {})
+	router.NotFound(handler.ServeHTTP)
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/s/"+token, nil))
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/s/"+token, nil))
 	body := response.Body.String()
 	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d headers=%v", response.Code, response.Header())
@@ -99,6 +110,10 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	}
 	if strings.Contains(body, "<unsafe>") || source.calls != 1 {
 		t.Fatalf("unsafe or unexpected calls: calls=%d body=%s", source.calls, body)
+	}
+	logText := logs.String()
+	if !strings.Contains(logText, `"route":"unmatched"`) || !strings.Contains(logText, `"share_id":"`+previewID.String()+`"`) || strings.Contains(logText, token) || strings.Contains(logText, source.result.Content) {
+		t.Fatalf("preview log missing route/share ID or exposed content: %s", logText)
 	}
 
 	source.err = errors.New("preview unavailable")
@@ -122,6 +137,16 @@ func TestPreviewTextIsBounded(t *testing.T) {
 	}
 	if got := utf8.RuneCountInString(description); got > maxPreviewDescriptionRunes || !strings.HasSuffix(description, "…") {
 		t.Fatalf("description length=%d value=%q", got, description)
+	}
+
+	title, description = previewText(strings.Repeat(" ", maxPreviewSourceBytes) + "outside prefix")
+	if title != "Morsel" || description != "Shared with Morsel." {
+		t.Fatalf("preview scanned beyond source bound: title=%q description=%q", title, description)
+	}
+
+	prefix := previewSourcePrefix(strings.Repeat("x", maxPreviewSourceBytes-1) + "界outside")
+	if len(prefix) > maxPreviewSourceBytes || !utf8.ValidString(prefix) {
+		t.Fatalf("prefix length=%d valid=%t", len(prefix), utf8.ValidString(prefix))
 	}
 }
 
