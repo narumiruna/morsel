@@ -76,19 +76,23 @@ export function VegaLiteChart({ source, index }: { source: string; index: number
     if (!target) return
     let active = true
     let finalize: (() => void) | undefined
+    const mount = document.createElement("div")
+    mount.className = "vega-lite-render"
     setReady(false)
     setError("")
-    target.replaceChildren()
-    void renderVegaLite(target, source, appearance).then(
+    target.replaceChildren(mount)
+    void renderVegaLite(mount, source, appearance).then(
       (result) => {
         if (!active) {
           result.finalize()
+          mount.remove()
           return
         }
         finalize = result.finalize
         setReady(true)
       },
       () => {
+        mount.remove()
         if (!active) return
         setError("This Vega-Lite chart could not be rendered.")
       },
@@ -96,7 +100,7 @@ export function VegaLiteChart({ source, index }: { source: string; index: number
     return () => {
       active = false
       finalize?.()
-      target.replaceChildren()
+      mount.remove()
     }
   }, [appearance, eligible, retry, source, withinLimits])
 
@@ -126,7 +130,7 @@ export function VegaLiteChart({ source, index }: { source: string; index: number
 
   return (
     <section ref={container} className="vega-lite-card" aria-busy={!ready}>
-      <div ref={chart} className="vega-lite-chart" role="img" aria-label="Vega-Lite chart" />
+      <div ref={chart} className="vega-lite-chart" />
       {!ready && (
         <div
           className="vega-lite-loading"

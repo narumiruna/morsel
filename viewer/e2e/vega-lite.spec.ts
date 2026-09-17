@@ -12,6 +12,7 @@ const content = `# Vega-Lite charts
       {"week": "W3", "requests": 150}
     ]
   },
+  "description": "Weekly request volume",
   "mark": "bar",
   "encoding": {
     "x": {"field": "week", "type": "nominal"},
@@ -56,6 +57,8 @@ test("renders inline Vega-Lite data and blocks external resources", async ({ pag
   await expect(charts).toHaveCount(2)
   await expect(charts.first().locator("svg")).toBeVisible()
   await expect(charts.first()).toContainText("W1")
+  const accessibleView = charts.first().locator('.vega-lite-render[role="graphics-document"]')
+  await expect(accessibleView).toHaveAttribute("aria-label", "Weekly request volume")
   await expect(charts.nth(1).locator("svg")).toBeVisible()
   await expect(page.locator("pre code.language-vega-lite")).toHaveCount(0)
   expect(externalRequests).toEqual([])

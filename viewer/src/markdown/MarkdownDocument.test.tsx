@@ -36,7 +36,9 @@ beforeEach(() => {
   exportMock.downloadDiagram.mockReset()
   finalizeChart.mockReset()
   vegaEmbedMock.mockReset()
-  vegaEmbedMock.mockImplementation(async (element: HTMLElement) => {
+  vegaEmbedMock.mockImplementation(async (element: HTMLElement, spec: { description?: string }) => {
+    element.setAttribute("role", "graphics-document")
+    element.setAttribute("aria-label", spec.description ?? "Vega visualization")
     element.innerHTML = '<svg viewBox="0 0 10 10"><text>Vega chart</text></svg>'
     return { finalize: finalizeChart }
   })
@@ -129,6 +131,7 @@ alert("escaped")
     const source = JSON.stringify({
       usermeta: { embedOptions: { actions: true, loader: { baseURL: "https://evil.example" } } },
       data: { values: [{ week: "W1", requests: 120 }] },
+      description: "Weekly request volume",
       mark: "bar",
       encoding: {
         x: { field: "week", type: "nominal" },
@@ -140,7 +143,7 @@ alert("escaped")
     )
 
     expect(await screen.findByText("Vega chart")).toBeVisible()
-    expect(screen.getByLabelText("Vega-Lite chart")).toBeVisible()
+    expect(screen.getByRole("graphics-document", { name: "Weekly request volume" })).toBeVisible()
     expect(container.querySelector("pre code.language-vega-lite")).not.toBeInTheDocument()
     expect(screen.getByText("Before")).toBeInTheDocument()
     expect(screen.getByText("After")).toBeInTheDocument()
@@ -160,7 +163,7 @@ alert("escaped")
         tooltip: boolean
       },
     ]
-    expect(element).toHaveClass("vega-lite-chart")
+    expect(element).toHaveClass("vega-lite-render")
     expect(spec).not.toHaveProperty("usermeta")
     expect(options).toMatchObject({
       actions: false,
@@ -193,6 +196,43 @@ alert("escaped")
     await waitFor(() => expect(vegaEmbedMock).toHaveBeenCalledTimes(2))
     expect(finalizeChart).toHaveBeenCalledOnce()
     expect(vegaEmbedMock.mock.calls[1]?.[2]).toMatchObject({ theme: "dark" })
+  })
+
+  it("removes a superseded Vega-Lite render that finishes after a theme change", async () => {
+    const finalizeLight = vi.fn()
+    const finalizeDark = vi.fn()
+    let finishLight: (() => void) | undefined
+    vegaEmbedMock
+      .mockImplementationOnce(
+        (element: HTMLElement) =>
+          new Promise<{ finalize: () => void }>((resolve) => {
+            finishLight = () => {
+              element.innerHTML = "<svg><text>Stale light chart</text></svg>"
+              resolve({ finalize: finalizeLight })
+            }
+          }),
+      )
+      .mockImplementationOnce(async (element: HTMLElement) => {
+        element.innerHTML = "<svg><text>Current dark chart</text></svg>"
+        return { finalize: finalizeDark }
+      })
+    localStorage.setItem("morsel-theme", "light")
+    const { container } = render(
+      <ThemeProvider>
+        <MarkdownDocument content={'```vega-lite\n{"mark":"bar"}\n```'} />
+      </ThemeProvider>,
+    )
+    await waitFor(() => expect(vegaEmbedMock).toHaveBeenCalledOnce())
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("combobox", { name: "Theme" }))
+    await user.click(screen.getByRole("option", { name: "Dark" }))
+    expect(await screen.findByText("Current dark chart")).toBeVisible()
+
+    await act(async () => finishLight?.())
+    await waitFor(() => expect(finalizeLight).toHaveBeenCalledOnce())
+    expect(screen.queryByText("Stale light chart")).not.toBeInTheDocument()
+    expect(container.querySelectorAll(".vega-lite-render")).toHaveLength(1)
   })
 
   it("isolates invalid, oversized, and excess Vega-Lite charts", async () => {

@@ -230,7 +230,7 @@ Diagrams near the viewport render on demand. Failed renders preserve their sourc
 
 Fenced `vega-lite` blocks containing JSON render as SVG charts near the viewport and rerender for light and dark appearances. Morsel allows up to 20 charts per document and 50 KiB of UTF-8 source per chart.
 
-Chart data must be inline. The viewer disables Vega-Lite external data, image, and link resources, authored embed options, tooltips, and action menus.
+Chart data must be inline. The viewer disables Vega-Lite external data, image, and link resources, expansive data generators and transforms, authored embed options, tooltips, and action menus.
 
 ### Backend
 
@@ -281,7 +281,7 @@ The runner rejects dirty, unknown, or gapped migration histories. Apply migratio
 - Request logs use route templates instead of token-bearing paths and omit bodies and authorization headers.
 - Authored HTML is disabled. Markdown and KaTeX output pass through a reviewed sanitation schema.
 - KaTeX trust is disabled. Mermaid renders sequentially with strict security, source and count limits, and DOMPurify SVG sanitation.
-- Vega-Lite uses interpreted expressions, inline-only resources, disabled embed options and tooltips, and source and count limits.
+- Vega-Lite uses interpreted expressions, inline-only resources, rejected expansive generators and transforms, disabled embed options and tooltips, and source and count limits.
 - External links use `noopener noreferrer`; images use `Referrer-Policy: no-referrer` and lazy loading.
 - Production serves the API and viewer from one HTTPS origin and does not enable browser CORS.
 
