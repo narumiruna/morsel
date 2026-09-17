@@ -108,11 +108,15 @@ export async function createPngExport(svg: SVGSVGElement, appearance: Appearance
   }
 }
 
-export function downloadDiagram(blob: Blob, extension: "png" | "svg"): void {
+export function downloadDiagram(
+  blob: Blob,
+  extension: "png" | "svg",
+  basename = "mermaid-diagram",
+): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url
-  link.download = `mermaid-diagram.${extension}`
+  link.download = `${basename}.${extension}`
   link.hidden = true
   document.body.append(link)
   link.click()

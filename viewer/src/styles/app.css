@@ -293,25 +293,9 @@ summary {
   padding-block: 0.5rem;
 }
 
-.vega-lite-card {
-  position: relative;
-  min-height: 8rem;
-  margin-block: 1.5rem;
-  overflow: auto;
-  border: 1px solid var(--gray-a5);
-  border-radius: var(--radius-4);
-  padding: 1rem;
-  background: var(--diagram-panel, var(--color-background));
-}
-
-.vega-lite-chart {
-  display: flex;
-  min-width: min-content;
-  justify-content: center;
-}
-
 .vega-lite-chart svg {
   display: block;
+  max-width: none;
 }
 
 .vega-lite-loading {
@@ -405,7 +389,8 @@ summary {
   touch-action: none;
 }
 
-.mermaid-diagram {
+.mermaid-diagram,
+.vega-lite-chart {
   position: absolute;
   top: 0;
   left: 0;

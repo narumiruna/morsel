@@ -13,7 +13,7 @@ import {
   SizeIcon,
 } from "@radix-ui/react-icons"
 import * as Tooltip from "@radix-ui/react-tooltip"
-import { useCallback, useEffect, useId, useRef, useState } from "react"
+import { type RefObject, useCallback, useEffect, useId, useRef, useState } from "react"
 import { ActionButton } from "../components/ActionButton"
 import type { Appearance } from "../theme"
 import { createPngExport, downloadDiagram } from "./diagramExport"
@@ -21,11 +21,18 @@ import { createDiagramView, type DiagramViewController } from "./diagramView"
 
 interface DiagramViewerProps {
   appearance?: Appearance
+  cardClassName?: string
+  graphicClassName?: string
+  graphicName?: string
+  graphicRole?: "img" | null
+  ready?: boolean
   refreshing?: boolean
   renderError?: string
   retryRender?: () => void
   source: string
-  svg: string
+  stageRef?: RefObject<HTMLDivElement | null>
+  svg?: string
+  type?: "chart" | "diagram"
 }
 
 interface IsolationRecord {
@@ -41,15 +48,29 @@ interface ScrollLockRecord {
 
 export function DiagramViewer({
   appearance = "light",
+  cardClassName = "",
+  graphicClassName = "mermaid-diagram",
+  graphicName = "Mermaid diagram",
+  graphicRole = "img",
+  ready = true,
   refreshing = false,
   renderError = "",
   retryRender,
   source,
-  svg,
+  stageRef,
+  svg = "",
+  type = "diagram",
 }: DiagramViewerProps) {
   const card = useRef<HTMLDivElement>(null)
   const viewport = useRef<HTMLDivElement>(null)
   const stage = useRef<HTMLDivElement>(null)
+  const setStage = useCallback(
+    (element: HTMLDivElement | null) => {
+      stage.current = element
+      if (stageRef) stageRef.current = element
+    },
+    [stageRef],
+  )
   const controller = useRef<DiagramViewController | undefined>(undefined)
   const opener = useRef<HTMLElement | undefined>(undefined)
   const isolation = useRef<IsolationRecord[] | undefined>(undefined)
@@ -153,10 +174,10 @@ export function DiagramViewer({
   }, [closeFallback])
 
   useEffect(() => {
-    if (!svg) return
+    if (!ready || (svg && !stage.current?.querySelector("svg"))) return
     const frame = requestAnimationFrame(() => controller.current?.refresh())
     return () => cancelAnimationFrame(frame)
-  }, [svg])
+  }, [ready, svg])
 
   useEffect(() => {
     const update = () => {
@@ -240,18 +261,25 @@ export function DiagramViewer({
   }
 
   function downloadSVG() {
-    downloadDiagram(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }), "svg")
+    const graphic = stage.current?.querySelector("svg")
+    const source = svg || graphic?.outerHTML
+    if (!source) return
+    downloadDiagram(
+      new Blob([source], { type: "image/svg+xml;charset=utf-8" }),
+      "svg",
+      type === "chart" ? "vega-lite-chart" : "mermaid-diagram",
+    )
     setStatus("SVG download started.")
   }
 
   async function downloadPNG() {
-    const diagram = stage.current?.querySelector(":scope > svg")
+    const diagram = stage.current?.querySelector("svg")
     if (!(diagram instanceof SVGSVGElement) || exporting) return
     setExporting(true)
     setStatus("Creating PNG…")
     try {
       const png = await createPngExport(diagram, appearance)
-      downloadDiagram(png, "png")
+      downloadDiagram(png, "png", type === "chart" ? "vega-lite-chart" : "mermaid-diagram")
       setStatus("PNG download started.")
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "PNG export failed.")
@@ -268,10 +296,13 @@ export function DiagramViewer({
   }
 
   const tooltipContainer = expanded ? card.current : undefined
-  const liveStatus = refreshing ? "Refreshing diagram theme…" : renderError || status
+  const liveStatus = refreshing ? `Refreshing ${type} theme…` : renderError || status
+  const cardClasses = `diagram-card${cardClassName ? ` ${cardClassName}` : ""}${
+    fallback ? " diagram-expanded" : ""
+  }`
 
   return (
-    <div className={`diagram-card${fallback ? " diagram-expanded" : ""}`} ref={card}>
+    <div className={cardClasses} ref={card} aria-busy={!ready || refreshing}>
       <Tooltip.Provider delayDuration={350}>
         <fieldset className="diagram-controls" aria-label="Diagram controls">
           <ActionButton
@@ -279,7 +310,7 @@ export function DiagramViewer({
             label="Zoom out"
             tooltipContainer={tooltipContainer}
             variant="soft"
-            disabled={showSource || zoom <= 25}
+            disabled={!ready || showSource || zoom <= 25}
             onClick={() => controller.current?.zoomBy(0.8)}
           >
             <MinusIcon />
@@ -290,7 +321,7 @@ export function DiagramViewer({
             label="Zoom in"
             tooltipContainer={tooltipContainer}
             variant="soft"
-            disabled={showSource || zoom >= 400}
+            disabled={!ready || showSource || zoom >= 400}
             onClick={() => controller.current?.zoomBy(1.25)}
           >
             <PlusIcon />
@@ -300,7 +331,7 @@ export function DiagramViewer({
             label="Fit to screen"
             tooltipContainer={tooltipContainer}
             variant="soft"
-            disabled={showSource}
+            disabled={!ready || showSource}
             onClick={() => controller.current?.setCameraMode("overview")}
           >
             <SizeIcon />
@@ -310,7 +341,7 @@ export function DiagramViewer({
             label="Reset zoom"
             tooltipContainer={tooltipContainer}
             variant="soft"
-            disabled={showSource}
+            disabled={!ready || showSource}
             onClick={() => controller.current?.reset()}
           >
             <ResetIcon />
@@ -326,7 +357,7 @@ export function DiagramViewer({
           </ActionButton>
           <ActionButton
             className="diagram-control"
-            label={showSource ? "Show diagram" : "Show source"}
+            label={showSource ? `Show ${type}` : "Show source"}
             tooltipContainer={tooltipContainer}
             variant="soft"
             aria-controls={sourceID}
@@ -349,6 +380,7 @@ export function DiagramViewer({
             label="Download SVG"
             tooltipContainer={tooltipContainer}
             variant="soft"
+            disabled={!ready}
             onClick={downloadSVG}
           >
             <DownloadIcon />
@@ -358,7 +390,7 @@ export function DiagramViewer({
             label="Download PNG"
             tooltipContainer={tooltipContainer}
             variant="soft"
-            disabled={exporting}
+            disabled={!ready || exporting}
             onClick={() => void downloadPNG()}
           >
             <ImageIcon />
@@ -366,7 +398,7 @@ export function DiagramViewer({
           {renderError && retryRender && (
             <ActionButton
               className="diagram-control"
-              label="Retry diagram"
+              label={`Retry ${type}`}
               tooltipContainer={tooltipContainer}
               variant="soft"
               disabled={refreshing}
@@ -383,16 +415,32 @@ export function DiagramViewer({
         hidden={showSource}
         // biome-ignore lint/a11y/noNoninteractiveTabindex: The diagram viewport provides documented pan and zoom keyboard controls.
         tabIndex={0}
-        aria-label="Interactive Mermaid diagram. Use arrow keys to pan, plus or minus to zoom, and zero to fit."
+        aria-label={`Interactive ${graphicName}. Use arrow keys to pan, plus or minus to zoom, and zero to fit.`}
       >
-        <div
-          ref={stage}
-          className="mermaid-diagram"
-          role="img"
-          aria-label="Mermaid diagram"
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: SVG is sanitized by MermaidDiagram before insertion.
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
+        {graphicRole ? (
+          <div
+            ref={setStage}
+            className={graphicClassName}
+            role="img"
+            aria-label={graphicName}
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: Mermaid SVG is sanitized before insertion.
+            dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
+          />
+        ) : (
+          <div
+            ref={setStage}
+            className={graphicClassName}
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: This mount is populated only by the trusted local renderer.
+            dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
+          />
+        )}
+        {!ready && (
+          <div
+            className="vega-lite-loading"
+            role="status"
+            aria-label={`Rendering ${graphicName}`}
+          />
+        )}
       </section>
       {cropped && !showSource && (
         <p className="diagram-pan-hint">

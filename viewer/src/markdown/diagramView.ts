@@ -97,7 +97,7 @@ export function createDiagramView(
   const expanded = () => options.isExpanded?.() === true
 
   function svg(): SVGSVGElement | undefined {
-    const candidate = stage.querySelector(":scope > svg")
+    const candidate = stage.querySelector("svg")
     return candidate instanceof SVGSVGElement ? candidate : undefined
   }
 
