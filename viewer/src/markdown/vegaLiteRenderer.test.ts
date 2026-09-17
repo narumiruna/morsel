@@ -22,6 +22,44 @@ describe("parseVegaLiteSpec", () => {
     })
   })
 
+  it("accepts named inline datasets as data", () => {
+    const spec = {
+      datasets: { rows: [{ calculate: "sequence(0, 10)", value: 1 }] },
+      data: { name: "rows" },
+      mark: "bar",
+    }
+
+    expect(parseVegaLiteSpec(source(spec))).toEqual(spec)
+  })
+
+  it("accepts repeat compositions at the view limit", () => {
+    const rows = Array.from({ length: 4 }, (_, index) => `row-${index}`)
+    const columns = Array.from({ length: 5 }, (_, index) => `column-${index}`)
+    const spec = { repeat: { row: rows, column: columns }, spec: { mark: "bar" } }
+
+    expect(parseVegaLiteSpec(source(spec))).toEqual(spec)
+  })
+
+  it("rejects repeat compositions that create too many views", () => {
+    const fields = Array.from({ length: 5 }, (_, index) => `field-${index}`)
+    const spec = {
+      repeat: { row: fields, column: fields },
+      spec: { mark: "bar" },
+    }
+
+    expect(() => parseVegaLiteSpec(source(spec))).toThrow(/repeat.*limit/i)
+  })
+
+  it("counts nested repeat compositions toward the view limit", () => {
+    const fields = Array.from({ length: 5 }, (_, index) => `field-${index}`)
+    const spec = {
+      repeat: fields,
+      spec: { repeat: fields, spec: { mark: "bar" } },
+    }
+
+    expect(() => parseVegaLiteSpec(source(spec))).toThrow(/repeat.*limit/i)
+  })
+
   it.each([
     ["sequence data", { data: { sequence: { start: 0, stop: 1_000_000_000 } } }],
     ["nested graticule data", { layer: [{ data: { graticule: { precision: 1e-12 } } }] }],

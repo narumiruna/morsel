@@ -6,6 +6,7 @@ import type { Appearance } from "../theme"
 
 export const maxVegaLiteBytes = 50 * 1024
 
+const maxVegaLiteRepeatViews = 20
 const expansiveDataGenerators = ["sequence", "graticule"] as const
 const expansiveTransforms = [
   "density",
@@ -66,14 +67,36 @@ function expressionGeneratesSequence(expression: string): boolean {
   }
 }
 
-function validateResourceBounds(value: unknown, context: SpecContext = "spec"): void {
+function repeatCardinality(value: unknown): number {
+  if (Array.isArray(value)) return value.length
+  if (!value || typeof value !== "object") return 1
+
+  const mapping = value as Record<string, unknown>
+  return ["row", "column", "layer"].reduce((count, dimension) => {
+    const fields = mapping[dimension]
+    return Array.isArray(fields) ? count * fields.length : count
+  }, 1)
+}
+
+function validateResourceBounds(
+  value: unknown,
+  context: SpecContext = "spec",
+  repeatedViews = 1,
+): void {
   if (Array.isArray(value)) {
-    for (const entry of value) validateResourceBounds(entry, context)
+    for (const entry of value) validateResourceBounds(entry, context, repeatedViews)
     return
   }
   if (!value || typeof value !== "object") return
 
   const object = value as Record<string, unknown>
+  let childRepeatedViews = repeatedViews
+  if (context === "spec" && Object.hasOwn(object, "repeat") && Object.hasOwn(object, "spec")) {
+    childRepeatedViews *= repeatCardinality(object.repeat)
+    if (childRepeatedViews > maxVegaLiteRepeatViews) {
+      throw new Error(`Vega-Lite repeat limit is ${maxVegaLiteRepeatViews} views.`)
+    }
+  }
   if (
     context === "data" &&
     expansiveDataGenerators.some((property) => Object.hasOwn(object, property))
@@ -93,7 +116,9 @@ function validateResourceBounds(value: unknown, context: SpecContext = "spec"): 
   for (const [key, child] of Object.entries(object)) {
     // Inline data is already bounded by the chart source limit. Treat its
     // property names and string values as data rather than specification syntax.
-    if (context === "data" && key === "values") continue
+    if ((context === "data" && key === "values") || (context === "spec" && key === "datasets")) {
+      continue
+    }
     if (
       typeof child === "string" &&
       isExpressionProperty(key) &&
@@ -102,7 +127,7 @@ function validateResourceBounds(value: unknown, context: SpecContext = "spec"): 
       throw new Error("Sequence-generating Vega expressions are disabled.")
     }
     const childContext = key === "data" ? "data" : key === "transform" ? "transform" : "spec"
-    validateResourceBounds(child, childContext)
+    validateResourceBounds(child, childContext, childRepeatedViews)
   }
 }
 
