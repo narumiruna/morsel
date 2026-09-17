@@ -180,6 +180,44 @@ alert("escaped")
     )
   })
 
+  it("gives Vega-Lite charts the shared viewer controls and exports", async () => {
+    const source = JSON.stringify({
+      data: { values: [{ category: "A", value: 1 }] },
+      description: "Controlled chart",
+      mark: "bar",
+      encoding: {
+        x: { field: "category", type: "nominal" },
+        y: { field: "value", type: "quantitative" },
+      },
+    })
+    render(<MarkdownDocument content={`\`\`\`vega-lite\n${source}\n\`\`\``} />)
+
+    await screen.findByRole("graphics-document", { name: "Controlled chart" })
+    expect(screen.getByRole("button", { name: "Fit to screen" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Fullscreen" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Show source" })).toBeVisible()
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("125%")
+    fireEvent.click(screen.getByRole("button", { name: "Show source" }))
+    expect(screen.getByText(source)).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Show chart" }))
+
+    fireEvent.click(screen.getByRole("button", { name: "Download SVG" }))
+    expect(exportMock.downloadDiagram).toHaveBeenCalledWith(
+      expect.any(Blob),
+      "svg",
+      "vega-lite-chart",
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Download PNG" }))
+    await waitFor(() => expect(exportMock.createPngExport).toHaveBeenCalled())
+    expect(exportMock.downloadDiagram).toHaveBeenCalledWith(
+      expect.any(Blob),
+      "png",
+      "vega-lite-chart",
+    )
+  })
+
   it("rerenders Vega-Lite charts for the dark theme and finalizes old views", async () => {
     localStorage.setItem("morsel-theme", "light")
     render(

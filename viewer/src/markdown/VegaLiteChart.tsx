@@ -2,6 +2,7 @@ import { ExclamationTriangleIcon, ReloadIcon } from "@radix-ui/react-icons"
 import { Button, Callout } from "@radix-ui/themes"
 import { useEffect, useRef, useState } from "react"
 import { useAppearance } from "../theme"
+import { DiagramViewer } from "./DiagramViewer"
 import { maxVegaLiteBytes, renderVegaLite } from "./vegaLiteRenderer"
 
 export const maxVegaLiteCharts = 20
@@ -43,7 +44,7 @@ function ChartError({
 
 export function VegaLiteChart({ source, index }: { source: string; index: number }) {
   const appearance = useAppearance()
-  const container = useRef<HTMLElement>(null)
+  const pending = useRef<HTMLDivElement>(null)
   const chart = useRef<HTMLDivElement>(null)
   const [eligible, setEligible] = useState(() => typeof IntersectionObserver !== "function")
   const [ready, setReady] = useState(false)
@@ -54,7 +55,7 @@ export function VegaLiteChart({ source, index }: { source: string; index: number
 
   useEffect(() => {
     if (!withinLimits || eligible || typeof IntersectionObserver !== "function") return
-    const target = container.current
+    const target = pending.current
     if (!target) return
     const observer = new IntersectionObserver(
       (entries) => {
@@ -115,6 +116,16 @@ export function VegaLiteChart({ source, index }: { source: string; index: number
   if (byteLength > maxVegaLiteBytes) {
     return <ChartError message="This chart exceeds the 50 KiB source limit." source={source} />
   }
+  if (!eligible) {
+    return (
+      <div
+        ref={pending}
+        className="diagram-loading"
+        role="status"
+        aria-label="Waiting to render Vega-Lite chart"
+      />
+    )
+  }
   if (error) {
     return (
       <ChartError
@@ -129,15 +140,16 @@ export function VegaLiteChart({ source, index }: { source: string; index: number
   }
 
   return (
-    <section ref={container} className="vega-lite-card" aria-busy={!ready}>
-      <div ref={chart} className="vega-lite-chart" />
-      {!ready && (
-        <div
-          className="vega-lite-loading"
-          role="status"
-          aria-label={eligible ? "Rendering Vega-Lite chart" : "Waiting to render Vega-Lite chart"}
-        />
-      )}
-    </section>
+    <DiagramViewer
+      appearance={appearance}
+      cardClassName="vega-lite-card"
+      graphicClassName="vega-lite-chart"
+      graphicName="Vega-Lite chart"
+      graphicRole={null}
+      ready={ready}
+      source={source}
+      stageRef={chart}
+      type="chart"
+    />
   )
 }

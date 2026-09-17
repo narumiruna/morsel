@@ -233,7 +233,7 @@ Diagrams near the viewport render on demand. Failed renders preserve their sourc
 
 #### Vega-Lite charts
 
-Fenced `vega-lite` blocks containing JSON render as SVG charts near the viewport and rerender for light and dark appearances. Morsel allows up to 20 charts per document, 20 repeated views per chart, and 50 KiB of UTF-8 source per chart.
+Fenced `vega-lite` blocks containing JSON render as SVG charts near the viewport and rerender for light and dark appearances. Charts use the same fit, zoom, pan, fullscreen, source, copy, SVG export, and PNG export controls as Mermaid diagrams. Morsel allows up to 20 charts per document, 20 repeated views per chart, and 50 KiB of UTF-8 source per chart.
 
 Chart data must be inline. The viewer disables Vega-Lite external data, image, and link resources, expansive data generators and transforms, authored embed options, tooltips, and action menus.
 

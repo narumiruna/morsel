@@ -196,7 +196,7 @@ describe("DiagramViewer", () => {
     await waitFor(() => expect(createPngExport).toHaveBeenCalled())
     expect(createPngExport).toHaveBeenCalledWith(expect.any(SVGSVGElement), "dark")
     await screen.findByText("PNG download started.")
-    expect(downloadDiagram).toHaveBeenCalledWith(expect.any(Blob), "png")
+    expect(downloadDiagram).toHaveBeenCalledWith(expect.any(Blob), "png", "mermaid-diagram")
     expect(button).toHaveFocus()
   })
 
