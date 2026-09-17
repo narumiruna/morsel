@@ -19,6 +19,15 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 		t.Fatalf("second up: %v", err)
 	}
 
+	assertColumnCount(t, pool, "telegram_instant_view", 1)
+	if _, err := pool.Exec(ctx, `INSERT INTO shares (id, token_hash, content, telegram_instant_view) VALUES ($1, $2, 'invalid', true)`, uuid.New(), bytes.Repeat([]byte{9}, 32)); err == nil {
+		t.Fatal("expected Instant View constraint failure")
+	}
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("down Instant View migration: %v", err)
+	}
+	assertColumnCount(t, pool, "telegram_instant_view", 0)
+
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatalf("down preview metadata migration: %v", err)
 	}
@@ -34,6 +43,7 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 	}
 	assertColumnCount(t, pool, "preview_enabled", 0)
 	assertColumnCount(t, pool, "preview_title", 1)
+	assertColumnCount(t, pool, "telegram_instant_view", 1)
 	var title, description string
 	if err := pool.QueryRow(ctx, "SELECT preview_title, preview_description FROM shares WHERE id=$1", legacyID).Scan(&title, &description); err != nil {
 		t.Fatal(err)
@@ -62,6 +72,9 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 		})
 	}
 
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("second down Instant View migration: %v", err)
+	}
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatalf("second down preview metadata migration: %v", err)
 	}

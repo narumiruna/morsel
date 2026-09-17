@@ -26,24 +26,26 @@ type PreviewMetadata struct {
 }
 
 type Share struct {
-	ID             uuid.UUID
-	Content        string
-	CreatedAt      time.Time
-	ExpiresAt      *time.Time
-	MaxViews       *int64
-	ViewCount      int64
-	ViewsRemaining *int64
-	RevokedAt      *time.Time
-	Preview        *PreviewMetadata
+	ID                  uuid.UUID
+	Content             string
+	CreatedAt           time.Time
+	ExpiresAt           *time.Time
+	MaxViews            *int64
+	ViewCount           int64
+	ViewsRemaining      *int64
+	RevokedAt           *time.Time
+	Preview             *PreviewMetadata
+	TelegramInstantView bool
 }
 
 type CreateParams struct {
-	ID        uuid.UUID
-	TokenHash [32]byte
-	Content   string
-	ExpiresIn *int64
-	MaxViews  *int64
-	Preview   *PreviewMetadata
+	ID                  uuid.UUID
+	TokenHash           [32]byte
+	Content             string
+	ExpiresIn           *int64
+	MaxViews            *int64
+	Preview             *PreviewMetadata
+	TelegramInstantView bool
 }
 
 type Repository interface {
@@ -68,21 +70,21 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 
 func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share, error) {
 	const query = `
-		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_title, preview_description)
+		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_title, preview_description, telegram_instant_view)
 		VALUES ($1, $2, $3,
 			CASE WHEN $4::bigint IS NULL THEN NULL ELSE statement_timestamp() + make_interval(secs => $4::double precision) END,
-			$5, $6, $7)
+			$5, $6, $7, $8)
 		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at,
-			preview_title, preview_description`
+			preview_title, preview_description, telegram_instant_view`
 	var previewTitle, previewDescription *string
 	if p.Preview != nil {
 		previewTitle = &p.Preview.Title
 		previewDescription = &p.Preview.Description
 	}
 	var result Share
-	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews, previewTitle, previewDescription).Scan(
+	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews, previewTitle, previewDescription, p.TelegramInstantView).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
-		&result.ViewCount, &result.RevokedAt, &previewTitle, &previewDescription,
+		&result.ViewCount, &result.RevokedAt, &previewTitle, &previewDescription, &result.TelegramInstantView,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -121,7 +123,8 @@ func (r *PostgresRepository) Consume(ctx context.Context, tokenHash [32]byte) (S
 
 func (r *PostgresRepository) Preview(ctx context.Context, tokenHash [32]byte) (Share, error) {
 	const query = `
-		SELECT id, preview_title, preview_description
+		SELECT id, CASE WHEN telegram_instant_view THEN content ELSE '' END,
+			preview_title, preview_description, telegram_instant_view
 		FROM shares
 		WHERE token_hash = $1
 		  AND preview_title IS NOT NULL
@@ -131,7 +134,9 @@ func (r *PostgresRepository) Preview(ctx context.Context, tokenHash [32]byte) (S
 		  AND (max_views IS NULL OR view_count < max_views)`
 	var result Share
 	var previewTitle, previewDescription *string
-	if err := r.pool.QueryRow(ctx, query, tokenHash[:]).Scan(&result.ID, &previewTitle, &previewDescription); err != nil {
+	if err := r.pool.QueryRow(ctx, query, tokenHash[:]).Scan(
+		&result.ID, &result.Content, &previewTitle, &previewDescription, &result.TelegramInstantView,
+	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Share{}, ErrNotFound
 		}

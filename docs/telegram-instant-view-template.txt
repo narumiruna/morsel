@@ -1,0 +1,16 @@
+# Install this template for the deployment's public Morsel domain.
+# A template rhash is deployment-specific and is not included in Morsel.
+~version: "2.1"
+
+?path: /s/[A-Za-z0-9_-]{43}
+?exists: //article[@data-morsel-instant-view]
+
+site_name: "Morsel"
+title: //article[@data-morsel-instant-view]//*[@data-morsel-instant-view-title]
+description: //article[@data-morsel-instant-view]//*[@data-morsel-instant-view-description]
+body: //article[@data-morsel-instant-view]//*[@data-morsel-instant-view-body]
+
+# Preserve GFM task state using characters supported by Instant View.
+@before("☑ "): $body//input[@type="checkbox" and @checked]
+@before("☐ "): $body//input[@type="checkbox" and not(@checked)]
+@remove: $body//input[@type="checkbox"]

@@ -87,10 +87,11 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		decoder.DisallowUnknownFields()
 		var parsed struct {
-			Content   *string         `json:"content"`
-			ExpiresIn *int64          `json:"expires_in"`
-			MaxViews  *int64          `json:"max_views"`
-			Preview   json.RawMessage `json:"preview"`
+			Content             *string         `json:"content"`
+			ExpiresIn           *int64          `json:"expires_in"`
+			MaxViews            *int64          `json:"max_views"`
+			Preview             json.RawMessage `json:"preview"`
+			TelegramInstantView json.RawMessage `json:"telegram_instant_view"`
 		}
 		if err := decoder.Decode(&parsed); err != nil {
 			writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "invalid request")
@@ -103,6 +104,14 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 		if parsed.Content == nil {
 			writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "content is required")
 			return
+		}
+		if len(parsed.TelegramInstantView) > 0 {
+			var enabled bool
+			value := bytes.TrimSpace(parsed.TelegramInstantView)
+			if bytes.Equal(value, []byte("null")) || json.Unmarshal(value, &enabled) != nil {
+				writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "telegram_instant_view must be a boolean")
+				return
+			}
 		}
 		if len(parsed.Preview) > 0 {
 			previewDecoder := json.NewDecoder(bytes.NewReader(parsed.Preview))

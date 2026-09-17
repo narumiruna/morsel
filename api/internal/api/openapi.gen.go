@@ -77,16 +77,20 @@ type CreateShareRequest struct {
 	ExpiresIn *int64           `json:"expires_in,omitempty"`
 	MaxViews  *int64           `json:"max_views,omitempty"`
 	Preview   *PreviewMetadata `json:"preview,omitempty"`
+
+	// TelegramInstantView Expose a non-consuming, server-rendered article for Telegram Instant View. Requires preview and cannot be combined with expires_in or max_views because Telegram caches articles independently.
+	TelegramInstantView *bool `json:"telegram_instant_view,omitempty"`
 }
 
 // CreateShareResponse defines model for CreateShareResponse.
 type CreateShareResponse struct {
-	CreatedAt time.Time          `json:"created_at"`
-	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
-	Id        openapi_types.UUID `json:"id"`
-	MaxViews  *int64             `json:"max_views,omitempty"`
-	Preview   *PreviewMetadata   `json:"preview,omitempty"`
-	ShareUrl  string             `json:"share_url"`
+	CreatedAt           time.Time          `json:"created_at"`
+	ExpiresAt           *time.Time         `json:"expires_at,omitempty"`
+	Id                  openapi_types.UUID `json:"id"`
+	MaxViews            *int64             `json:"max_views,omitempty"`
+	Preview             *PreviewMetadata   `json:"preview,omitempty"`
+	ShareUrl            string             `json:"share_url"`
+	TelegramInstantView bool               `json:"telegram_instant_view"`
 }
 
 // Error defines model for Error.
