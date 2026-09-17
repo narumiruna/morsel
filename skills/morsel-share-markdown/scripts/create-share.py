@@ -5,22 +5,22 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
-import shlex
 import subprocess
 import sys
 import unicodedata
-from urllib.parse import urlsplit
+
+from morsel_config import (
+    add_config_arguments,
+    fail,
+    load_config,
+    quote_curl_config,
+    safe_curl_diagnostic,
+    validate_origin,
+)
 
 
-CONFIG_NAMES = ("MORSEL_URL", "MORSEL_API_KEY")
 PREVIEW_LIMITS = {"title": 80, "description": 200}
-
-
-def fail(message):
-    print(f"Error: {message}", file=sys.stderr)
-    raise SystemExit(1)
 
 
 def parse_args():
@@ -28,11 +28,7 @@ def parse_args():
         description="Create one Morsel share using curl; never retries or consumes a view."
     )
     parser.add_argument("markdown", type=Path, help="UTF-8 Markdown file")
-    source = parser.add_mutually_exclusive_group()
-    source.add_argument("--env-file", type=Path, help="Use only this dotenv file")
-    source.add_argument(
-        "--environment", action="store_true", help="Use only environment variables"
-    )
+    add_config_arguments(parser)
     parser.add_argument("--expires-in", type=int, help="Lifetime in seconds")
     parser.add_argument("--max-views", type=int, help="Maximum successful retrievals")
     parser.add_argument("--preview-title", help="Plain-text Open Graph title")
@@ -60,102 +56,6 @@ def parse_args():
     return args
 
 
-def read_dotenv(path):
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError):
-        fail("cannot read selected dotenv file")
-
-    config = {}
-    for line in lines:
-        line = line.strip()
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        name, separator, value = line.partition("=")
-        name = name.strip()
-        if not separator or name not in CONFIG_NAMES:
-            continue
-
-        # A hash starts a comment only outside quotes at a token boundary.
-        quoted = None
-        escaped = False
-        for index, character in enumerate(value):
-            if escaped:
-                escaped = False
-            elif character == "\\" and quoted != "'":
-                escaped = True
-            elif quoted:
-                if character == quoted:
-                    quoted = None
-            elif character in "\"'":
-                quoted = character
-            elif character == "#" and (
-                index == 0 or value[index - 1].isspace()
-            ):
-                value = value[:index]
-                break
-        try:
-            parts = shlex.split(value, comments=False)
-        except ValueError:
-            fail(f"invalid dotenv quoting for {name}")
-        if len(parts) > 1:
-            fail(f"invalid dotenv value for {name}")
-        config[name] = parts[0] if parts else ""
-    return config
-
-
-def load_config(args):
-    if args.env_file is None and (
-        args.environment or any(name in os.environ for name in CONFIG_NAMES)
-    ):
-        config = {name: os.environ.get(name, "") for name in CONFIG_NAMES}
-    else:
-        config = read_dotenv(args.env_file or Path(".env"))
-
-    missing = [name for name in CONFIG_NAMES if not config.get(name, "").strip()]
-    if missing:
-        fail("missing configuration: " + ", ".join(missing))
-    return config
-
-
-def validate_origin(config):
-    url = config["MORSEL_URL"].strip()
-    api_key = next(
-        (key.strip() for key in config["MORSEL_API_KEY"].split(",") if key.strip()),
-        "",
-    )
-    if not api_key:
-        fail("missing configuration: MORSEL_API_KEY")
-    if any(ord(character) < 32 or ord(character) == 127 for character in url + api_key):
-        fail("configuration contains control characters")
-
-    try:
-        parsed = urlsplit(url)
-        valid = (
-            parsed.scheme in ("http", "https")
-            and parsed.hostname
-            and parsed.username is None
-            and parsed.password is None
-            and parsed.path in ("", "/")
-            and "?" not in url
-            and "#" not in url
-        )
-        parsed.port
-    except ValueError:
-        valid = False
-    if not valid:
-        fail(
-            "MORSEL_URL must be an HTTP(S) origin without credentials, path, query, or fragment"
-        )
-    if parsed.scheme == "http" and parsed.hostname not in (
-        "localhost",
-        "127.0.0.1",
-        "::1",
-    ):
-        fail("MORSEL_URL must use HTTPS except for localhost, 127.0.0.1, or ::1")
-    return url.rstrip("/"), api_key, parsed
-
-
 def read_payload(args):
     try:
         content = args.markdown.read_bytes().decode("utf-8")
@@ -173,10 +73,6 @@ def read_payload(args):
             "description": args.preview_description,
         }
     return payload
-
-
-def quote_curl_config(value):
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def create_share(url, api_key, configured_keys, parsed_url, payload):
@@ -224,16 +120,12 @@ def create_share(url, api_key, configured_keys, parsed_url, payload):
     if status != "201" or result.returncode:
         # Do not echo intermediary bodies, which could contain credentials.
         safe_status = status if status.isdigit() and len(status) == 3 else "unknown"
-        diagnostic = result.stderr
-        secrets = {api_key, configured_keys, *configured_keys.split(",")}
-        for secret in sorted(secrets, key=len, reverse=True):
-            if secret.strip():
-                diagnostic = diagnostic.replace(secret.strip(), "[REDACTED]")
-        diagnostic = "".join(
-            character if character.isprintable() else " " for character in diagnostic
+        diagnostic = safe_curl_diagnostic(
+            result.stderr,
+            {api_key, configured_keys, *configured_keys.split(",")},
         )
         if diagnostic.strip():
-            print("curl: " + diagnostic[:1024], file=sys.stderr)
+            print("curl: " + diagnostic, file=sys.stderr)
         fail(
             f"creation not confirmed (HTTP {safe_status}, curl exit {result.returncode}); "
             "not retried; a share may exist if transmission occurred"
