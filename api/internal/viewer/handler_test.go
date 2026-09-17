@@ -103,7 +103,7 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d headers=%v", response.Code, response.Header())
 	}
-	for _, want := range []string{`property="og:title"`, `content="A &amp;quot; &lt;unsafe&gt;"`, `property="og:description"`} {
+	for _, want := range []string{`property="og:title"`, `content="A &#34;"`, `property="og:description"`, `content="Body 長`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("preview body missing %q: %s", want, body)
 		}
@@ -127,6 +127,24 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/s/short", nil))
 	if strings.Contains(response.Body.String(), `property="og:title"`) || source.calls != 2 {
 		t.Fatalf("malformed preview called source or exposed metadata: calls=%d body=%s", source.calls, response.Body.String())
+	}
+}
+
+func TestPreviewTextRemovesMarkdownAndHeadingFromDescription(t *testing.T) {
+	content := "# Morsel Link Preview 範例\n\n這是一份啟用 **Open Graph preview** 的 Markdown 分享。\n\n> Preview 可重複讀取而不消耗文件的 view。"
+	title, description := previewText(content)
+	if title != "Morsel Link Preview 範例" {
+		t.Fatalf("title=%q", title)
+	}
+	if description != "這是一份啟用 Open Graph preview 的 Markdown 分享。 Preview 可重複讀取而不消耗文件的 view。" {
+		t.Fatalf("description=%q", description)
+	}
+}
+
+func TestPreviewTextExtractsReadableLinkAndCodeText(t *testing.T) {
+	title, description := previewText("## [Release notes](https://example.com)\n\nRun `go test` with **the new build**.")
+	if title != "Release notes" || description != "Run go test with the new build." {
+		t.Fatalf("title=%q description=%q", title, description)
 	}
 }
 

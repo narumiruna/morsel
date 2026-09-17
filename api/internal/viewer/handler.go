@@ -14,6 +14,10 @@ import (
 
 	"github.com/narumiruna/morsel/api/internal/share"
 	"github.com/narumiruna/morsel/api/internal/telemetry"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/text"
 )
 
 const (
@@ -21,6 +25,8 @@ const (
 	maxPreviewDescriptionRunes = 200
 	maxPreviewSourceBytes      = 4 << 10
 )
+
+var previewMarkdown = goldmark.New(goldmark.WithExtensions(extension.GFM))
 
 type PreviewSource interface {
 	Preview(context.Context, [32]byte) (share.Share, error)
@@ -110,21 +116,67 @@ func addOpenGraphMetadata(index []byte, content string) []byte {
 }
 
 func previewText(content string) (string, string) {
-	content = previewSourcePrefix(content)
-	description := strings.Join(strings.Fields(content), " ")
+	source := []byte(previewSourcePrefix(content))
+	document := previewMarkdown.Parser().Parse(text.NewReader(source))
 	title := "Morsel"
-	for line := range strings.SplitSeq(content, "\n") {
-		candidate := strings.TrimSpace(line)
-		candidate = strings.TrimSpace(strings.TrimLeft(candidate, "#>*+-`_~ "))
-		if candidate != "" {
-			title = candidate
-			break
+	titleFound := false
+	parts := make([]string, 0, document.ChildCount())
+	for block := document.FirstChild(); block != nil; block = block.NextSibling() {
+		plainText := previewNodeText(block, source)
+		if plainText == "" {
+			continue
 		}
+		if !titleFound {
+			title = plainText
+			titleFound = true
+			if _, isHeading := block.(*ast.Heading); isHeading {
+				continue
+			}
+		}
+		parts = append(parts, plainText)
 	}
+	description := strings.Join(parts, " ")
 	if description == "" {
 		description = "Shared with Morsel."
 	}
 	return truncateRunes(title, maxPreviewTitleRunes), truncateRunes(description, maxPreviewDescriptionRunes)
+}
+
+func previewNodeText(node ast.Node, source []byte) string {
+	var result strings.Builder
+	_ = ast.Walk(node, func(current ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			if current.Type() == ast.TypeBlock {
+				result.WriteByte(' ')
+			}
+			return ast.WalkContinue, nil
+		}
+		switch current := current.(type) {
+		case *ast.Text:
+			result.Write(current.Value(source))
+			if current.SoftLineBreak() || current.HardLineBreak() {
+				result.WriteByte(' ')
+			}
+		case *ast.String:
+			result.Write(current.Value)
+		case *ast.CodeBlock:
+			writePreviewLines(&result, current.Lines(), source)
+			return ast.WalkSkipChildren, nil
+		case *ast.FencedCodeBlock:
+			writePreviewLines(&result, current.Lines(), source)
+			return ast.WalkSkipChildren, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return html.UnescapeString(strings.Join(strings.Fields(result.String()), " "))
+}
+
+func writePreviewLines(result *strings.Builder, lines *text.Segments, source []byte) {
+	for index := 0; index < lines.Len(); index++ {
+		line := lines.At(index)
+		result.Write(line.Value(source))
+		result.WriteByte(' ')
+	}
 }
 
 func previewSourcePrefix(content string) string {
