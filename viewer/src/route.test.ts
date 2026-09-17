@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { parseHash } from "./route"
+import { parseHash, parseRoute } from "./route"
 
 const token = "A".repeat(43)
+
+describe("parseRoute", () => {
+  it("parses path-based preview routes before hash routes", () => {
+    expect(parseRoute(`/s/${token}`, "")).toEqual({ kind: "share", token })
+    expect(parseRoute("/s/short", "")).toEqual({ kind: "invalid-share" })
+    expect(parseRoute("/unknown", "")).toEqual({ kind: "not-found" })
+    expect(parseRoute("/", `#/s/${token}`)).toEqual({ kind: "share", token })
+  })
+})
 
 describe("parseHash", () => {
   it("parses the root", () => {

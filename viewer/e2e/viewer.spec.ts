@@ -42,7 +42,7 @@ test("renders safely under the production CSP and uses one request", async ({ pa
   page.on("request", (request) => {
     if (request.url().includes(`/v1/shares/${token}`)) requests += 1
   })
-  const response = await page.goto(`#/s/${token}`)
+  const response = await page.goto(`/s/${token}`)
   expect(response).not.toBeNull()
   await expect(page.getByRole("heading", { name: "Browser smoke" })).toBeVisible()
   await expect(page.getByRole("table")).toBeVisible()

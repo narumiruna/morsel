@@ -29,19 +29,22 @@ type Share struct {
 	ViewCount      int64
 	ViewsRemaining *int64
 	RevokedAt      *time.Time
+	PreviewEnabled bool
 }
 
 type CreateParams struct {
-	ID        uuid.UUID
-	TokenHash [32]byte
-	Content   string
-	ExpiresIn *int64
-	MaxViews  *int64
+	ID             uuid.UUID
+	TokenHash      [32]byte
+	Content        string
+	ExpiresIn      *int64
+	MaxViews       *int64
+	PreviewEnabled bool
 }
 
 type Repository interface {
 	Create(context.Context, CreateParams) (Share, error)
 	Consume(context.Context, [32]byte) (Share, error)
+	Preview(context.Context, [32]byte) (Share, error)
 	Revoke(context.Context, uuid.UUID) (bool, error)
 	Ping(context.Context) error
 }
@@ -60,15 +63,15 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 
 func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share, error) {
 	const query = `
-		INSERT INTO shares (id, token_hash, content, expires_at, max_views)
+		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_enabled)
 		VALUES ($1, $2, $3,
 			CASE WHEN $4::bigint IS NULL THEN NULL ELSE statement_timestamp() + make_interval(secs => $4::double precision) END,
-			$5)
-		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at`
+			$5, $6)
+		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at, preview_enabled`
 	var result Share
-	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews).Scan(
+	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews, p.PreviewEnabled).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
-		&result.ViewCount, &result.RevokedAt,
+		&result.ViewCount, &result.RevokedAt, &result.PreviewEnabled,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -89,11 +92,11 @@ func (r *PostgresRepository) Consume(ctx context.Context, tokenHash [32]byte) (S
 		  AND (expires_at IS NULL OR expires_at > statement_timestamp())
 		  AND (max_views IS NULL OR view_count < max_views)
 		RETURNING id, content, created_at, expires_at, max_views, view_count,
-			CASE WHEN max_views IS NULL THEN NULL ELSE max_views - view_count END, revoked_at`
+			CASE WHEN max_views IS NULL THEN NULL ELSE max_views - view_count END, revoked_at, preview_enabled`
 	var result Share
 	err := r.pool.QueryRow(ctx, query, tokenHash[:]).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
-		&result.ViewCount, &result.ViewsRemaining, &result.RevokedAt,
+		&result.ViewCount, &result.ViewsRemaining, &result.RevokedAt, &result.PreviewEnabled,
 	)
 	if err == nil {
 		return result, nil
@@ -102,6 +105,26 @@ func (r *PostgresRepository) Consume(ctx context.Context, tokenHash [32]byte) (S
 		return Share{}, fmt.Errorf("consume share: %w", err)
 	}
 	return Share{}, r.diagnose(ctx, tokenHash)
+}
+
+func (r *PostgresRepository) Preview(ctx context.Context, tokenHash [32]byte) (Share, error) {
+	const query = `
+		SELECT id, content
+		FROM shares
+		WHERE token_hash = $1
+		  AND preview_enabled
+		  AND revoked_at IS NULL
+		  AND (expires_at IS NULL OR expires_at > statement_timestamp())
+		  AND (max_views IS NULL OR view_count < max_views)`
+	var result Share
+	if err := r.pool.QueryRow(ctx, query, tokenHash[:]).Scan(&result.ID, &result.Content); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Share{}, ErrNotFound
+		}
+		return Share{}, fmt.Errorf("preview share: %w", err)
+	}
+	result.PreviewEnabled = true
+	return result, nil
 }
 
 func (r *PostgresRepository) diagnose(ctx context.Context, tokenHash [32]byte) error {
