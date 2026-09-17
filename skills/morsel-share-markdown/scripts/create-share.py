@@ -10,10 +10,12 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import unicodedata
 from urllib.parse import urlsplit
 
 
 CONFIG_NAMES = ("MORSEL_URL", "MORSEL_API_KEY")
+PREVIEW_LIMITS = {"title": 80, "description": 200}
 
 
 def fail(message):
@@ -33,11 +35,28 @@ def parse_args():
     )
     parser.add_argument("--expires-in", type=int, help="Lifetime in seconds")
     parser.add_argument("--max-views", type=int, help="Maximum successful retrievals")
+    parser.add_argument("--preview-title", help="Plain-text Open Graph title")
+    parser.add_argument("--preview-description", help="Plain-text Open Graph description")
     args = parser.parse_args()
     if args.expires_in is not None and not 1 <= args.expires_in <= 315360000:
         parser.error("--expires-in must be between 1 and 315360000")
     if args.max_views is not None and args.max_views < 1:
         parser.error("--max-views must be positive")
+    if (args.preview_title is None) != (args.preview_description is None):
+        parser.error("--preview-title and --preview-description must be provided together")
+    for field in PREVIEW_LIMITS:
+        option = "--preview-" + field
+        raw_value = getattr(args, "preview_" + field)
+        value = raw_value.strip() if raw_value is not None else None
+        if value is None:
+            continue
+        if not value:
+            parser.error(option + " must not be empty")
+        if any(unicodedata.category(character) in ("Cc", "Zl", "Zp") for character in value):
+            parser.error(option + " must not contain control or line-separator characters")
+        if len(value) > PREVIEW_LIMITS[field]:
+            parser.error(f"{option} must not exceed {PREVIEW_LIMITS[field]} characters")
+        setattr(args, "preview_" + field, value)
     return args
 
 
@@ -148,6 +167,11 @@ def read_payload(args):
         payload["expires_in"] = args.expires_in
     if args.max_views is not None:
         payload["max_views"] = args.max_views
+    if args.preview_title is not None:
+        payload["preview"] = {
+            "title": args.preview_title,
+            "description": args.preview_description,
+        }
     return payload
 
 
@@ -221,6 +245,8 @@ def create_share(url, api_key, configured_keys, parsed_url, payload):
             isinstance(response.get(name), str) and response[name]
             for name in ("id", "share_url")
         ):
+            raise ValueError
+        if "preview" in payload and response.get("preview") != payload["preview"]:
             raise ValueError
     except (ValueError, TypeError):
         fail("HTTP 201 returned invalid share metadata; not retried")

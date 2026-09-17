@@ -12,6 +12,26 @@ SCRIPT = Path(__file__).with_name("create-share.py")
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_unpaired_preview_stops_before_configuration_or_curl(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "doc.md").write_text("# Test\n")
+            curl = root / "curl"
+            curl.write_text("#!/bin/sh\ntouch curl-called\nexit 99\n")
+            curl.chmod(0o755)
+            env = {k: v for k, v in os.environ.items() if k not in ("MORSEL_URL", "MORSEL_API_KEY")}
+            env["PATH"] = str(root) + os.pathsep + env["PATH"]
+            result = subprocess.run(
+                [
+                    "uv", "run", "--no-config", "--script", str(SCRIPT.resolve()),
+                    "--preview-title", "Title", "doc.md",
+                ],
+                cwd=root, env=env, capture_output=True, text=True, timeout=30,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must be provided together", result.stderr)
+            self.assertFalse((root / "curl-called").exists())
+
     def test_source_selection(self):
         cases = [
             ("url only", {"MORSEL_URL": "https://env.example"}, [], "MORSEL_API_KEY", None),

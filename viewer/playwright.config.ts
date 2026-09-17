@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test"
 
 const live = process.env.MORSEL_E2E_LIVE === "1"
+const liveBaseURL = process.env.MORSEL_E2E_API_BASE ?? "http://127.0.0.1:12647"
 
 export default defineConfig({
   testDir: "./e2e",
@@ -8,7 +9,7 @@ export default defineConfig({
   retries: 0,
   reporter: "list",
   use: {
-    baseURL: live ? "http://127.0.0.1:12647/" : "http://127.0.0.1:4173/",
+    baseURL: live ? `${liveBaseURL}/` : "http://127.0.0.1:4173/",
     trace: "retain-on-failure",
   },
   webServer: live

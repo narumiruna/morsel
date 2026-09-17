@@ -10,16 +10,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/narumiruna/morsel/api/internal/share"
 	"github.com/narumiruna/morsel/api/internal/telemetry"
-)
-
-const (
-	maxPreviewTitleRunes       = 80
-	maxPreviewDescriptionRunes = 200
-	maxPreviewSourceBytes      = 4 << 10
 )
 
 type PreviewSource interface {
@@ -80,9 +73,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) serveShare(w http.ResponseWriter, r *http.Request, token string) {
 	page := h.index
 	if tokenHash, err := share.HashToken(token); err == nil && h.previews != nil {
-		if preview, err := h.previews.Preview(r.Context(), tokenHash); err == nil {
+		if preview, err := h.previews.Preview(r.Context(), tokenHash); err == nil && preview.Preview != nil {
 			telemetry.SetShareID(r.Context(), preview.ID.String())
-			page = addOpenGraphMetadata(page, preview.Content)
+			page = addOpenGraphMetadata(page, *preview.Preview)
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -93,13 +86,12 @@ func (h *Handler) serveShare(w http.ResponseWriter, r *http.Request, token strin
 	}
 }
 
-func addOpenGraphMetadata(index []byte, content string) []byte {
-	title, description := previewText(content)
+func addOpenGraphMetadata(index []byte, preview share.PreviewMetadata) []byte {
 	metadata := `<meta property="og:type" content="article">` +
 		`<meta property="og:site_name" content="Morsel">` +
-		`<meta property="og:title" content="` + html.EscapeString(title) + `">` +
-		`<meta property="og:description" content="` + html.EscapeString(description) + `">` +
-		`<meta name="description" content="` + html.EscapeString(description) + `">`
+		`<meta property="og:title" content="` + html.EscapeString(preview.Title) + `">` +
+		`<meta property="og:description" content="` + html.EscapeString(preview.Description) + `">` +
+		`<meta name="description" content="` + html.EscapeString(preview.Description) + `">`
 	closingHead := []byte("</head>")
 	position := bytes.Index(index, closingHead)
 	result := make([]byte, 0, len(index)+len(metadata))
@@ -107,41 +99,4 @@ func addOpenGraphMetadata(index []byte, content string) []byte {
 	result = append(result, metadata...)
 	result = append(result, index[position:]...)
 	return result
-}
-
-func previewText(content string) (string, string) {
-	content = previewSourcePrefix(content)
-	description := strings.Join(strings.Fields(content), " ")
-	title := "Morsel"
-	for line := range strings.SplitSeq(content, "\n") {
-		candidate := strings.TrimSpace(line)
-		candidate = strings.TrimSpace(strings.TrimLeft(candidate, "#>*+-`_~ "))
-		if candidate != "" {
-			title = candidate
-			break
-		}
-	}
-	if description == "" {
-		description = "Shared with Morsel."
-	}
-	return truncateRunes(title, maxPreviewTitleRunes), truncateRunes(description, maxPreviewDescriptionRunes)
-}
-
-func previewSourcePrefix(content string) string {
-	if len(content) <= maxPreviewSourceBytes {
-		return content
-	}
-	content = content[:maxPreviewSourceBytes]
-	for !utf8.ValidString(content) {
-		content = content[:len(content)-1]
-	}
-	return content
-}
-
-func truncateRunes(value string, limit int) string {
-	if utf8.RuneCountInString(value) <= limit {
-		return value
-	}
-	runes := []rune(value)
-	return strings.TrimSpace(string(runes[:limit-1])) + "…"
 }

@@ -27,7 +27,13 @@ class TransportTests(unittest.TestCase):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 requests.append((self.path, self.headers["Authorization"], body))
                 self.send_response(201 if len(body) <= 1114112 else 413)
-                response = getattr(self.server, "response", b'{"id":"test","share_url":"https://example.com/#/s/test"}')
+                response = getattr(self.server, "response", None)
+                if response is None:
+                    payload = json.loads(body)
+                    metadata = {"id": "test", "share_url": "https://example.com/#/s/test"}
+                    if "preview" in payload:
+                        metadata["preview"] = payload["preview"]
+                    response = json.dumps(metadata).encode()
                 if getattr(self.server, "send_length", False):
                     self.send_header("Content-Length", str(len(response)))
                 self.end_headers()
@@ -46,7 +52,7 @@ class TransportTests(unittest.TestCase):
         self.url = f"http://127.0.0.1:{self.server.server_port}"
         self.key = "test-key-" + "x" * 32
 
-    def run_script(self, content="# Test", suffix="", key_value=None):
+    def run_script(self, content="# Test", suffix="", key_value=None, flags=()):
         (self.root / "doc.md").write_text(content, encoding="utf-8")
         (self.root / ".env").write_text(
             f"MORSEL_URL={self.url}{suffix}\nMORSEL_API_KEY={key_value or self.key}\n", encoding="utf-8"
@@ -54,7 +60,7 @@ class TransportTests(unittest.TestCase):
         return subprocess.run(
             [
                 "uv", "run", "--no-config", "--script",
-                str(SCRIPT), "doc.md",
+                str(SCRIPT), *flags, "doc.md",
             ],
             cwd=self.root, env=self.env, capture_output=True, encoding="utf-8", timeout=30,
         )
@@ -89,6 +95,42 @@ class TransportTests(unittest.TestCase):
                 result = self.run_script(suffix=suffix)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("query, or fragment", result.stderr)
+                self.assertEqual(self.requests, [])
+
+    def test_preview_metadata_is_normalized_and_serialized(self):
+        result = self.run_script(flags=(
+            "--preview-title", "  分享標題  ",
+            "--preview-description", "  Safe <summary> & details.  ",
+        ))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.requests[0][2])["preview"], {
+            "title": "分享標題",
+            "description": "Safe <summary> & details.",
+        })
+
+    def test_preview_response_must_echo_metadata(self):
+        self.server.response = b'{"id":"test","share_url":"https://example.com/s/test"}'
+        result = self.run_script(flags=(
+            "--preview-title", "title",
+            "--preview-description", "description",
+        ))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid share metadata", result.stderr)
+
+    def test_invalid_preview_metadata_stops_before_transport(self):
+        cases = (
+            ("unpaired", ("--preview-title", "title")),
+            ("blank", ("--preview-title", " ", "--preview-description", "description")),
+            ("control", ("--preview-title", "title", "--preview-description", "line\nline")),
+            ("line separator", ("--preview-title", "title\u2028line", "--preview-description", "description")),
+            ("long title", ("--preview-title", "界" * 81, "--preview-description", "description")),
+            ("long description", ("--preview-title", "title", "--preview-description", "界" * 201)),
+        )
+        for name, flags in cases:
+            with self.subTest(name=name):
+                self.requests.clear()
+                result = self.run_script(flags=flags)
+                self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.requests, [])
 
     def test_line_endings_are_preserved(self):

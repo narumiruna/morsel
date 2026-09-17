@@ -23,18 +23,19 @@ func TestPostgresRepositoryLifecycle(t *testing.T) {
 	expiresIn := int64(60)
 	maxViews := int64(2)
 	before := time.Now()
+	metadata := &PreviewMetadata{Title: "分享標題", Description: "A safe <summary>."}
 	created, err := repository.Create(ctx, CreateParams{
 		ID: uuid.New(), TokenHash: tokenHash, Content: "hello", ExpiresIn: &expiresIn, MaxViews: &maxViews,
-		PreviewEnabled: true,
+		Preview: metadata,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.CreatedAt.Before(before.Add(-time.Second)) || created.ExpiresAt == nil || created.ExpiresAt.Sub(created.CreatedAt) < 59*time.Second || !created.PreviewEnabled {
+	if created.CreatedAt.Before(before.Add(-time.Second)) || created.ExpiresAt == nil || created.ExpiresAt.Sub(created.CreatedAt) < 59*time.Second || created.Preview == nil || *created.Preview != *metadata {
 		t.Fatalf("created share metadata is incorrect: %+v", created)
 	}
 	preview, err := repository.Preview(ctx, tokenHash)
-	if err != nil || preview.Content != "hello" || !preview.PreviewEnabled {
+	if err != nil || preview.Content != "" || preview.Preview == nil || *preview.Preview != *metadata {
 		t.Fatalf("preview = %+v, %v", preview, err)
 	}
 	if got := testdb.Count(t, pool, "SELECT view_count FROM shares WHERE id=$1", created.ID); got != 0 {
@@ -126,9 +127,11 @@ func TestPostgresRepositoryPreviewRequiresOptInAndAvailability(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, hash, _ := (TokenGenerator{}).Generate()
-			created, err := repository.Create(ctx, CreateParams{
-				ID: uuid.New(), TokenHash: hash, Content: "private", PreviewEnabled: test.enabled,
-			})
+			params := CreateParams{ID: uuid.New(), TokenHash: hash, Content: "private"}
+			if test.enabled {
+				params.Preview = &PreviewMetadata{Title: "Private", Description: "Preview metadata"}
+			}
+			created, err := repository.Create(ctx, params)
 			if err != nil {
 				t.Fatal(err)
 			}
