@@ -34,7 +34,11 @@
     "rehype-katex": "7.0.1",
     "rehype-sanitize": "6.0.0",
     "remark-gfm": "4.0.1",
-    "remark-math": "6.0.0"
+    "remark-math": "6.0.0",
+    "vega": "6.4.0",
+    "vega-embed": "7.2.0",
+    "vega-expression": "6.2.2",
+    "vega-lite": "6.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",

@@ -293,6 +293,43 @@ summary {
   padding-block: 0.5rem;
 }
 
+.vega-lite-card {
+  position: relative;
+  min-height: 8rem;
+  margin-block: 1.5rem;
+  overflow: auto;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-4);
+  padding: 1rem;
+  background: var(--diagram-panel, var(--color-background));
+}
+
+.vega-lite-chart {
+  display: flex;
+  min-width: min-content;
+  justify-content: center;
+}
+
+.vega-lite-chart svg {
+  display: block;
+}
+
+.vega-lite-loading {
+  min-height: 8rem;
+  border-radius: var(--radius-3);
+  background: linear-gradient(90deg, var(--gray-a2), var(--gray-a4), var(--gray-a2));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+.vega-lite-error {
+  margin-block: 1.5rem;
+}
+
+.vega-lite-error pre {
+  max-height: 16rem;
+}
+
 .diagram-card {
   margin-block: 1.5rem;
   border: 1px solid var(--gray-a5);
