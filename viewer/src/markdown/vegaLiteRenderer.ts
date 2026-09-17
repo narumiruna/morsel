@@ -6,6 +6,7 @@ import type { Appearance } from "../theme"
 
 export const maxVegaLiteBytes = 50 * 1024
 
+const maxVegaLiteRepeatViews = 20
 const expansiveDataGenerators = ["sequence", "graticule"] as const
 const expansiveTransforms = [
   "density",
@@ -66,6 +67,42 @@ function expressionGeneratesSequence(expression: string): boolean {
   }
 }
 
+function repeatCardinality(value: unknown): number {
+  if (Array.isArray(value)) return value.length
+  if (!value || typeof value !== "object") return 1
+
+  const mapping = value as Record<string, unknown>
+  return ["row", "column", "layer"].reduce((count, dimension) => {
+    const fields = mapping[dimension]
+    return Array.isArray(fields) ? count * fields.length : count
+  }, 1)
+}
+
+function countRepeatedViews(value: unknown, multiplier = 1, insideRepeat = false): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0
+
+  const object = value as Record<string, unknown>
+  if (Object.hasOwn(object, "repeat") && Object.hasOwn(object, "spec")) {
+    return countRepeatedViews(object.spec, multiplier * repeatCardinality(object.repeat), true)
+  }
+
+  // Concatenated specs create distinct views, so sibling repeats share one aggregate budget.
+  let childViews = 0
+  let hasConcatenatedViews = false
+  for (const key of ["concat", "hconcat", "vconcat"]) {
+    const children = object[key]
+    if (!Array.isArray(children)) continue
+    hasConcatenatedViews = true
+    childViews += children.reduce(
+      (count, child) => count + countRepeatedViews(child, multiplier, insideRepeat),
+      0,
+    )
+  }
+  if (hasConcatenatedViews) return childViews
+
+  return insideRepeat ? multiplier : 0
+}
+
 function validateResourceBounds(value: unknown, context: SpecContext = "spec"): void {
   if (Array.isArray(value)) {
     for (const entry of value) validateResourceBounds(entry, context)
@@ -93,7 +130,9 @@ function validateResourceBounds(value: unknown, context: SpecContext = "spec"): 
   for (const [key, child] of Object.entries(object)) {
     // Inline data is already bounded by the chart source limit. Treat its
     // property names and string values as data rather than specification syntax.
-    if (context === "data" && key === "values") continue
+    if ((context === "data" && key === "values") || (context === "spec" && key === "datasets")) {
+      continue
+    }
     if (
       typeof child === "string" &&
       isExpressionProperty(key) &&
@@ -115,6 +154,9 @@ export function parseVegaLiteSpec(source: string): TopLevelSpec {
   // Vega-Embed reads options from top-level usermeta. Remove it so authored
   // specifications cannot override Morsel's loader and rendering policy.
   const { usermeta: _usermeta, ...spec } = value as Record<string, unknown>
+  if (countRepeatedViews(spec) > maxVegaLiteRepeatViews) {
+    throw new Error(`Vega-Lite repeat limit is ${maxVegaLiteRepeatViews} views.`)
+  }
   validateResourceBounds(spec)
   return spec as unknown as TopLevelSpec
 }
