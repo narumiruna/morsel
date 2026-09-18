@@ -34,11 +34,11 @@ jobs:
           flavor: |
             latest=auto
           tags: |
-            type=ref,event=branch
+            type=ref,event=branch,enable=${{ inputs.tag == '' }}
             type=semver,pattern={{version}},value=${{ inputs.tag || github.ref_name }}
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag || github.ref_name }}
             type=semver,pattern={{major}},value=${{ inputs.tag || github.ref_name }}
-            type=sha
+            type=sha,enable=${{ inputs.tag == '' }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
