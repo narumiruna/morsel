@@ -62,6 +62,10 @@ func isMarkdownRightToLeft(document ast.Node, source []byte) bool {
 			return ast.WalkContinue, nil
 		}
 
+		if _, isImage := node.(*ast.Image); isImage {
+			return ast.WalkSkipChildren, nil
+		}
+
 		var visibleText string
 		switch node := node.(type) {
 		case *ast.Text:

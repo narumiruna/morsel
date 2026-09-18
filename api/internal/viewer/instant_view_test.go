@@ -24,6 +24,12 @@ func TestInstantViewDirectionFollowsRenderedMarkdown(t *testing.T) {
 			wantRTL: true,
 		},
 		{
+			name:    "English image alt before Arabic body",
+			preview: share.PreviewMetadata{Title: "Preview", Description: "Summary"},
+			content: "![Cover](https://example.com/cover.png)\n\nالعربية",
+			wantRTL: true,
+		},
+		{
 			name:    "English body with Arabic metadata",
 			preview: share.PreviewMetadata{Title: "العربية", Description: "ملخص"},
 			content: "English body",
