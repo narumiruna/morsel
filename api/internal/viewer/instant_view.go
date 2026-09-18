@@ -76,6 +76,8 @@ func isMarkdownRightToLeft(document ast.Node, source []byte) bool {
 			visibleText = string(node.Text(source))
 		case *ast.FencedCodeBlock:
 			visibleText = string(node.Text(source))
+		case *ast.AutoLink:
+			visibleText = string(node.Label(source))
 		}
 		if rtl, found := firstStrongDirection(visibleText); found {
 			rightToLeft = rtl

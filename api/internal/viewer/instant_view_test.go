@@ -36,6 +36,12 @@ func TestInstantViewDirectionFollowsRenderedMarkdown(t *testing.T) {
 			wantRTL: false,
 		},
 		{
+			name:    "English autolink before Arabic body",
+			preview: share.PreviewMetadata{Title: "Preview", Description: "Summary"},
+			content: "https://example.com\n\nالعربية",
+			wantRTL: false,
+		},
+		{
 			name:    "Hebrew body",
 			preview: share.PreviewMetadata{Title: "Preview", Description: "Summary"},
 			content: "עברית",
