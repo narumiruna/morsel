@@ -86,7 +86,7 @@ func TestTelegramInstantViewTemplateIncludesChecklistSafeguards(t *testing.T) {
 		`?path: /s/[A-Za-z0-9_-]{43}`,
 		`!exists: //article[@data-morsel-instant-view]`,
 		`image_url: //meta[@property="og:image"]/@content`,
-		`image_url: ($body//img)[1]/@src`,
+		`image_url: $body//img/@src`,
 		`@unsupported: $body//code[has-class("language-mermaid") or has-class("language-vega-lite")]`,
 	} {
 		if !strings.Contains(string(template), want) {
