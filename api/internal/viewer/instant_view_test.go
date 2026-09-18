@@ -71,7 +71,7 @@ func TestInstantViewDirectionFollowsRenderedMarkdown(t *testing.T) {
 	}
 }
 
-func TestTelegramInstantViewTemplateIncludesChecklistSafeguards(t *testing.T) {
+func TestTelegramInstantViewTemplateAllowsDiagramSourceFallback(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("locate test source")
@@ -87,10 +87,13 @@ func TestTelegramInstantViewTemplateIncludesChecklistSafeguards(t *testing.T) {
 		`!exists: //article[@data-morsel-instant-view]`,
 		`image_url: //meta[@property="og:image"]/@content`,
 		`image_url: $body//img/@src`,
-		`@unsupported: $body//code[has-class("language-mermaid") or has-class("language-vega-lite")]`,
 	} {
 		if !strings.Contains(string(template), want) {
 			t.Errorf("Instant View template missing %q", want)
 		}
+	}
+
+	if strings.Contains(string(template), `@unsupported: $body//code[has-class("language-mermaid") or has-class("language-vega-lite")]`) {
+		t.Error("Instant View template rejects diagram source fallback")
 	}
 }
