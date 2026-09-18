@@ -89,7 +89,7 @@ curl --fail-with-body \
   http://127.0.0.1:12647/v1/shares
 ```
 
-Instant View requires `preview` and cannot be combined with `expires_in` or `max_views`. It places safe, server-rendered GFM in the initial `/s/<token>` HTML without consuming a view. Authored HTML remains disabled; Mermaid and Vega-Lite blocks appear as source-code fallbacks. Install [`docs/telegram-instant-view-template.txt`](docs/telegram-instant-view-template.txt) for the deployment's domain in Telegram's Instant View Editor. Telegram template approval or publishing a deployment-specific `t.me/iv?...&rhash=...` link is an external step.
+Instant View requires `preview` and cannot be combined with `expires_in` or `max_views`. It places safe, server-rendered GFM in the initial `/s/<token>` HTML without consuming a view. Authored HTML remains disabled. The template uses the first Markdown image for the link preview, marks right-to-left documents, and rejects pages containing Mermaid or Vega-Lite blocks because Telegram cannot represent the rendered diagrams. Install [`docs/telegram-instant-view-template.txt`](docs/telegram-instant-view-template.txt) for the deployment's domain in Telegram's Instant View Editor. Telegram template approval or publishing a deployment-specific `t.me/iv?...&rhash=...` link is an external step.
 
 Enabling Instant View discloses the complete rendered article to Telegram and allows Telegram to cache it independently. Revocation removes it from future Morsel responses but cannot guarantee deletion of an existing Telegram copy.
 

@@ -166,6 +166,8 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 - one
 - two
 
+![Cover](https://example.com/cover.png)
+
 ` + "```mermaid\ngraph LR\nA-->B\n```" + `
 
 <script>alert("unsafe")</script>
@@ -187,6 +189,7 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 		`<h1 data-morsel-instant-view-title>Title &lt;unsafe&gt;</h1>`,
 		`<p data-morsel-instant-view-description>Summary &amp; details</p>`,
 		`<div data-morsel-instant-view-body><h2>Section</h2>`,
+		`<img src="https://example.com/cover.png" alt="Cover">`,
 		`<code class="language-mermaid">graph LR`,
 		`<script src="/assets/app.js"></script>`,
 	} {
@@ -194,7 +197,7 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 			t.Fatalf("Instant View body missing %q: %s", want, body)
 		}
 	}
-	for _, unwanted := range []string{`<script>alert`, `href="javascript:`} {
+	for _, unwanted := range []string{`<script>alert`, `href="javascript:`, `data-morsel-instant-view-body dir=`} {
 		if strings.Contains(body, unwanted) {
 			t.Fatalf("Instant View body contains unsafe output %q: %s", unwanted, body)
 		}

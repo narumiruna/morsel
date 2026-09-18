@@ -8,6 +8,7 @@ import (
 	"github.com/narumiruna/morsel/api/internal/share"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
+	"golang.org/x/text/unicode/bidi"
 )
 
 const viewerRoot = `<div id="root"></div>`
@@ -26,7 +27,11 @@ func addInstantViewArticle(index []byte, preview share.PreviewMetadata, content 
 	article.WriteString(html.EscapeString(preview.Title))
 	article.WriteString(`</h1><p data-morsel-instant-view-description>`)
 	article.WriteString(html.EscapeString(preview.Description))
-	article.WriteString(`</p></header><div data-morsel-instant-view-body>`)
+	article.WriteString(`</p></header><div data-morsel-instant-view-body`)
+	if isRightToLeft(preview.Title + "\n" + preview.Description + "\n" + content) {
+		article.WriteString(` dir="rtl"`)
+	}
+	article.WriteString(`>`)
 	article.Write(body.Bytes())
 	article.WriteString(`</div></article>`)
 
@@ -44,4 +49,16 @@ func addInstantViewArticle(index []byte, preview share.PreviewMetadata, content 
 	result = append(result, replacement...)
 	result = append(result, index[position+len(viewerRoot):]...)
 	return result, nil
+}
+
+func isRightToLeft(text string) bool {
+	for _, r := range text {
+		switch bidiClass, _ := bidi.LookupRune(r); bidiClass.Class() {
+		case bidi.R, bidi.AL:
+			return true
+		case bidi.L:
+			return false
+		}
+	}
+	return false
 }
