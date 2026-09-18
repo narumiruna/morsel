@@ -46,6 +46,7 @@ jobs:
             major) ((major += 1)); minor=0; patch=0 ;;
             minor) ((minor += 1)); patch=0 ;;
             patch) ((patch += 1)) ;;
+            *) echo "Unsupported bump: $BUMP" >&2; exit 1 ;;
           esac
 
           echo "tag=v${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
