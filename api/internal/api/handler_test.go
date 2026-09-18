@@ -151,6 +151,8 @@ func TestCreateShareValidatesPreviewMetadata(t *testing.T) {
 		{name: "missing title", body: `{"content":"ok","preview":{"description":"description"}}`, message: "preview requires title and description"},
 		{name: "missing description", body: `{"content":"ok","preview":{"title":"title"}}`, message: "preview requires title and description"},
 		{name: "unknown field", body: `{"content":"ok","preview":{"title":"title","description":"description","unknown":"no"}}`, message: "invalid preview"},
+		{name: "null image", body: `{"content":"ok","preview":{"title":"title","description":"description","image":null}}`, message: "preview.image must be a string"},
+		{name: "null locale", body: `{"content":"ok","preview":{"title":"title","description":"description","locale":null}}`, message: "preview.locale must be a string"},
 		{name: "blank title", body: `{"content":"ok","preview":{"title":"　 ","description":"description"}}`},
 		{name: "blank description", body: `{"content":"ok","preview":{"title":"title","description":"  "}}`},
 		{name: "title control", body: `{"content":"ok","preview":{"title":"title\nline","description":"description"}}`},
