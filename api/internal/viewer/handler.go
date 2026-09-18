@@ -30,9 +30,15 @@ type Handler struct {
 }
 
 func New(directory string, previews PreviewSource, publicViewerURL *url.URL) (*Handler, error) {
-	if publicViewerURL == nil || publicViewerURL.Scheme == "" || publicViewerURL.Host == "" {
-		return nil, errors.New("public viewer URL must be absolute")
+	if publicViewerURL == nil ||
+		(publicViewerURL.Scheme != "https" && publicViewerURL.Scheme != "http") ||
+		publicViewerURL.Hostname() == "" || publicViewerURL.User != nil ||
+		(publicViewerURL.Path != "" && publicViewerURL.Path != "/") || publicViewerURL.RawPath != "" ||
+		publicViewerURL.RawQuery != "" || publicViewerURL.ForceQuery ||
+		publicViewerURL.Fragment != "" || publicViewerURL.RawFragment != "" {
+		return nil, errors.New("public viewer URL must be an absolute HTTP(S) origin")
 	}
+	publicViewerOrigin := url.URL{Scheme: publicViewerURL.Scheme, Host: publicViewerURL.Host}
 	indexPath := filepath.Join(directory, "index.html")
 	info, err := os.Stat(indexPath)
 	if err != nil {
@@ -56,7 +62,7 @@ func New(directory string, previews PreviewSource, publicViewerURL *url.URL) (*H
 		files:           http.FileServer(http.Dir(directory)),
 		index:           index,
 		previews:        previews,
-		publicViewerURL: *publicViewerURL,
+		publicViewerURL: publicViewerOrigin,
 	}, nil
 }
 

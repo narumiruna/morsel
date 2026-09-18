@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -164,8 +165,14 @@ func normalizePreview(preview *PreviewMetadata) (*share.PreviewMetadata, string)
 				return nil, "preview.image must not contain whitespace or control characters"
 			}
 		}
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil {
+		if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil {
 			return nil, "preview.image must be an absolute HTTP(S) URL without credentials"
+		}
+		if port := parsed.Port(); port != "" {
+			portNumber, err := strconv.ParseUint(port, 10, 16)
+			if err != nil || portNumber == 0 {
+				return nil, "preview.image must use a valid TCP port"
+			}
 		}
 	}
 	if preview.Locale != nil {

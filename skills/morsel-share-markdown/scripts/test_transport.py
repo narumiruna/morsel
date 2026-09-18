@@ -131,7 +131,10 @@ class TransportTests(unittest.TestCase):
             ("long description", ("--preview-title", "title", "--preview-description", "界" * 201)),
             ("image without preview", ("--preview-image", "https://cdn.example/preview.png")),
             ("relative image", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "/preview.png")),
+            ("image without hostname", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://:443/preview.png")),
             ("image credentials", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://user:secret@example.com/preview.png")),
+            ("image zero port", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://example.com:0/preview.png")),
+            ("image out-of-range port", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://example.com:99999/preview.png")),
             ("image whitespace", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://example.com/a b.png")),
             ("invalid locale", ("--preview-title", "title", "--preview-description", "description", "--preview-locale", "zh-tw")),
         )

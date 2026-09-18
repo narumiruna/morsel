@@ -72,11 +72,17 @@ def parse_args():
         try:
             parsed_image = urlsplit(args.preview_image)
             has_credentials = parsed_image.username is not None or parsed_image.password is not None
+            image_hostname = parsed_image.hostname
+            image_port = parsed_image.port
         except ValueError:
             parsed_image = None
             has_credentials = False
-        if parsed_image is None or parsed_image.scheme not in ("http", "https") or not parsed_image.netloc or has_credentials:
+            image_hostname = None
+            image_port = None
+        if parsed_image is None or parsed_image.scheme not in ("http", "https") or not image_hostname or has_credentials:
             parser.error("--preview-image must be an absolute HTTP(S) URL without credentials")
+        if image_port == 0:
+            parser.error("--preview-image must use a valid TCP port")
     if args.preview_locale is not None:
         args.preview_locale = args.preview_locale.strip()
         if not PREVIEW_LOCALE_PATTERN.fullmatch(args.preview_locale):

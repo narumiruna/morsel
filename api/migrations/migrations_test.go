@@ -91,6 +91,9 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 		locale any
 	}{
 		{name: "relative image", title: "title", detail: "description", image: "/preview.png"},
+		{name: "image without hostname", title: "title", detail: "description", image: "http:///preview.png"},
+		{name: "image credentials", title: "title", detail: "description", image: "https://user:secret@example.com/preview.png"},
+		{name: "image whitespace", title: "title", detail: "description", image: "https://example.com/preview image.png"},
 		{name: "padded image", title: "title", detail: "description", image: " https://example.com/preview.png "},
 		{name: "invalid locale", title: "title", detail: "description", locale: "zh-tw"},
 		{name: "image without preview", image: "https://example.com/preview.png"},

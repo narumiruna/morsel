@@ -229,6 +229,25 @@ func TestNewRequiresValidIndex(t *testing.T) {
 	if _, err := New(t.TempDir(), nil, nil); err == nil {
 		t.Fatal("expected public viewer URL error")
 	}
+	for _, rawURL := range []string{
+		"ftp://morsel.example/",
+		"https://:443/",
+		"https://user:secret@morsel.example/",
+		"https://morsel.example/app",
+		"https://morsel.example/?query=value",
+		"https://morsel.example/?",
+		"https://morsel.example/#fragment",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			parsed, err := url.Parse(rawURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := New(t.TempDir(), nil, parsed); err == nil {
+				t.Fatal("expected public viewer URL error")
+			}
+		})
+	}
 	if _, err := New(t.TempDir(), nil, testPublicViewerURL(t)); err == nil {
 		t.Fatal("expected missing index error")
 	}
