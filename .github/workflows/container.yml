@@ -1,6 +1,12 @@
 name: Container
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Git tag to build
+        required: true
+        type: string
   workflow_dispatch:
   push:
     tags:
@@ -14,6 +20,9 @@ jobs:
   container:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       # https://docs.docker.com/build/ci/github-actions/manage-tags-labels/
       - name: Docker meta
         id: meta
@@ -25,11 +34,11 @@ jobs:
           flavor: |
             latest=auto
           tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha
+            type=ref,event=branch,enable=${{ inputs.tag == '' }}
+            type=semver,pattern={{version}},value=${{ inputs.tag || github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag || github.ref_name }}
+            type=semver,pattern={{major}},value=${{ inputs.tag || github.ref_name }}
+            type=sha,enable=${{ inputs.tag == '' }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
@@ -48,6 +57,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
+          context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
