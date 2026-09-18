@@ -59,7 +59,7 @@ Create a share:
 curl --fail-with-body \
   -H "Authorization: Bearer $MORSEL_API_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"content":"# Hello\n\n$x^2$","expires_in":3600,"max_views":3,"preview":{"title":"Hello","description":"A Markdown share with an equation."}}' \
+  -d '{"content":"# Hello\n\n$x^2$","expires_in":3600,"max_views":3,"preview":{"title":"Hello","description":"A Markdown share with an equation.","image":"https://cdn.example/hello.png","locale":"en_US"}}' \
   http://127.0.0.1:12647/v1/shares
 ```
 
@@ -67,7 +67,7 @@ The response includes:
 
 - `id`: the administrative UUID used to revoke the share
 - `share_url`: the reader-facing URL containing the raw capability token
-- `preview`: the normalized title and description exposed as non-consuming Open Graph metadata, omitted when disabled
+- `preview`: the normalized title, description, and optional image and locale exposed as non-consuming Open Graph metadata, omitted when disabled
 - `telegram_instant_view`: whether the initial HTML exposes a server-rendered article for Telegram
 - creation, expiration, and view-limit metadata
 
@@ -75,7 +75,8 @@ The raw capability appears only in `share_url`; Morsel stores its SHA-256 hash. 
 
 Omitting `preview` keeps the `#/s/<token>` URL.
 Providing the object returns `/s/<token>` so Telegram can request server-rendered Open Graph metadata.
-Both fields are required plain single-line text; surrounding whitespace is trimmed, the title is limited to 80 Unicode characters, and the description is limited to 200.
+`title` and `description` are required plain single-line text; surrounding whitespace is trimmed, the title is limited to 80 Unicode characters, and the description is limited to 200.
+`image` and `locale` are optional. `image` must be an absolute HTTP(S) URL of at most 2048 characters without credentials; `locale` uses `language_TERRITORY` form such as `zh_TW`. Morsel always derives `og:url` from the configured public origin and capability path. Missing optional fields are not emitted.
 Boolean and null preview values are invalid.
 Morsel stores and escapes these explicit values without deriving metadata from the Markdown. Open Graph metadata is consumed by Slack, Discord, Telegram, and other compatible link-preview crawlers.
 
@@ -89,7 +90,7 @@ curl --fail-with-body \
   http://127.0.0.1:12647/v1/shares
 ```
 
-Instant View requires `preview` and cannot be combined with `expires_in` or `max_views`. It places safe, server-rendered GFM in the initial `/s/<token>` HTML without consuming a view. Authored HTML remains disabled. The template uses the first Markdown image for the link preview, marks right-to-left documents, and rejects pages containing Mermaid or Vega-Lite blocks because Telegram cannot represent the rendered diagrams. Install [`docs/telegram-instant-view-template.txt`](docs/telegram-instant-view-template.txt) for the deployment's domain in Telegram's Instant View Editor. Telegram template approval or publishing a deployment-specific `t.me/iv?...&rhash=...` link is an external step.
+Instant View requires `preview` and cannot be combined with `expires_in` or `max_views`. It places safe, server-rendered GFM in the initial `/s/<token>` HTML without consuming a view. Authored HTML remains disabled. The template uses the explicit preview image or falls back to the first Markdown image, marks right-to-left documents, and rejects pages containing Mermaid or Vega-Lite blocks because Telegram cannot represent the rendered diagrams. Install [`docs/telegram-instant-view-template.txt`](docs/telegram-instant-view-template.txt) for the deployment's domain in Telegram's Instant View Editor. Telegram template approval or publishing a deployment-specific `t.me/iv?...&rhash=...` link is an external step.
 
 Enabling Instant View discloses the complete rendered article to Telegram and allows Telegram to cache it independently. Revocation removes it from future Morsel responses but cannot guarantee deletion of an existing Telegram copy.
 
@@ -152,7 +153,7 @@ The service handles `/`, `/s/*`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz`
 - Every successful `GET /v1/shares/<token>` consumes exactly one view, including browser refreshes, command-line requests, and bots that call the API.
 - Fetching an enabled `/s/<token>` Open Graph preview does not consume a view. Link-preview crawlers do not execute the viewer JavaScript, while a browser does and therefore consumes a view through the API.
 - An Instant View share exposes the complete rendered article through the same non-consuming request. It cannot use expiration or view limits, and revocation cannot remove copies already cached by Telegram.
-- Preview metadata can be fetched repeatedly by anyone holding its capability URL. Disable preview when its explicit title or description must not be exposed this way.
+- Preview metadata can be fetched repeatedly by anyone holding its capability URL. Disable preview when its explicit title, description, image URL, or locale must not be exposed this way.
 - Morsel does not identify people or deduplicate clients. `max_views` counts successful retrievals, not unique readers.
 - A conditional PostgreSQL `UPDATE ... RETURNING` protects the final view, so concurrent requests cannot exceed the configured limit.
 - Retrieval responses use `Cache-Control: no-store`; proxies must not cache them.
@@ -302,7 +303,7 @@ The runner rejects dirty, unknown, or gapped migration histories. Apply migratio
 ## Security model
 
 - Capability tokens contain 256 random bits, are base64url encoded, and are never stored raw.
-- Preview is disabled when its metadata object is omitted. Hash-route URLs keep the capability out of the initial document request; preview metadata intentionally places it in `/s/<token>` so link crawlers can request the explicit title and description.
+- Preview is disabled when its metadata object is omitted. Hash-route URLs keep the capability out of the initial document request; preview metadata intentionally places it in `/s/<token>` so link crawlers can request the explicit title, description, optional image and locale, and canonical share URL.
 - Telegram Instant View is separately disabled by default. Enabling it exposes sanitized rendered Markdown in the initial HTML and permits Telegram to retain a cached copy outside Morsel's revocation controls.
 - Administrative API keys are hashed before constant-time comparison.
 - Request logs use route templates instead of token-bearing paths and omit bodies and authorization headers.

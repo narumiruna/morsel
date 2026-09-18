@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,7 @@ func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing
 	if err := os.WriteFile(filepath.Join(directory, "assets", "app-abc.js"), []byte("export {}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New(directory, nil)
+	handler, err := New(directory, nil, testPublicViewerURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,9 +88,12 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	previewID := uuid.New()
 	source := &previewSourceStub{result: share.Share{
 		ID: previewID, Content: "SECRET MARKDOWN",
-		Preview: &share.PreviewMetadata{Title: `A " & <unsafe>`, Description: "Body > details"},
+		Preview: &share.PreviewMetadata{
+			Title: `A " & <unsafe>`, Description: "Body > details",
+			Image: `https://cdn.example/preview.png?a=1&b="quoted"`, Locale: "zh_TW",
+		},
 	}}
-	handler, err := New(directory, source)
+	handler, err := New(directory, source, testPublicViewerURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,6 +112,9 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	for _, want := range []string{
 		`property="og:title"`, `content="A &#34; &amp; &lt;unsafe&gt;"`,
 		`property="og:description"`, `content="Body &gt; details"`,
+		`property="og:url" content="https://morsel.example/s/` + token + `"`,
+		`property="og:image" content="https://cdn.example/preview.png?a=1&amp;b=&#34;quoted&#34;"`,
+		`property="og:locale" content="zh_TW"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("preview body missing %q: %s", want, body)
@@ -176,7 +183,7 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 		Preview:             &share.PreviewMetadata{Title: `Title <unsafe>`, Description: `Summary & details`},
 		TelegramInstantView: true,
 	}}
-	handler, err := New(directory, source)
+	handler, err := New(directory, source, testPublicViewerURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,13 +198,17 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 		`<div data-morsel-instant-view-body><h2>Section</h2>`,
 		`<img src="https://example.com/cover.png" alt="Cover">`,
 		`<code class="language-mermaid">graph LR`,
+		`property="og:url" content="https://morsel.example/s/` + token + `"`,
 		`<script src="/assets/app.js"></script>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("Instant View body missing %q: %s", want, body)
 		}
 	}
-	for _, unwanted := range []string{`<script>alert`, `href="javascript:`, `data-morsel-instant-view-body dir=`} {
+	for _, unwanted := range []string{
+		`<script>alert`, `href="javascript:`, `data-morsel-instant-view-body dir=`,
+		`property="og:image"`, `property="og:locale"`,
+	} {
 		if strings.Contains(body, unwanted) {
 			t.Fatalf("Instant View body contains unsafe output %q: %s", unwanted, body)
 		}
@@ -221,20 +232,51 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 }
 
 func TestNewRequiresValidIndex(t *testing.T) {
-	if _, err := New(t.TempDir(), nil); err == nil {
+	if _, err := New(t.TempDir(), nil, nil); err == nil {
+		t.Fatal("expected public viewer URL error")
+	}
+	for _, rawURL := range []string{
+		"ftp://morsel.example/",
+		"https://:443/",
+		"https://user:secret@morsel.example/",
+		"https://morsel.example/app",
+		"https://morsel.example/?query=value",
+		"https://morsel.example/?",
+		"https://morsel.example/#fragment",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			parsed, err := url.Parse(rawURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := New(t.TempDir(), nil, parsed); err == nil {
+				t.Fatal("expected public viewer URL error")
+			}
+		})
+	}
+	if _, err := New(t.TempDir(), nil, testPublicViewerURL(t)); err == nil {
 		t.Fatal("expected missing index error")
 	}
 	directory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("<title>Morsel</title>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(directory, nil); err == nil {
+	if _, err := New(directory, nil, testPublicViewerURL(t)); err == nil {
 		t.Fatal("expected closing head error")
 	}
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("<head></head><body></body>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(directory, nil); err == nil {
+	if _, err := New(directory, nil, testPublicViewerURL(t)); err == nil {
 		t.Fatal("expected missing root error")
 	}
+}
+
+func testPublicViewerURL(t *testing.T) *url.URL {
+	t.Helper()
+	result, err := url.Parse("https://morsel.example/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
 }

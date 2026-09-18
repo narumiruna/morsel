@@ -56,7 +56,7 @@ func run() int {
 	defer pool.Close()
 
 	repository := share.NewPostgresRepository(pool)
-	viewer, err := viewerfiles.New(cfg.ViewerDir, repository)
+	viewer, err := viewerfiles.New(cfg.ViewerDir, repository, cfg.PublicViewerURL)
 	if err != nil {
 		logger.Error("initialize viewer", "error", err)
 		return 1

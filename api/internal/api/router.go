@@ -117,8 +117,10 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 			previewDecoder := json.NewDecoder(bytes.NewReader(parsed.Preview))
 			previewDecoder.DisallowUnknownFields()
 			var preview *struct {
-				Title       *string `json:"title"`
-				Description *string `json:"description"`
+				Title       *string         `json:"title"`
+				Description *string         `json:"description"`
+				Image       json.RawMessage `json:"image"`
+				Locale      json.RawMessage `json:"locale"`
 			}
 			if err := previewDecoder.Decode(&preview); err != nil || preview == nil {
 				writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "invalid preview")
@@ -127,6 +129,22 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 			if preview.Title == nil || preview.Description == nil {
 				writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "preview requires title and description")
 				return
+			}
+			for _, field := range []struct {
+				name string
+				raw  json.RawMessage
+			}{
+				{name: "image", raw: preview.Image},
+				{name: "locale", raw: preview.Locale},
+			} {
+				if len(field.raw) == 0 {
+					continue
+				}
+				var value string
+				if bytes.Equal(bytes.TrimSpace(field.raw), []byte("null")) || json.Unmarshal(field.raw, &value) != nil {
+					writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "preview."+field.name+" must be a string")
+					return
+				}
 			}
 			if err := previewDecoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 				writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "invalid preview")

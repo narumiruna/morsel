@@ -101,11 +101,15 @@ class TransportTests(unittest.TestCase):
         result = self.run_script(flags=(
             "--preview-title", "  分享標題  ",
             "--preview-description", "  Safe <summary> & details.  ",
+            "--preview-image", "  https://cdn.example/preview.png?a=1&b=2  ",
+            "--preview-locale", "  zh_TW  ",
         ))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(self.requests[0][2])["preview"], {
             "title": "分享標題",
             "description": "Safe <summary> & details.",
+            "image": "https://cdn.example/preview.png?a=1&b=2",
+            "locale": "zh_TW",
         })
 
     def test_preview_response_must_echo_metadata(self):
@@ -125,6 +129,14 @@ class TransportTests(unittest.TestCase):
             ("line separator", ("--preview-title", "title\u2028line", "--preview-description", "description")),
             ("long title", ("--preview-title", "界" * 81, "--preview-description", "description")),
             ("long description", ("--preview-title", "title", "--preview-description", "界" * 201)),
+            ("image without preview", ("--preview-image", "https://cdn.example/preview.png")),
+            ("relative image", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "/preview.png")),
+            ("image without hostname", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://:443/preview.png")),
+            ("image credentials", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://user:secret@example.com/preview.png")),
+            ("image zero port", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://example.com:0/preview.png")),
+            ("image out-of-range port", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://example.com:99999/preview.png")),
+            ("image whitespace", ("--preview-title", "title", "--preview-description", "description", "--preview-image", "https://example.com/a b.png")),
+            ("invalid locale", ("--preview-title", "title", "--preview-description", "description", "--preview-locale", "zh-tw")),
         )
         for name, flags in cases:
             with self.subTest(name=name):
