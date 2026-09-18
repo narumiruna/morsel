@@ -4,8 +4,8 @@ info:
   version: 1.0.0
   description: API for creating, consuming, and revoking capability-based Markdown shares.
   license:
-    name: MIT
-    identifier: MIT
+    name: GNU Affero General Public License v3.0 only
+    identifier: AGPL-3.0-only
 security: []
 servers:
   - url: https://{morselHost}
