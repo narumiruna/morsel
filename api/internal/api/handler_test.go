@@ -150,7 +150,7 @@ func TestCreateShareValidatesPreviewMetadata(t *testing.T) {
 		{name: "string", body: `{"content":"ok","preview":"metadata"}`, message: "invalid preview"},
 		{name: "missing title", body: `{"content":"ok","preview":{"description":"description"}}`, message: "preview requires title and description"},
 		{name: "missing description", body: `{"content":"ok","preview":{"title":"title"}}`, message: "preview requires title and description"},
-		{name: "unknown field", body: `{"content":"ok","preview":{"title":"title","description":"description","image":"no"}}`, message: "invalid preview"},
+		{name: "unknown field", body: `{"content":"ok","preview":{"title":"title","description":"description","unknown":"no"}}`, message: "invalid preview"},
 		{name: "blank title", body: `{"content":"ok","preview":{"title":"　 ","description":"description"}}`},
 		{name: "blank description", body: `{"content":"ok","preview":{"title":"title","description":"  "}}`},
 		{name: "title control", body: `{"content":"ok","preview":{"title":"title\nline","description":"description"}}`},
@@ -158,6 +158,13 @@ func TestCreateShareValidatesPreviewMetadata(t *testing.T) {
 		{name: "title line separator", body: `{"content":"ok","preview":{"title":"title\u2028line","description":"description"}}`},
 		{name: "title too long", body: `{"content":"ok","preview":{"title":"` + strings.Repeat("界", maxPreviewTitleRunes+1) + `","description":"description"}}`},
 		{name: "description too long", body: `{"content":"ok","preview":{"title":"title","description":"` + strings.Repeat("界", maxPreviewDescriptionRunes+1) + `"}}`},
+		{name: "blank image", body: `{"content":"ok","preview":{"title":"title","description":"description","image":" "}}`},
+		{name: "relative image", body: `{"content":"ok","preview":{"title":"title","description":"description","image":"/preview.png"}}`},
+		{name: "image credentials", body: `{"content":"ok","preview":{"title":"title","description":"description","image":"https://user:secret@example.com/preview.png"}}`},
+		{name: "image whitespace", body: `{"content":"ok","preview":{"title":"title","description":"description","image":"https://example.com/a b.png"}}`},
+		{name: "image too long", body: `{"content":"ok","preview":{"title":"title","description":"description","image":"https://example.com/` + strings.Repeat("a", maxPreviewImageRunes) + `"}}`},
+		{name: "invalid locale case", body: `{"content":"ok","preview":{"title":"title","description":"description","locale":"zh-tw"}}`},
+		{name: "invalid locale territory", body: `{"content":"ok","preview":{"title":"title","description":"description","locale":"zh_TWN"}}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -175,15 +182,27 @@ func TestCreateShareValidatesPreviewMetadata(t *testing.T) {
 	handler := testRouter(t, repository, nil, nil, 100)
 	title := strings.Repeat("界", maxPreviewTitleRunes)
 	description := strings.Repeat("文", maxPreviewDescriptionRunes)
+	image := "  https://cdn.example/preview.png?a=1&b=2  "
+	locale := "  zh_TW  "
 	payload, err := json.Marshal(CreateShareRequest{
-		Content: "ok", Preview: &PreviewMetadata{Title: title, Description: description},
+		Content: "ok", Preview: &PreviewMetadata{
+			Title: title, Description: description, Image: &image, Locale: &locale,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	response := request(t, handler, http.MethodPost, "/v1/shares", string(payload), "Bearer "+testAPIKey)
-	if response.Code != http.StatusCreated || len(repository.created) != 1 || repository.created[0].Preview == nil || repository.created[0].Preview.Title != title || repository.created[0].Preview.Description != description {
+	if response.Code != http.StatusCreated || len(repository.created) != 1 || repository.created[0].Preview == nil ||
+		repository.created[0].Preview.Title != title || repository.created[0].Preview.Description != description ||
+		repository.created[0].Preview.Image != strings.TrimSpace(image) || repository.created[0].Preview.Locale != strings.TrimSpace(locale) {
 		t.Fatalf("status=%d body=%s created=%+v", response.Code, response.Body.String(), repository.created)
+	}
+	var created CreateShareResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.Preview == nil ||
+		created.Preview.Image == nil || *created.Preview.Image != strings.TrimSpace(image) ||
+		created.Preview.Locale == nil || *created.Preview.Locale != strings.TrimSpace(locale) {
+		t.Fatalf("response preview=%+v err=%v", created.Preview, err)
 	}
 }
 

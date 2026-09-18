@@ -65,6 +65,7 @@ For a requested preview, use the user's title and description when supplied, oth
 Treat preview metadata as repeatedly visible to anyone holding the path URL, and do not include secrets or unrelated content.
 Use plain single-line text with no control characters, limited to 80 Unicode characters for the title and 200 for the description.
 Require both preview values before sending the request, and do not derive or embed YAML Front Matter.
+Include an image or locale only when the user supplies it. Require an absolute HTTP(S) image URL of at most 2048 characters without credentials, and require locales in `language_TERRITORY` form such as `zh_TW`. The server derives `og:url` automatically.
 Omit `preview` when the user does not request one.
 
 ## Script Prerequisites
@@ -84,7 +85,7 @@ Use [scripts/create-share.py](scripts/create-share.py) to create a share from a 
 uv run --no-config --script /absolute/path/to/morsel-share-markdown/scripts/create-share.py document.md
 uv run --no-config --script /absolute/path/to/morsel-share-markdown/scripts/create-share.py --environment document.md
 uv run --no-config --script /absolute/path/to/morsel-share-markdown/scripts/create-share.py --env-file /path/to/.env --expires-in 3600 --max-views 10 document.md
-uv run --no-config --script /absolute/path/to/morsel-share-markdown/scripts/create-share.py --preview-title 'Example' --preview-description 'A Markdown share.' document.md
+uv run --no-config --script /absolute/path/to/morsel-share-markdown/scripts/create-share.py --preview-title 'Example' --preview-description 'A Markdown share.' --preview-image 'https://cdn.example/preview.png' --preview-locale 'en_US' document.md
 ```
 
 It prints the creation JSON on success and exits nonzero without printing credentials on failure.
@@ -108,10 +109,10 @@ The request shape without a preview is:
 {"content":"# Example\n\n$x^2$"}
 ```
 
-A preview-enabled request uses this shape:
+A preview-enabled request uses this shape; `image` and `locale` are optional:
 
 ```json
-{"content":"# Example","preview":{"title":"Example","description":"A Markdown share."}}
+{"content":"# Example","preview":{"title":"Example","description":"A Markdown share.","image":"https://cdn.example/preview.png","locale":"en_US"}}
 ```
 
 Include `expires_in` in seconds or `max_views` only when the user requests those limits.
@@ -127,7 +128,7 @@ If the connection fails after transmission, report that creation is uncertain ra
 Require HTTP `201` and a JSON response containing `id` and `share_url` before reporting success.
 For a preview request, require the response to contain the normalized `preview` object.
 Return the `share_url` as a clickable link and preserve the administrative `id` in the working context for a possible user-requested revocation.
-Report the selected preview title and description when preview is enabled.
+Report the selected preview title, description, and any optional image or locale when preview is enabled.
 Do not GET or open the share merely to verify creation, because every successful retrieval consumes a view.
 The URL itself grants read access; do not send it to third-party preview or inspection services.
 

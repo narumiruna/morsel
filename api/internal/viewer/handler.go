@@ -3,9 +3,11 @@ package viewer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,13 +22,17 @@ type PreviewSource interface {
 }
 
 type Handler struct {
-	directory string
-	files     http.Handler
-	index     []byte
-	previews  PreviewSource
+	directory       string
+	files           http.Handler
+	index           []byte
+	previews        PreviewSource
+	publicViewerURL url.URL
 }
 
-func New(directory string, previews PreviewSource) (*Handler, error) {
+func New(directory string, previews PreviewSource, publicViewerURL *url.URL) (*Handler, error) {
+	if publicViewerURL == nil || publicViewerURL.Scheme == "" || publicViewerURL.Host == "" {
+		return nil, errors.New("public viewer URL must be absolute")
+	}
 	indexPath := filepath.Join(directory, "index.html")
 	info, err := os.Stat(indexPath)
 	if err != nil {
@@ -46,10 +52,11 @@ func New(directory string, previews PreviewSource) (*Handler, error) {
 		return nil, fmt.Errorf("viewer index %q has no root element", indexPath)
 	}
 	return &Handler{
-		directory: directory,
-		files:     http.FileServer(http.Dir(directory)),
-		index:     index,
-		previews:  previews,
+		directory:       directory,
+		files:           http.FileServer(http.Dir(directory)),
+		index:           index,
+		previews:        previews,
+		publicViewerURL: *publicViewerURL,
 	}, nil
 }
 
@@ -78,7 +85,9 @@ func (h *Handler) serveShare(w http.ResponseWriter, r *http.Request, token strin
 	if tokenHash, err := share.HashToken(token); err == nil && h.previews != nil {
 		if preview, err := h.previews.Preview(r.Context(), tokenHash); err == nil && preview.Preview != nil {
 			telemetry.SetShareID(r.Context(), preview.ID.String())
-			page = addOpenGraphMetadata(page, *preview.Preview)
+			shareURL := h.publicViewerURL
+			shareURL.Path = "/s/" + token
+			page = addOpenGraphMetadata(page, *preview.Preview, shareURL.String())
 			if preview.TelegramInstantView {
 				if rendered, err := addInstantViewArticle(page, *preview.Preview, preview.Content); err == nil {
 					page = rendered
@@ -94,12 +103,19 @@ func (h *Handler) serveShare(w http.ResponseWriter, r *http.Request, token strin
 	}
 }
 
-func addOpenGraphMetadata(index []byte, preview share.PreviewMetadata) []byte {
+func addOpenGraphMetadata(index []byte, preview share.PreviewMetadata, shareURL string) []byte {
 	metadata := `<meta property="og:type" content="article">` +
 		`<meta property="og:site_name" content="Morsel">` +
 		`<meta property="og:title" content="` + html.EscapeString(preview.Title) + `">` +
 		`<meta property="og:description" content="` + html.EscapeString(preview.Description) + `">` +
-		`<meta name="description" content="` + html.EscapeString(preview.Description) + `">`
+		`<meta property="og:url" content="` + html.EscapeString(shareURL) + `">`
+	if preview.Image != "" {
+		metadata += `<meta property="og:image" content="` + html.EscapeString(preview.Image) + `">`
+	}
+	if preview.Locale != "" {
+		metadata += `<meta property="og:locale" content="` + html.EscapeString(preview.Locale) + `">`
+	}
+	metadata += `<meta name="description" content="` + html.EscapeString(preview.Description) + `">`
 	closingHead := []byte("</head>")
 	position := bytes.Index(index, closingHead)
 	result := make([]byte, 0, len(index)+len(metadata))

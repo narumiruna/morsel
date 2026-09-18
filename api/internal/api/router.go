@@ -119,6 +119,8 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 			var preview *struct {
 				Title       *string `json:"title"`
 				Description *string `json:"description"`
+				Image       *string `json:"image"`
+				Locale      *string `json:"locale"`
 			}
 			if err := previewDecoder.Decode(&preview); err != nil || preview == nil {
 				writePublicError(w, http.StatusBadRequest, ErrorCodeInvalidRequest, "invalid preview")

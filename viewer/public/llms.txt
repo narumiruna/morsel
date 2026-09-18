@@ -8,9 +8,9 @@ Important usage notes:
 
 - Creating and revoking shares requires an administrative bearer API key.
 - Every successful `GET /v1/shares/{share}` consumes exactly one view. Do not retrieve or validate a share unless the user explicitly asks you to access it.
-- An opt-in `GET /s/{capability}` Open Graph response does not consume a view, but it repeatedly exposes the explicit preview title and description and must not be fetched without the user's request.
+- An opt-in `GET /s/{capability}` Open Graph response does not consume a view, but it repeatedly exposes the explicit preview title and description, optional image URL and locale, and generated share URL; it must not be fetched without the user's request.
 - Treat API keys, raw capability tokens, and complete share URLs as secrets. Do not expose or log them.
-- Viewer URLs use `#/s/{capability}` when preview metadata is omitted. Shares created with the required `preview.title` and `preview.description` object use `/s/{capability}` so Telegram can fetch metadata; a browser then sends the capability to the same-origin retrieval API.
+- Viewer URLs use `#/s/{capability}` when preview metadata is omitted. Shares created with required `preview.title` and `preview.description` and optional `preview.image` and `preview.locale` use `/s/{capability}` so link-preview crawlers can fetch metadata; a browser then sends the capability to the same-origin retrieval API.
 - Retrieval responses must not be cached. Expired, revoked, and exhausted shares are unavailable.
 
 ## Documentation

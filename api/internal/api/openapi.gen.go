@@ -115,6 +115,12 @@ type PreviewMetadata struct {
 	// Description Plain-text Open Graph description; surrounding whitespace is trimmed and control or line-separator characters are rejected.
 	Description string `json:"description"`
 
+	// Image Optional absolute HTTP(S) URL exposed as og:image; surrounding whitespace is trimmed and URLs containing credentials are rejected.
+	Image *string `json:"image,omitempty"`
+
+	// Locale Optional Open Graph locale in language_TERRITORY form, such as zh_TW.
+	Locale *string `json:"locale,omitempty"`
+
 	// Title Plain-text Open Graph title; surrounding whitespace is trimmed and control or line-separator characters are rejected.
 	Title string `json:"title"`
 }

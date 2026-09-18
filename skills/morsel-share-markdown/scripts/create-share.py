@@ -6,9 +6,11 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import unicodedata
+from urllib.parse import urlsplit
 
 from morsel_config import (
     add_config_arguments,
@@ -21,6 +23,8 @@ from morsel_config import (
 
 
 PREVIEW_LIMITS = {"title": 80, "description": 200}
+PREVIEW_IMAGE_LIMIT = 2048
+PREVIEW_LOCALE_PATTERN = re.compile(r"[a-z]{2,3}_[A-Z]{2}\Z")
 
 
 def parse_args():
@@ -33,6 +37,8 @@ def parse_args():
     parser.add_argument("--max-views", type=int, help="Maximum successful retrievals")
     parser.add_argument("--preview-title", help="Plain-text Open Graph title")
     parser.add_argument("--preview-description", help="Plain-text Open Graph description")
+    parser.add_argument("--preview-image", help="Optional absolute HTTP(S) Open Graph image URL")
+    parser.add_argument("--preview-locale", help="Optional Open Graph locale, such as zh_TW")
     args = parser.parse_args()
     if args.expires_in is not None and not 1 <= args.expires_in <= 315360000:
         parser.error("--expires-in must be between 1 and 315360000")
@@ -40,6 +46,8 @@ def parse_args():
         parser.error("--max-views must be positive")
     if (args.preview_title is None) != (args.preview_description is None):
         parser.error("--preview-title and --preview-description must be provided together")
+    if args.preview_title is None and (args.preview_image is not None or args.preview_locale is not None):
+        parser.error("--preview-image and --preview-locale require title and description")
     for field in PREVIEW_LIMITS:
         option = "--preview-" + field
         raw_value = getattr(args, "preview_" + field)
@@ -53,6 +61,26 @@ def parse_args():
         if len(value) > PREVIEW_LIMITS[field]:
             parser.error(f"{option} must not exceed {PREVIEW_LIMITS[field]} characters")
         setattr(args, "preview_" + field, value)
+    if args.preview_image is not None:
+        args.preview_image = args.preview_image.strip()
+        if not args.preview_image:
+            parser.error("--preview-image must not be empty")
+        if len(args.preview_image) > PREVIEW_IMAGE_LIMIT:
+            parser.error(f"--preview-image must not exceed {PREVIEW_IMAGE_LIMIT} characters")
+        if any(character.isspace() or unicodedata.category(character) in ("Cc", "Zl", "Zp") for character in args.preview_image):
+            parser.error("--preview-image must not contain whitespace or control characters")
+        try:
+            parsed_image = urlsplit(args.preview_image)
+            has_credentials = parsed_image.username is not None or parsed_image.password is not None
+        except ValueError:
+            parsed_image = None
+            has_credentials = False
+        if parsed_image is None or parsed_image.scheme not in ("http", "https") or not parsed_image.netloc or has_credentials:
+            parser.error("--preview-image must be an absolute HTTP(S) URL without credentials")
+    if args.preview_locale is not None:
+        args.preview_locale = args.preview_locale.strip()
+        if not PREVIEW_LOCALE_PATTERN.fullmatch(args.preview_locale):
+            parser.error("--preview-locale must use language_TERRITORY format")
     return args
 
 
@@ -72,6 +100,10 @@ def read_payload(args):
             "title": args.preview_title,
             "description": args.preview_description,
         }
+        if args.preview_image is not None:
+            payload["preview"]["image"] = args.preview_image
+        if args.preview_locale is not None:
+            payload["preview"]["locale"] = args.preview_locale
     return payload
 
 

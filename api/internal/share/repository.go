@@ -23,6 +23,8 @@ var (
 type PreviewMetadata struct {
 	Title       string
 	Description string
+	Image       string
+	Locale      string
 }
 
 type Share struct {
@@ -70,21 +72,30 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 
 func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share, error) {
 	const query = `
-		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_title, preview_description, telegram_instant_view)
+		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_title, preview_description,
+			preview_image, preview_locale, telegram_instant_view)
 		VALUES ($1, $2, $3,
 			CASE WHEN $4::bigint IS NULL THEN NULL ELSE statement_timestamp() + make_interval(secs => $4::double precision) END,
-			$5, $6, $7, $8)
+			$5, $6, $7, $8, $9, $10)
 		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at,
-			preview_title, preview_description, telegram_instant_view`
-	var previewTitle, previewDescription *string
+			preview_title, preview_description, preview_image, preview_locale, telegram_instant_view`
+	var previewTitle, previewDescription, previewImage, previewLocale *string
 	if p.Preview != nil {
 		previewTitle = &p.Preview.Title
 		previewDescription = &p.Preview.Description
+		if p.Preview.Image != "" {
+			previewImage = &p.Preview.Image
+		}
+		if p.Preview.Locale != "" {
+			previewLocale = &p.Preview.Locale
+		}
 	}
 	var result Share
-	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews, previewTitle, previewDescription, p.TelegramInstantView).Scan(
+	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews,
+		previewTitle, previewDescription, previewImage, previewLocale, p.TelegramInstantView).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
-		&result.ViewCount, &result.RevokedAt, &previewTitle, &previewDescription, &result.TelegramInstantView,
+		&result.ViewCount, &result.RevokedAt, &previewTitle, &previewDescription, &previewImage, &previewLocale,
+		&result.TelegramInstantView,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -93,7 +104,7 @@ func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share,
 		}
 		return Share{}, fmt.Errorf("insert share: %w", err)
 	}
-	result.Preview = previewMetadata(previewTitle, previewDescription)
+	result.Preview = previewMetadata(previewTitle, previewDescription, previewImage, previewLocale)
 	return result, nil
 }
 
@@ -124,7 +135,7 @@ func (r *PostgresRepository) Consume(ctx context.Context, tokenHash [32]byte) (S
 func (r *PostgresRepository) Preview(ctx context.Context, tokenHash [32]byte) (Share, error) {
 	const query = `
 		SELECT id, CASE WHEN telegram_instant_view THEN content ELSE '' END,
-			preview_title, preview_description, telegram_instant_view
+			preview_title, preview_description, preview_image, preview_locale, telegram_instant_view
 		FROM shares
 		WHERE token_hash = $1
 		  AND preview_title IS NOT NULL
@@ -133,24 +144,32 @@ func (r *PostgresRepository) Preview(ctx context.Context, tokenHash [32]byte) (S
 		  AND (expires_at IS NULL OR expires_at > statement_timestamp())
 		  AND (max_views IS NULL OR view_count < max_views)`
 	var result Share
-	var previewTitle, previewDescription *string
+	var previewTitle, previewDescription, previewImage, previewLocale *string
 	if err := r.pool.QueryRow(ctx, query, tokenHash[:]).Scan(
-		&result.ID, &result.Content, &previewTitle, &previewDescription, &result.TelegramInstantView,
+		&result.ID, &result.Content, &previewTitle, &previewDescription, &previewImage, &previewLocale,
+		&result.TelegramInstantView,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Share{}, ErrNotFound
 		}
 		return Share{}, fmt.Errorf("preview share: %w", err)
 	}
-	result.Preview = previewMetadata(previewTitle, previewDescription)
+	result.Preview = previewMetadata(previewTitle, previewDescription, previewImage, previewLocale)
 	return result, nil
 }
 
-func previewMetadata(title, description *string) *PreviewMetadata {
+func previewMetadata(title, description, image, locale *string) *PreviewMetadata {
 	if title == nil || description == nil {
 		return nil
 	}
-	return &PreviewMetadata{Title: *title, Description: *description}
+	result := &PreviewMetadata{Title: *title, Description: *description}
+	if image != nil {
+		result.Image = *image
+	}
+	if locale != nil {
+		result.Locale = *locale
+	}
+	return result
 }
 
 func (r *PostgresRepository) diagnose(ctx context.Context, tokenHash [32]byte) error {
