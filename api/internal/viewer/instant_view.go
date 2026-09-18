@@ -7,7 +7,9 @@ import (
 
 	"github.com/narumiruna/morsel/api/internal/share"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/text"
 	"golang.org/x/text/unicode/bidi"
 )
 
@@ -16,8 +18,10 @@ const viewerRoot = `<div id="root"></div>`
 var instantViewMarkdown = goldmark.New(goldmark.WithExtensions(extension.GFM))
 
 func addInstantViewArticle(index []byte, preview share.PreviewMetadata, content string) ([]byte, error) {
+	source := []byte(content)
+	document := instantViewMarkdown.Parser().Parse(text.NewReader(source))
 	var body bytes.Buffer
-	if err := instantViewMarkdown.Convert([]byte(content), &body); err != nil {
+	if err := instantViewMarkdown.Renderer().Render(&body, source, document); err != nil {
 		return nil, fmt.Errorf("render Instant View Markdown: %w", err)
 	}
 
@@ -28,7 +32,7 @@ func addInstantViewArticle(index []byte, preview share.PreviewMetadata, content 
 	article.WriteString(`</h1><p data-morsel-instant-view-description>`)
 	article.WriteString(html.EscapeString(preview.Description))
 	article.WriteString(`</p></header><div data-morsel-instant-view-body`)
-	if isRightToLeft(preview.Title + "\n" + preview.Description + "\n" + content) {
+	if isMarkdownRightToLeft(document, source) {
 		article.WriteString(` dir="rtl"`)
 	}
 	article.WriteString(`>`)
@@ -51,14 +55,41 @@ func addInstantViewArticle(index []byte, preview share.PreviewMetadata, content 
 	return result, nil
 }
 
-func isRightToLeft(text string) bool {
+func isMarkdownRightToLeft(document ast.Node, source []byte) bool {
+	rightToLeft := false
+	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		var visibleText string
+		switch node := node.(type) {
+		case *ast.Text:
+			visibleText = html.UnescapeString(string(node.Segment.Value(source)))
+		case *ast.String:
+			visibleText = html.UnescapeString(string(node.Value))
+		case *ast.CodeBlock:
+			visibleText = string(node.Text(source))
+		case *ast.FencedCodeBlock:
+			visibleText = string(node.Text(source))
+		}
+		if rtl, found := firstStrongDirection(visibleText); found {
+			rightToLeft = rtl
+			return ast.WalkStop, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return rightToLeft
+}
+
+func firstStrongDirection(text string) (rightToLeft bool, found bool) {
 	for _, r := range text {
 		switch bidiClass, _ := bidi.LookupRune(r); bidiClass.Class() {
 		case bidi.R, bidi.AL:
-			return true
+			return true, true
 		case bidi.L:
-			return false
+			return false, true
 		}
 	}
-	return false
+	return false, false
 }

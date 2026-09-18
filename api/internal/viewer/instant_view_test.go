@@ -10,34 +10,52 @@ import (
 	"github.com/narumiruna/morsel/api/internal/share"
 )
 
-func TestInstantViewDirection(t *testing.T) {
+func TestInstantViewDirectionFollowsRenderedMarkdown(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		text string
-		want bool
+		name    string
+		preview share.PreviewMetadata
+		content string
+		wantRTL bool
 	}{
-		{name: "arabic", text: "123 — العربية", want: true},
-		{name: "hebrew", text: "עברית", want: true},
-		{name: "latin", text: "English العربية", want: false},
-		{name: "neutral", text: "123 —", want: false},
+		{
+			name:    "Arabic body with English metadata",
+			preview: share.PreviewMetadata{Title: "English", Description: "English summary"},
+			content: `123 — &amp; [العربية](https://example.com)`,
+			wantRTL: true,
+		},
+		{
+			name:    "English body with Arabic metadata",
+			preview: share.PreviewMetadata{Title: "العربية", Description: "ملخص"},
+			content: "English body",
+			wantRTL: false,
+		},
+		{
+			name:    "Hebrew body",
+			preview: share.PreviewMetadata{Title: "Preview", Description: "Summary"},
+			content: "עברית",
+			wantRTL: true,
+		},
+		{
+			name:    "Neutral body",
+			preview: share.PreviewMetadata{Title: "العربية", Description: "ملخص"},
+			content: "123 —",
+			wantRTL: false,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := isRightToLeft(test.text); got != test.want {
-				t.Fatalf("isRightToLeft(%q)=%t, want %t", test.text, got, test.want)
+			page, err := addInstantViewArticle(
+				[]byte(`<html><body><div id="root"></div></body></html>`),
+				test.preview,
+				test.content,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotRTL := strings.Contains(string(page), `<div data-morsel-instant-view-body dir="rtl">`)
+			if gotRTL != test.wantRTL {
+				t.Fatalf("RTL body=%t, want %t: %s", gotRTL, test.wantRTL, page)
 			}
 		})
-	}
-
-	page, err := addInstantViewArticle(
-		[]byte(`<html><body><div id="root"></div></body></html>`),
-		share.PreviewMetadata{Title: "العربية", Description: "مستند"},
-		"محتوى",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(page), `<div data-morsel-instant-view-body dir="rtl">`) {
-		t.Fatalf("RTL Instant View body has no direction: %s", page)
 	}
 }
 
