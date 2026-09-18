@@ -7,6 +7,8 @@ const apiKey = process.env.MORSEL_E2E_API_KEY ?? ""
 interface PreviewMetadata {
   title: string
   description: string
+  image?: string
+  locale?: string
 }
 
 interface CreatedShare {
@@ -60,6 +62,8 @@ graph LR
   const preview = {
     title: 'Telegram "preview"',
     description: "A safe <summary> & details.",
+    image: "https://cdn.example/preview.png?a=1&b=2",
+    locale: "zh_TW",
   }
   const previewed = await createShare("# Document content must not become metadata", {
     max_views: 1,
@@ -73,6 +77,11 @@ graph LR
   expect(previewHTML).toContain(
     'property="og:description" content="A safe &lt;summary&gt; &amp; details."',
   )
+  expect(previewHTML).toContain(`property="og:url" content="${previewed.share_url}"`)
+  expect(previewHTML).toContain(
+    'property="og:image" content="https://cdn.example/preview.png?a=1&amp;b=2"',
+  )
+  expect(previewHTML).toContain('property="og:locale" content="zh_TW"')
   expect(previewHTML).not.toContain("Document content must not become metadata")
   expect((await fetch(`${apiBase}/v1/shares/${tokenFrom(previewed)}`)).status).toBe(200)
   expect((await fetch(`${apiBase}/v1/shares/${tokenFrom(previewed)}`)).status).toBe(410)

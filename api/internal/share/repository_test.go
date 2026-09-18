@@ -23,7 +23,10 @@ func TestPostgresRepositoryLifecycle(t *testing.T) {
 	expiresIn := int64(60)
 	maxViews := int64(2)
 	before := time.Now()
-	metadata := &PreviewMetadata{Title: "分享標題", Description: "A safe <summary>."}
+	metadata := &PreviewMetadata{
+		Title: "分享標題", Description: "A safe <summary>.",
+		Image: "https://cdn.example/preview.png", Locale: "zh_TW",
+	}
 	created, err := repository.Create(ctx, CreateParams{
 		ID: uuid.New(), TokenHash: tokenHash, Content: "hello", ExpiresIn: &expiresIn, MaxViews: &maxViews,
 		Preview: metadata,

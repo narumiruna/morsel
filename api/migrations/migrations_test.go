@@ -20,9 +20,18 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 	}
 
 	assertColumnCount(t, pool, "telegram_instant_view", 1)
+	assertColumnCount(t, pool, "preview_image", 1)
+	assertColumnCount(t, pool, "preview_locale", 1)
 	if _, err := pool.Exec(ctx, `INSERT INTO shares (id, token_hash, content, telegram_instant_view) VALUES ($1, $2, 'invalid', true)`, uuid.New(), bytes.Repeat([]byte{9}, 32)); err == nil {
 		t.Fatal("expected Instant View constraint failure")
 	}
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("down Open Graph metadata migration: %v", err)
+	}
+	assertColumnCount(t, pool, "preview_image", 0)
+	assertColumnCount(t, pool, "preview_locale", 0)
+	assertColumnCount(t, pool, "telegram_instant_view", 1)
+
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatalf("down Instant View migration: %v", err)
 	}
@@ -44,6 +53,8 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 	assertColumnCount(t, pool, "preview_enabled", 0)
 	assertColumnCount(t, pool, "preview_title", 1)
 	assertColumnCount(t, pool, "telegram_instant_view", 1)
+	assertColumnCount(t, pool, "preview_image", 1)
+	assertColumnCount(t, pool, "preview_locale", 1)
 	var title, description string
 	if err := pool.QueryRow(ctx, "SELECT preview_title, preview_description FROM shares WHERE id=$1", legacyID).Scan(&title, &description); err != nil {
 		t.Fatal(err)
@@ -72,6 +83,37 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 		})
 	}
 
+	invalidOpenGraph := []struct {
+		name   string
+		title  any
+		detail any
+		image  any
+		locale any
+	}{
+		{name: "relative image", title: "title", detail: "description", image: "/preview.png"},
+		{name: "image without hostname", title: "title", detail: "description", image: "http:///preview.png"},
+		{name: "image credentials", title: "title", detail: "description", image: "https://user:secret@example.com/preview.png"},
+		{name: "image whitespace", title: "title", detail: "description", image: "https://example.com/preview image.png"},
+		{name: "padded image", title: "title", detail: "description", image: " https://example.com/preview.png "},
+		{name: "invalid locale", title: "title", detail: "description", locale: "zh-tw"},
+		{name: "image without preview", image: "https://example.com/preview.png"},
+		{name: "locale without preview", locale: "zh_TW"},
+	}
+	for index, test := range invalidOpenGraph {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `INSERT INTO shares
+				(id, token_hash, content, preview_title, preview_description, preview_image, preview_locale)
+				VALUES ($1, $2, 'invalid', $3, $4, $5, $6)`,
+				uuid.New(), bytes.Repeat([]byte{byte(index + 20)}, 32), test.title, test.detail, test.image, test.locale)
+			if err == nil {
+				t.Fatal("expected optional Open Graph metadata constraint failure")
+			}
+		})
+	}
+
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("second down Open Graph metadata migration: %v", err)
+	}
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatalf("second down Instant View migration: %v", err)
 	}

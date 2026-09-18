@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -19,7 +21,10 @@ const (
 	maxTokenAttempts           = 3
 	maxPreviewTitleRunes       = 80
 	maxPreviewDescriptionRunes = 200
+	maxPreviewImageRunes       = 2048
 )
+
+var previewLocalePattern = regexp.MustCompile(`^[a-z]{2,3}_[A-Z]{2}$`)
 
 type Service struct {
 	repository       share.Repository
@@ -144,14 +149,53 @@ func normalizePreview(preview *PreviewMetadata) (*share.PreviewMetadata, string)
 			return nil, fmt.Sprintf("%s must not exceed %d characters", field.name, field.limit)
 		}
 	}
-	return &share.PreviewMetadata{Title: title, Description: description}, ""
+
+	result := &share.PreviewMetadata{Title: title, Description: description}
+	if preview.Image != nil {
+		result.Image = strings.TrimSpace(*preview.Image)
+		parsed, err := url.Parse(result.Image)
+		if result.Image == "" {
+			return nil, "preview.image must not be empty"
+		}
+		if utf8.RuneCountInString(result.Image) > maxPreviewImageRunes {
+			return nil, fmt.Sprintf("preview.image must not exceed %d characters", maxPreviewImageRunes)
+		}
+		for _, character := range result.Image {
+			if unicode.IsSpace(character) || unicode.IsControl(character) || unicode.In(character, unicode.Zl, unicode.Zp) {
+				return nil, "preview.image must not contain whitespace or control characters"
+			}
+		}
+		if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil {
+			return nil, "preview.image must be an absolute HTTP(S) URL without credentials"
+		}
+		if port := parsed.Port(); port != "" {
+			portNumber, err := strconv.ParseUint(port, 10, 16)
+			if err != nil || portNumber == 0 {
+				return nil, "preview.image must use a valid TCP port"
+			}
+		}
+	}
+	if preview.Locale != nil {
+		result.Locale = strings.TrimSpace(*preview.Locale)
+		if !previewLocalePattern.MatchString(result.Locale) {
+			return nil, "preview.locale must use language_TERRITORY format"
+		}
+	}
+	return result, ""
 }
 
 func responsePreview(preview *share.PreviewMetadata) *PreviewMetadata {
 	if preview == nil {
 		return nil
 	}
-	return &PreviewMetadata{Title: preview.Title, Description: preview.Description}
+	result := &PreviewMetadata{Title: preview.Title, Description: preview.Description}
+	if preview.Image != "" {
+		result.Image = &preview.Image
+	}
+	if preview.Locale != "" {
+		result.Locale = &preview.Locale
+	}
+	return result
 }
 
 func (h *Service) ConsumeShare(ctx context.Context, request ConsumeShareRequestObject) (ConsumeShareResponseObject, error) {
