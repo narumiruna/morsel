@@ -12,9 +12,6 @@ body: //article[@data-morsel-instant-view]//*[@data-morsel-instant-view-body]
 image_url: //meta[@property="og:image"]/@content
 image_url: $body//img/@src
 
-# Rendered diagrams have no equivalent representation in Instant View.
-@unsupported: $body//code[has-class("language-mermaid") or has-class("language-vega-lite")]
-
 # Preserve GFM task state using characters supported by Instant View.
 @before("☑ "): $body//input[@type="checkbox" and @checked]
 @before("☐ "): $body//input[@type="checkbox" and not(@checked)]
