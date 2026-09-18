@@ -14,17 +14,19 @@ on:
           - major
 
 permissions:
-  actions: write
   contents: write
+  packages: write
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  release:
+  tag:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -75,13 +77,20 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag --annotate "$TAG" --message "$TAG"
           git push origin "refs/tags/$TAG"
-      - name: Publish container
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: gh workflow run container.yml --ref "$TAG"
+
+  container:
+    needs: tag
+    uses: ./.github/workflows/container.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+
+  release:
+    needs: [tag, container]
+    runs-on: ubuntu-latest
+    steps:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ needs.tag.outputs.tag }}
         run: gh release create "$TAG" --verify-tag --generate-notes --fail-on-no-commits --title "$TAG"
