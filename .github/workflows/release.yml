@@ -91,6 +91,7 @@ jobs:
     steps:
       - name: Create GitHub release
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.tag.outputs.tag }}
         run: gh release create "$TAG" --verify-tag --generate-notes --fail-on-no-commits --title "$TAG"
