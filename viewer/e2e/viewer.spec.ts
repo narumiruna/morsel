@@ -89,6 +89,12 @@ test("loads Gist Markdown directly from GitHub without credentials", async ({ pa
             content: "# Browser Gist",
             truncated: false,
           },
+          "charts.md": {
+            filename: "charts.md",
+            language: "Markdown",
+            content: "# Gist Charts",
+            truncated: false,
+          },
         },
       }),
     })
@@ -97,7 +103,11 @@ test("loads Gist Markdown directly from GitHub without credentials", async ({ pa
   const response = await page.goto(`/gist/#${gist}`)
   expect(response).not.toBeNull()
   await expect(page.getByRole("heading", { name: "Browser Gist" })).toBeVisible()
-  await expect(page.getByText("README.md")).toBeVisible()
+  const fileSelector = page.getByRole("combobox", { name: "Markdown file" })
+  await expect(fileSelector).toContainText("README.md")
+  await fileSelector.click()
+  await page.getByRole("option", { name: "charts.md" }).click()
+  await expect(page.getByRole("heading", { name: "Gist Charts" })).toBeVisible()
   expect(requests).toBe(1)
   expect(authorization).toBe("")
   expect(response?.headers()["content-security-policy"]).toContain(
