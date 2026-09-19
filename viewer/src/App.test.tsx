@@ -16,6 +16,7 @@ vi.mock("mermaid", () => ({
 
 const token = "A".repeat(43)
 const nextToken = "B".repeat(43)
+const gist = "7dbaf8170c7292354678069a9acb061f"
 
 function renderApp(strict = false) {
   const app = (
@@ -28,7 +29,7 @@ function renderApp(strict = false) {
 
 beforeEach(() => {
   clearRequestCacheForTests()
-  window.location.hash = ""
+  window.history.replaceState({}, "", "/")
 })
 
 describe("App", () => {
@@ -45,6 +46,39 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Share not found" })).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
     rerender(<div />)
+  })
+
+  it("loads a GitHub Gist route with the shared document controls", async () => {
+    window.history.replaceState({}, "", `/gist/#${gist}`)
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          files: {
+            "README.md": {
+              filename: "README.md",
+              language: "Markdown",
+              content: "# From Gist",
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    renderApp()
+
+    expect(screen.getByLabelText("Loading Gist")).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "From Gist" })).toBeInTheDocument()
+    expect(screen.getByText("GitHub Gist")).toBeInTheDocument()
+    expect(screen.getByText("README.md")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Open on GitHub" })).toHaveAttribute(
+      "href",
+      `https://gist.github.com/${gist}`,
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      `https://api.github.com/gists/${gist}`,
+      expect.objectContaining({ cache: "no-store", credentials: "omit" }),
+    )
   })
 
   it("fetches exactly once in StrictMode and actions do not refetch", async () => {
@@ -76,7 +110,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Copy Markdown" }))
     await screen.findByText(/Markdown copied/)
     expect(document.execCommand).toHaveBeenCalledWith("copy")
-    await user.click(screen.getByRole("button", { name: "Copy share URL" }))
+    await user.click(screen.getByRole("button", { name: "Copy URL" }))
     await user.click(screen.getByRole("button", { name: "Download Markdown" }))
     expect(anchorClick).toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledOnce()

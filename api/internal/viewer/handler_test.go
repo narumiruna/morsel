@@ -55,6 +55,22 @@ func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing
 		t.Fatalf("index cache control=%q", got)
 	}
 
+	gist := httptest.NewRecorder()
+	handler.ServeHTTP(gist, httptest.NewRequest(http.MethodGet, "/gist/", nil))
+	if gist.Code != http.StatusOK || !strings.Contains(gist.Body.String(), "Morsel") || gist.Header().Get("Cache-Control") != "no-cache" {
+		t.Fatalf("Gist shell status=%d headers=%v body=%q", gist.Code, gist.Header(), gist.Body.String())
+	}
+	head := httptest.NewRecorder()
+	handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/gist/", nil))
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") == "" {
+		t.Fatalf("Gist HEAD status=%d length=%q body=%q", head.Code, head.Header().Get("Content-Length"), head.Body.String())
+	}
+	pathID := httptest.NewRecorder()
+	handler.ServeHTTP(pathID, httptest.NewRequest(http.MethodGet, "/gist/7dbaf8170c7292354678069a9acb061f", nil))
+	if pathID.Code != http.StatusNotFound {
+		t.Fatalf("path-based Gist status=%d body=%q", pathID.Code, pathID.Body.String())
+	}
+
 	asset := httptest.NewRecorder()
 	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/assets/app-abc.js", nil))
 	if asset.Code != http.StatusOK || asset.Body.String() != "export {}" {

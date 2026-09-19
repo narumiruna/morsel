@@ -2,7 +2,7 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 
 const contentSecurityPolicy =
-  "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: data:; connect-src 'self'"
+  "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: data:; connect-src 'self' https://api.github.com"
 
 const apiProxy = {
   "/v1": "http://127.0.0.1:12647",

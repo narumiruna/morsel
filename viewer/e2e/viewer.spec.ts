@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 const token = "A".repeat(43)
+const gist = "7dbaf8170c7292354678069a9acb061f"
 const content = `# Browser smoke
 
 | Feature | Works |
@@ -68,6 +69,40 @@ test("renders safely under the production CSP and uses one request", async ({ pa
   expect(headers["content-security-policy"]).toContain("connect-src 'self'")
   expect(headers["content-security-policy"]).not.toContain("127.0.0.1:12647")
   expect(headers["referrer-policy"]).toBe("no-referrer")
+})
+
+test("loads Gist Markdown directly from GitHub without credentials", async ({ page }) => {
+  let requests = 0
+  let authorization = ""
+  await page.route(`https://api.github.com/gists/${gist}`, async (route) => {
+    requests += 1
+    authorization = route.request().headers().authorization ?? ""
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({
+        files: {
+          "README.md": {
+            filename: "README.md",
+            language: "Markdown",
+            content: "# Browser Gist",
+            truncated: false,
+          },
+        },
+      }),
+    })
+  })
+
+  const response = await page.goto(`/gist/#${gist}`)
+  expect(response).not.toBeNull()
+  await expect(page.getByRole("heading", { name: "Browser Gist" })).toBeVisible()
+  await expect(page.getByText("README.md")).toBeVisible()
+  expect(requests).toBe(1)
+  expect(authorization).toBe("")
+  expect(response?.headers()["content-security-policy"]).toContain(
+    "connect-src 'self' https://api.github.com",
+  )
 })
 
 test("supports keyboard navigation at desktop and narrow widths", async ({ page }) => {

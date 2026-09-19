@@ -8,18 +8,18 @@ export function HomePage() {
         <FileTextIcon width="32" height="32" aria-hidden="true" />
         <Heading>Morsel</Heading>
         <Text align="center" color="gray">
-          Open a Morsel share URL to read a Markdown document.
+          Open a Morsel share or GitHub Gist URL to read a Markdown document.
         </Text>
       </Flex>
     </Card>
   )
 }
 
-export function LoadingPage() {
+export function LoadingPage({ subject = "share" }: { subject?: string }) {
   return (
-    <div className="status-card" role="status" aria-label="Loading share">
+    <div className="status-card" role="status" aria-label={`Loading ${subject}`}>
       <Spinner size="3" />
-      <span>Loading share…</span>
+      <span>Loading {subject}…</span>
     </div>
   )
 }
@@ -29,7 +29,17 @@ const messages = {
     "Invalid share link",
     "This URL does not contain a valid Morsel capability token.",
   ],
+  "invalid-gist": ["Invalid Gist link", "This URL does not contain a valid GitHub Gist ID."],
   "not-found": ["Share not found", "This share does not exist, or the URL is incorrect."],
+  "gist-not-found": [
+    "Gist not found",
+    "This Gist does not exist, is unavailable, or does not contain a Markdown file.",
+  ],
+  "gist-too-large": ["Gist too large", "GitHub did not provide the complete Markdown file."],
+  "gist-unavailable": [
+    "Unable to load Gist",
+    "GitHub could not provide this Gist. Try again later.",
+  ],
   expired: ["Share expired", "This share has passed its expiration time."],
   revoked: ["Share revoked", "The owner revoked this share."],
   view_limit_exhausted: ["View limit reached", "This share has no views remaining."],
