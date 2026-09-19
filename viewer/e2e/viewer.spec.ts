@@ -1,4 +1,10 @@
-import { expect, test } from "@playwright/test"
+import { expect, type Locator, test } from "@playwright/test"
+
+async function requireBoundingBox(locator: Locator, description: string) {
+  const box = await locator.boundingBox()
+  if (!box) throw new Error(`Expected ${description} to have a bounding box`)
+  return box
+}
 
 const token = "A".repeat(43)
 const gist = "7dbaf8170c7292354678069a9acb061f"
@@ -140,16 +146,23 @@ for (const width of [1280, 375]) {
       await page.goto(`/gist/#${gist}`)
       await expect(page.getByRole("heading", { name: "Document 1" })).toBeVisible()
       const picker = page.getByRole("combobox", { name: "Markdown file" })
-      const header = await page.locator(".document-header").boundingBox()
-      const trigger = await picker.boundingBox()
-      expect(trigger?.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0))
-      expect(header?.height).toBeLessThanOrEqual(width > 640 ? 100 : 150)
-      const toolbar = await page.getByRole("group", { name: "Gist files" }).boundingBox()
-      expect(toolbar?.height).toBeLessThanOrEqual(60)
-      const shortFilename = await picker.locator(".gist-file-name").boundingBox()
-      expect((trigger?.width ?? 0) - (shortFilename?.width ?? 0)).toBeLessThanOrEqual(48)
-      await expect(page.locator(".action-feedback")).toBeEmpty()
-      expect((await page.locator(".action-feedback").boundingBox())?.height).toBe(0)
+      const header = await requireBoundingBox(page.locator(".document-header"), "document header")
+      const trigger = await requireBoundingBox(picker, "file picker trigger")
+      expect(trigger.y).toBeGreaterThanOrEqual(header.y + header.height)
+      expect(header.height).toBeLessThanOrEqual(width > 640 ? 100 : 150)
+      const toolbar = await requireBoundingBox(
+        page.getByRole("group", { name: "Gist files" }),
+        "Gist files toolbar",
+      )
+      expect(toolbar.height).toBeLessThanOrEqual(60)
+      const shortFilename = await requireBoundingBox(
+        picker.locator(".gist-file-name"),
+        "selected filename",
+      )
+      expect(trigger.width - shortFilename.width).toBeLessThanOrEqual(48)
+      const feedback = page.locator(".action-feedback")
+      await expect(feedback).toBeEmpty()
+      expect((await requireBoundingBox(feedback, "action feedback")).height).toBe(0)
       await testInfo.attach("compact-header", {
         body: await page.screenshot({ animations: "disabled" }),
         contentType: "image/png",
@@ -159,11 +172,11 @@ for (const width of [1280, 375]) {
       await page.keyboard.press("ArrowDown")
       const menu = page.getByRole("listbox")
       await expect(menu).toBeVisible()
-      const menuBox = await menu.boundingBox()
-      expect(menuBox?.y).toBeGreaterThanOrEqual((trigger?.y ?? 0) + (trigger?.height ?? 0))
-      expect(menuBox?.x).toBeGreaterThanOrEqual(0)
-      expect((menuBox?.x ?? 0) + (menuBox?.width ?? 0)).toBeLessThanOrEqual(width)
-      expect(menuBox?.width).toBeLessThanOrEqual(360)
+      const menuBox = await requireBoundingBox(menu, "file picker menu")
+      expect(menuBox.y).toBeGreaterThanOrEqual(trigger.y + trigger.height)
+      expect(menuBox.x).toBeGreaterThanOrEqual(0)
+      expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width)
+      expect(menuBox.width).toBeLessThanOrEqual(360)
       await testInfo.attach("file-picker", {
         body: await page.screenshot({ animations: "disabled" }),
         contentType: "image/png",
@@ -179,10 +192,10 @@ for (const width of [1280, 375]) {
       expect(await filename.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
         true,
       )
-      const filenameBox = await filename.boundingBox()
-      const selectedTrigger = await picker.boundingBox()
-      expect((filenameBox?.x ?? 0) + (filenameBox?.width ?? 0)).toBeLessThanOrEqual(
-        (selectedTrigger?.x ?? 0) + (selectedTrigger?.width ?? 0),
+      const filenameBox = await requireBoundingBox(filename, "truncated filename")
+      const selectedTrigger = await requireBoundingBox(picker, "selected file picker trigger")
+      expect(filenameBox.x + filenameBox.width).toBeLessThanOrEqual(
+        selectedTrigger.x + selectedTrigger.width,
       )
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
       await picker.click()
