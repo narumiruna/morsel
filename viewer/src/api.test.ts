@@ -46,15 +46,15 @@ describe("getGist", () => {
     )
   })
 
-  it("orders Markdown filenames by locale-independent code units", async () => {
+  it("orders displayed Markdown filenames by locale-independent code units", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
             files: {
-              "ä.md": { filename: "ä.md", content: "locale-sensitive" },
-              "z.md": { filename: "z.md", content: "code-unit-first" },
+              "first-key.md": { filename: "ä.md", content: "locale-sensitive" },
+              "second-key.md": { filename: "z.md", content: "code-unit-first" },
             },
           }),
           { status: 200 },

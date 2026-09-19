@@ -131,27 +131,29 @@ function selectMarkdownFiles(body: unknown, status: number): GistDocument[] {
   if (!isObject(body) || !isObject(body.files)) {
     throw new GistRequestError("unknown", status)
   }
-  const candidates = Object.entries(body.files)
-    .filter((entry): entry is [string, GitHubGistFile] => {
+  const candidates = Object.entries(body.files).filter(
+    (entry): entry is [string, GitHubGistFile] => {
       const [key, file] = entry
       return isObject(file) && isMarkdown(key, file.filename, file.language)
-    })
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    },
+  )
   if (candidates.length === 0) {
     throw new GistRequestError("not_found", status)
   }
-  return candidates.map(([key, file]) => {
-    if (file.truncated === true) {
-      throw new GistRequestError("content_too_large", status)
-    }
-    if (typeof file.content !== "string") {
-      throw new GistRequestError("unknown", status)
-    }
-    return {
-      filename: typeof file.filename === "string" && file.filename !== "" ? file.filename : key,
-      content: file.content,
-    }
-  })
+  return candidates
+    .map(([key, file]) => {
+      if (file.truncated === true) {
+        throw new GistRequestError("content_too_large", status)
+      }
+      if (typeof file.content !== "string") {
+        throw new GistRequestError("unknown", status)
+      }
+      return {
+        filename: typeof file.filename === "string" && file.filename !== "" ? file.filename : key,
+        content: file.content,
+      }
+    })
+    .sort(({ filename: left }, { filename: right }) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

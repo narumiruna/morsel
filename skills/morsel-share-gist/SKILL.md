@@ -21,7 +21,7 @@ Preserve the requested content and language in UTF-8.
 Send exactly one `.md` file unless the user explicitly asks to group multiple Markdown documents in one Gist.
 For a multi-file Gist, give every document a distinct `.md` filename; Morsel lists eligible files in lexical filename order and lets the reader select one.
 Use requested `.md` files when they exist, or write the final Markdown to temporary `.md` files and remove those files after the command finishes.
-Do not publish a directory, glob, or additional file.
+Pass only the prepared `.md` files explicitly; do not publish a directory, glob, or unrelated file.
 
 ## Create the Gist
 
