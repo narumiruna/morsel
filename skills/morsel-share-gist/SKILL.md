@@ -18,8 +18,8 @@ Do not retry a failed or interrupted creation automatically because the first re
 ## Prepare the Markdown
 
 Preserve the requested content and language in UTF-8.
-Send exactly one file with a `.md` filename because Morsel renders the first eligible Markdown file in the Gist.
-Use the requested file when one exists, or write the final Markdown to a temporary file and remove that file after the command finishes.
+Publish exactly one Gist file named `morsel.md` so Morsel recognizes it as Markdown.
+Use the requested local file only as the content source when it exists; otherwise, write the final Markdown to a temporary file and remove that file after the command finishes.
 Do not publish a directory, glob, or additional file.
 
 ## Create the Gist
@@ -35,7 +35,7 @@ If either check fails, report the problem and stop without attempting installati
 Create the default secret Gist from the Markdown file through standard input so the Gist filename is always recognized as Markdown:
 
 ```sh
-gist_url="$(gh gist create --filename morsel.md - < "$markdown_file")"
+gist_url="$(GH_HOST=github.com gh gist create --filename morsel.md - < "$markdown_file")"
 ```
 
 Add `--desc "$description"` only when the user requests a description.
