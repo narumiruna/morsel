@@ -67,7 +67,7 @@ export function DocumentPage({
   return (
     <section className="share-view" aria-labelledby="document-title">
       <header className="document-header">
-        <Flex justify="between" align="start" gap="4" wrap="wrap">
+        <Flex justify="between" align="center" gap="4" wrap="wrap">
           <div>
             <Heading id="document-title" size="6">
               Morsel
