@@ -111,11 +111,17 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Introduction" })).toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByRole("combobox", { name: "Markdown file" }))
+    const fileSelector = screen.getByRole("combobox", { name: "Markdown file" })
+    expect(screen.getByRole("group", { name: "Gist files" })).toContainElement(fileSelector)
+    expect(container.querySelector(".document-header")).not.toContainElement(fileSelector)
+    expect(screen.getByText("2 files")).toBeInTheDocument()
+    await user.click(fileSelector)
     await user.click(screen.getByRole("option", { name: "02-chart.md" }))
 
     expect(screen.getByRole("heading", { name: "Chart" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "Introduction" })).not.toBeInTheDocument()
+    expect(fileSelector).toHaveTextContent("02-chart.md")
+    expect(await axe.run(container).then((result) => result.violations)).toEqual([])
     await user.click(screen.getByRole("button", { name: "Show raw Markdown" }))
     expect(container.querySelector(".raw-markdown")).toHaveTextContent("# Chart")
   })

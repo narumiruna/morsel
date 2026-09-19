@@ -43,11 +43,13 @@ export function DocumentPage({
   content,
   filename,
   badges,
+  navigation,
   sourceUrl,
 }: {
   content: string
   filename: string
   badges?: ReactNode
+  navigation?: ReactNode
   sourceUrl?: string
 }) {
   const [raw, setRaw] = useState(false)
@@ -127,6 +129,7 @@ export function DocumentPage({
         </Text>
       </header>
       <Separator size="4" />
+      {navigation}
       {raw ? (
         <pre className="raw-markdown">
           <code>{content}</code>
