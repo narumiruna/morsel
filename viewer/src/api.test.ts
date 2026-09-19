@@ -1,9 +1,100 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { clearRequestCacheForTests, getShare, ShareRequestError } from "./api"
+import {
+  clearRequestCacheForTests,
+  GistRequestError,
+  getGist,
+  getShare,
+  ShareRequestError,
+} from "./api"
 
 const token = "A".repeat(43)
 
 beforeEach(() => clearRequestCacheForTests())
+
+describe("getGist", () => {
+  it("fetches GitHub directly, caches the request, and selects Markdown deterministically", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          files: {
+            "notes.txt": { filename: "notes.txt", language: "Text", content: "ignore" },
+            "z.md": { filename: "z.md", language: "Markdown", content: "# Z" },
+            "a.markdown": { filename: "a.markdown", language: "Markdown", content: "# A" },
+          },
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const first = getGist("abc123")
+    expect(getGist("abc123")).toBe(first)
+    await expect(first).resolves.toEqual({ filename: "a.markdown", content: "# A" })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/gists/abc123",
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "omit",
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }),
+    )
+  })
+
+  it("orders Markdown filenames by locale-independent code units", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            files: {
+              "ä.md": { filename: "ä.md", content: "locale-sensitive" },
+              "z.md": { filename: "z.md", content: "code-unit-first" },
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    await expect(getGist("ordering")).resolves.toEqual({
+      filename: "z.md",
+      content: "code-unit-first",
+    })
+  })
+
+  it.each([
+    [404, "not_found"],
+    [403, "service_unavailable"],
+    [429, "service_unavailable"],
+    [500, "unknown"],
+  ] as const)("maps GitHub status %s to %s", async (status, code) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })))
+    await expect(getGist(`status${status}`)).rejects.toEqual(new GistRequestError(code, status))
+  })
+
+  it.each([
+    [{}, "unknown"],
+    [{ files: { "notes.txt": { filename: "notes.txt", content: "text" } } }, "not_found"],
+    [
+      {
+        files: {
+          "README.md": { filename: "README.md", content: "partial", truncated: true },
+        },
+      },
+      "content_too_large",
+    ],
+    [{ files: { "README.md": { filename: "README.md" } } }, "unknown"],
+  ] as const)("rejects an unusable GitHub response as %s", async (body, code) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 })),
+    )
+    await expect(getGist(`body-${code}`)).rejects.toEqual(new GistRequestError(code, 200))
+    clearRequestCacheForTests()
+  })
+})
 
 describe("getShare", () => {
   it("caches one request per token", async () => {

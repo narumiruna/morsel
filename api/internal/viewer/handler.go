@@ -72,6 +72,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveShare(w, r, strings.TrimPrefix(r.URL.Path, "/s/"))
 		return
 	}
+	if r.URL.Path == "/gist/" {
+		h.serveApp(w, r)
+		return
+	}
 
 	filePath := filepath.Join(h.directory, filepath.FromSlash(strings.TrimPrefix(requestPath, "/")))
 	if info, err := os.Stat(filePath); err == nil && info.IsDir() && requestPath != "/" {
@@ -84,6 +88,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	}
 	h.files.ServeHTTP(w, r)
+}
+
+func (h *Handler) serveApp(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(h.index)))
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(h.index)
+	}
 }
 
 func (h *Handler) serveShare(w http.ResponseWriter, r *http.Request, token string) {

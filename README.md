@@ -5,6 +5,7 @@ Morsel is a small, self-hosted service for sharing Markdown through revocable ca
 Morsel supports:
 
 - API-first share creation and revocation
+- direct viewing of Markdown files from GitHub Gists
 - optional expiration times, view limits, standards-based Open Graph previews, and opt-in Telegram Instant View articles
 - GitHub Flavored Markdown, syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts
 - sanitized output with authored HTML disabled
@@ -111,12 +112,30 @@ curl --fail-with-body -X DELETE \
 
 See [`api/openapi.yaml`](api/openapi.yaml) for the complete contract. Public error responses contain stable `code` and `message` fields.
 
+## View a GitHub Gist
+
+Put the GitHub Gist ID in the fragment after `/gist/#`:
+
+```text
+https://gist.github.com/narumiruna/7dbaf8170c7292354678069a9acb061f
+https://morsel.narumi.dev/gist/#7dbaf8170c7292354678069a9acb061f
+```
+
+The fragment remains in the browser and is not sent to the Morsel server or intermediaries.
+
+The static Morsel viewer requests the Gist directly from `api.github.com` and renders it with the same sanitized Markdown pipeline used for Morsel shares. Both public and secret Gists work when their ID is known; secret Gists are unlisted rather than private. No Morsel API key is required. Morsel does not proxy or store Gist content.
+
+If a Gist contains multiple Markdown files, the viewer selects the first filename in lexical order. Files identified by GitHub as Markdown or named with `.md`, `.markdown`, `.mdown`, or `.mkd` are eligible. Gists without a Markdown file and files whose content GitHub truncates are not rendered.
+
+The browser sends no GitHub credentials, so GitHub's unauthenticated per-IP API rate limit applies separately to each reader.
+
 ## How it works
 
 ```mermaid
 flowchart LR
     Client[CLI / agent / internal app] -->|Bearer API key| Morsel[Go service]
-    Reader[Reader] -->|viewer and same-origin API| Morsel
+    Reader[Reader] -->|viewer and same-origin share API| Morsel
+    Reader -->|browser fetches Gist Markdown| GitHub[GitHub Gist API]
     Morsel --> DB[(PostgreSQL)]
     Morsel -->|capability share URL| Client
 ```
@@ -146,7 +165,7 @@ sequenceDiagram
     Viewer->>Viewer: Sanitize and render Markdown
 ```
 
-The service handles `/`, `/s/*`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell. Instant View shares additionally inject server-rendered GFM into the viewer root; the React viewer replaces it after loading in a browser. JavaScript and CSS remain static assets. Morsel v1 has no Redis, object storage, queue, account system, separate static host, or Node.js runtime server.
+The service handles `/`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell. Instant View shares additionally inject server-rendered GFM into the viewer root; the React viewer replaces it after loading in a browser. JavaScript and CSS remain static assets. Morsel v1 has no Redis, object storage, queue, account system, separate static host, or Node.js runtime server.
 
 ### View and availability semantics
 
@@ -182,7 +201,7 @@ The API reads these environment variables:
 | `MORSEL_SHUTDOWN_TIMEOUT` | no | `10s` | Graceful shutdown deadline. |
 | `MORSEL_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error`. |
 
-Startup rejects insecure public URLs, short API keys, empty viewer paths, and invalid limits or timeouts. Errors never echo configured secrets. Morsel does not enable cross-origin browser access; the bundled viewer calls the API on the same origin.
+Startup rejects insecure public URLs, short API keys, empty viewer paths, and invalid limits or timeouts. Errors never echo configured secrets. Morsel does not enable cross-origin access to its API; the bundled viewer calls the share API on the same origin and only calls `api.github.com` directly for Gists.
 
 ### Rotate API keys
 
@@ -307,7 +326,8 @@ The runner rejects dirty, unknown, or gapped migration histories. Apply migratio
 - Telegram Instant View is separately disabled by default. Enabling it exposes sanitized rendered Markdown in the initial HTML and permits Telegram to retain a cached copy outside Morsel's revocation controls.
 - Administrative API keys are hashed before constant-time comparison.
 - Request logs use route templates instead of token-bearing paths and omit bodies and authorization headers.
-- Authored HTML is disabled. Markdown and KaTeX output pass through a reviewed sanitation schema.
+- Authored HTML is disabled. Markdown from both Morsel shares and GitHub Gists passes through the same reviewed sanitation schema; KaTeX output is sanitized as well.
+- Gist IDs are validated before the browser makes an unauthenticated request to the CSP-allowlisted `api.github.com` origin.
 - KaTeX trust is disabled. Mermaid renders sequentially with strict security, source and count limits, and DOMPurify SVG sanitation.
 - Vega-Lite uses interpreted expressions, inline-only resources, rejected expansive generators and transforms, disabled embed options and tooltips, and source and count limits.
 - External links use `noopener noreferrer`; images use `Referrer-Policy: no-referrer` and lazy loading.
