@@ -143,6 +143,17 @@ for (const width of [1280, 375]) {
       const header = await page.locator(".document-header").boundingBox()
       const trigger = await picker.boundingBox()
       expect(trigger?.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0))
+      expect(header?.height).toBeLessThanOrEqual(width > 640 ? 100 : 150)
+      const toolbar = await page.getByRole("group", { name: "Gist files" }).boundingBox()
+      expect(toolbar?.height).toBeLessThanOrEqual(60)
+      const shortFilename = await picker.locator(".gist-file-name").boundingBox()
+      expect((trigger?.width ?? 0) - (shortFilename?.width ?? 0)).toBeLessThanOrEqual(48)
+      await expect(page.locator(".action-feedback")).toBeEmpty()
+      expect((await page.locator(".action-feedback").boundingBox())?.height).toBe(0)
+      await testInfo.attach("compact-header", {
+        body: await page.screenshot({ animations: "disabled" }),
+        contentType: "image/png",
+      })
 
       await picker.focus()
       await page.keyboard.press("ArrowDown")
@@ -152,6 +163,7 @@ for (const width of [1280, 375]) {
       expect(menuBox?.y).toBeGreaterThanOrEqual((trigger?.y ?? 0) + (trigger?.height ?? 0))
       expect(menuBox?.x).toBeGreaterThanOrEqual(0)
       expect((menuBox?.x ?? 0) + (menuBox?.width ?? 0)).toBeLessThanOrEqual(width)
+      expect(menuBox?.width).toBeLessThanOrEqual(360)
       await testInfo.attach("file-picker", {
         body: await page.screenshot({ animations: "disabled" }),
         contentType: "image/png",
@@ -177,6 +189,9 @@ for (const width of [1280, 375]) {
       await page.keyboard.press("Escape")
       await expect(menu).not.toBeVisible()
       await expect(picker).toBeFocused()
+      await page.getByRole("button", { name: "Download Markdown" }).click()
+      await expect(page.getByRole("status")).toContainText("Download started")
+      await expect(page.getByRole("status")).toBeVisible()
     })
   }
 }
