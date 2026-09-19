@@ -23,7 +23,7 @@ Extract the bare ID or the URL's final path segment, then skip to returning the 
 ## Prepare the Markdown
 
 Preserve the requested content and language in UTF-8.
-Publish exactly one Gist file named `morsel.md` so Morsel recognizes it as Markdown.
+Publish exactly one Gist file under the predictable Markdown filename `morsel.md`.
 Use the requested local file only as the content source when it exists; otherwise, write the final Markdown to a temporary file and remove that file after the command finishes.
 Do not publish a directory, glob, or additional file.
 
