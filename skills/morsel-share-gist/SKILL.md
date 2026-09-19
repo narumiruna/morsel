@@ -1,6 +1,6 @@
 ---
 name: morsel-share-gist
-description: Publish Markdown as a GitHub Gist with the GitHub CLI and return a clickable Morsel viewer link; use when the user asks to share Markdown through a Gist, view Markdown in Morsel without its share API, or turn Markdown text or a file into a Morsel Gist URL.
+description: Publish one or more Markdown documents as a GitHub Gist with the GitHub CLI and return a clickable Morsel viewer link; use when the user asks to share Markdown through a Gist, view Markdown in Morsel without its share API, or turn Markdown text or files into a Morsel Gist URL.
 ---
 
 # Share Markdown Through a Gist
@@ -18,9 +18,10 @@ Do not retry a failed or interrupted creation automatically because the first re
 ## Prepare the Markdown
 
 Preserve the requested content and language in UTF-8.
-Send exactly one file with a `.md` filename because Morsel renders the first eligible Markdown file in the Gist.
-Use the requested file when one exists, or write the final Markdown to a temporary file and remove that file after the command finishes.
-Do not publish a directory, glob, or additional file.
+Send exactly one `.md` file unless the user explicitly asks to group multiple Markdown documents in one Gist.
+For a multi-file Gist, give every document a distinct `.md` filename; Morsel lists eligible files in lexical filename order and lets the reader select one.
+Use requested `.md` files when they exist, or write the final Markdown to temporary `.md` files and remove those files after the command finishes.
+Pass only the prepared `.md` files explicitly; do not publish a directory, glob, or unrelated file.
 
 ## Create the Gist
 
@@ -32,10 +33,16 @@ gh auth status --hostname github.com
 ```
 
 If either check fails, report the problem and stop without attempting installation or authentication.
-Create the default secret Gist from the Markdown file through standard input so the Gist filename is always recognized as Markdown:
+Create a default secret Gist containing one Markdown file through standard input so the Gist filename is always recognized as Markdown:
 
 ```sh
 gist_url="$(gh gist create --filename morsel.md - < "$markdown_file")"
+```
+
+For an explicitly requested multi-file Gist, pass each prepared `.md` path individually and do not use a glob:
+
+```sh
+gist_url="$(gh gist create "$markdown_file_1" "$markdown_file_2")"
 ```
 
 Add `--desc "$description"` only when the user requests a description.

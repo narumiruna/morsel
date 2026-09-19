@@ -71,6 +71,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "From Gist" })).toBeInTheDocument()
     expect(screen.getByText("GitHub Gist")).toBeInTheDocument()
     expect(screen.getByText("README.md")).toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "Markdown file" })).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Open on GitHub" })).toHaveAttribute(
       "href",
       `https://gist.github.com/${gist}`,
@@ -79,6 +80,44 @@ describe("App", () => {
       `https://api.github.com/gists/${gist}`,
       expect.objectContaining({ cache: "no-store", credentials: "omit" }),
     )
+  })
+
+  it("switches between every Markdown file in a Gist", async () => {
+    window.history.replaceState({}, "", `/gist/#${gist}`)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            files: {
+              "02-chart.md": {
+                filename: "02-chart.md",
+                language: "Markdown",
+                content: "# Chart",
+              },
+              "notes.txt": { filename: "notes.txt", language: "Text", content: "Ignore" },
+              "01-intro.md": {
+                filename: "01-intro.md",
+                language: "Markdown",
+                content: "# Introduction",
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    const { container } = renderApp()
+
+    expect(await screen.findByRole("heading", { name: "Introduction" })).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("combobox", { name: "Markdown file" }))
+    await user.click(screen.getByRole("option", { name: "02-chart.md" }))
+
+    expect(screen.getByRole("heading", { name: "Chart" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "Introduction" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Show raw Markdown" }))
+    expect(container.querySelector(".raw-markdown")).toHaveTextContent("# Chart")
   })
 
   it("fetches exactly once in StrictMode and actions do not refetch", async () => {
