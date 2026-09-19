@@ -63,4 +63,5 @@ Return a clickable link in this form:
 
 Do not fetch the Gist or Morsel URL merely to verify it.
 Do not open a browser unless the user explicitly asks and a browser-opening tool is available.
-Stop after reporting the Morsel link and whether the Gist is secret or public.
+For a newly created Gist, stop after reporting the Morsel link and whether it is secret or public.
+For a supplied Gist, stop after reporting the Morsel link and state that its visibility is unknown without fetching it.
