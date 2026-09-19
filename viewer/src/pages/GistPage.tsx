@@ -1,4 +1,4 @@
-import { Badge } from "@radix-ui/themes"
+import { Badge, Select } from "@radix-ui/themes"
 import { useEffect, useState } from "react"
 import { type GistDocument, GistRequestError, getGist } from "../api"
 import { DocumentPage } from "./DocumentPage"
@@ -12,13 +12,17 @@ function statusForError(error: unknown): StatusKind {
 }
 
 export function GistPage({ id }: { id: string }) {
-  const [state, setState] = useState<{ gist?: GistDocument; error?: unknown }>({})
+  const [state, setState] = useState<{ documents?: GistDocument[]; error?: unknown }>({})
+  const [selectedIndex, setSelectedIndex] = useState(0)
 
   useEffect(() => {
     let active = true
     void getGist(id).then(
-      (gist) => {
-        if (active) setState({ gist })
+      (documents) => {
+        if (active) {
+          setSelectedIndex(0)
+          setState({ documents })
+        }
       },
       (error: unknown) => {
         if (active) setState({ error })
@@ -29,16 +33,34 @@ export function GistPage({ id }: { id: string }) {
     }
   }, [id])
 
-  if (state.gist) {
+  if (state.documents) {
+    const document = state.documents[selectedIndex] ?? state.documents[0]
+    if (!document) return <ErrorPage kind="gist-not-found" />
     return (
       <DocumentPage
-        content={state.gist.content}
-        filename={state.gist.filename}
+        content={document.content}
+        filename={document.filename}
         sourceUrl={`https://gist.github.com/${id}`}
         badges={
           <>
             <Badge color="gray">GitHub Gist</Badge>
-            <Badge color="gray">{state.gist.filename}</Badge>
+            {state.documents.length === 1 ? (
+              <Badge color="gray">{document.filename}</Badge>
+            ) : (
+              <Select.Root
+                value={String(selectedIndex)}
+                onValueChange={(value) => setSelectedIndex(Number(value))}
+              >
+                <Select.Trigger aria-label="Markdown file" />
+                <Select.Content>
+                  {state.documents.map((item, index) => (
+                    <Select.Item key={item.filename} value={String(index)}>
+                      {item.filename}
+                    </Select.Item>
+                  ))}
+                </Select.Content>
+              </Select.Root>
+            )}
           </>
         }
       />

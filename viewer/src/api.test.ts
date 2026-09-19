@@ -12,7 +12,7 @@ const token = "A".repeat(43)
 beforeEach(() => clearRequestCacheForTests())
 
 describe("getGist", () => {
-  it("fetches GitHub directly, caches the request, and selects Markdown deterministically", async () => {
+  it("fetches GitHub directly, caches the request, and returns every Markdown file", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -28,7 +28,10 @@ describe("getGist", () => {
     vi.stubGlobal("fetch", fetchMock)
     const first = getGist("abc123")
     expect(getGist("abc123")).toBe(first)
-    await expect(first).resolves.toEqual({ filename: "a.markdown", content: "# A" })
+    await expect(first).resolves.toEqual([
+      { filename: "a.markdown", content: "# A" },
+      { filename: "z.md", content: "# Z" },
+    ])
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.github.com/gists/abc123",
@@ -58,10 +61,10 @@ describe("getGist", () => {
         ),
       ),
     )
-    await expect(getGist("ordering")).resolves.toEqual({
-      filename: "z.md",
-      content: "code-unit-first",
-    })
+    await expect(getGist("ordering")).resolves.toEqual([
+      { filename: "z.md", content: "code-unit-first" },
+      { filename: "ä.md", content: "locale-sensitive" },
+    ])
   })
 
   it.each([

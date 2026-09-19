@@ -51,7 +51,7 @@ export class GistRequestError extends Error {
 }
 
 const requests = new Map<string, Promise<Share>>()
-const gistRequests = new Map<string, Promise<GistDocument>>()
+const gistRequests = new Map<string, Promise<GistDocument[]>>()
 
 export function getShare(token: string): Promise<Share> {
   const existing = requests.get(token)
@@ -90,7 +90,7 @@ export function getShare(token: string): Promise<Share> {
   return pending
 }
 
-export function getGist(id: string): Promise<GistDocument> {
+export function getGist(id: string): Promise<GistDocument[]> {
   const existing = gistRequests.get(id)
   if (existing) return existing
   const pending = fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`, {
@@ -118,7 +118,7 @@ export function getGist(id: string): Promise<GistDocument> {
     } catch {
       throw new GistRequestError("unknown", response.status)
     }
-    return selectMarkdownFile(body, response.status)
+    return selectMarkdownFiles(body, response.status)
   })
   gistRequests.set(id, pending)
   void pending.catch(() => {
@@ -127,7 +127,7 @@ export function getGist(id: string): Promise<GistDocument> {
   return pending
 }
 
-function selectMarkdownFile(body: unknown, status: number): GistDocument {
+function selectMarkdownFiles(body: unknown, status: number): GistDocument[] {
   if (!isObject(body) || !isObject(body.files)) {
     throw new GistRequestError("unknown", status)
   }
@@ -137,21 +137,21 @@ function selectMarkdownFile(body: unknown, status: number): GistDocument {
       return isObject(file) && isMarkdown(key, file.filename, file.language)
     })
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-  const selected = candidates[0]
-  if (!selected) {
+  if (candidates.length === 0) {
     throw new GistRequestError("not_found", status)
   }
-  const [key, file] = selected
-  if (file.truncated === true) {
-    throw new GistRequestError("content_too_large", status)
-  }
-  if (typeof file.content !== "string") {
-    throw new GistRequestError("unknown", status)
-  }
-  return {
-    filename: typeof file.filename === "string" && file.filename !== "" ? file.filename : key,
-    content: file.content,
-  }
+  return candidates.map(([key, file]) => {
+    if (file.truncated === true) {
+      throw new GistRequestError("content_too_large", status)
+    }
+    if (typeof file.content !== "string") {
+      throw new GistRequestError("unknown", status)
+    }
+    return {
+      filename: typeof file.filename === "string" && file.filename !== "" ? file.filename : key,
+      content: file.content,
+    }
+  })
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
