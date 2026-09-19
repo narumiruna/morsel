@@ -115,6 +115,72 @@ test("loads Gist Markdown directly from GitHub without credentials", async ({ pa
   )
 })
 
+for (const width of [1280, 375]) {
+  for (const theme of ["light", "dark"]) {
+    test(`Gist file picker fits ${width}px in ${theme} mode`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 800 })
+      await page.addInitScript((mode) => localStorage.setItem("morsel-theme", mode), theme)
+      const filenames = [
+        "01-flow-and-growth.md",
+        "02-system-and-distribution.md",
+        `03-${"long-filename-".repeat(8)}correlation.md`,
+      ]
+      await page.route(`https://api.github.com/gists/${gist}`, (route) =>
+        route.fulfill({
+          json: {
+            files: Object.fromEntries(
+              filenames.map((filename, index) => [
+                filename,
+                { filename, language: "Markdown", content: `# Document ${index + 1}` },
+              ]),
+            ),
+          },
+        }),
+      )
+      await page.goto(`/gist/#${gist}`)
+      await expect(page.getByRole("heading", { name: "Document 1" })).toBeVisible()
+      const picker = page.getByRole("combobox", { name: "Markdown file" })
+      const header = await page.locator(".document-header").boundingBox()
+      const trigger = await picker.boundingBox()
+      expect(trigger?.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0))
+
+      await picker.focus()
+      await page.keyboard.press("ArrowDown")
+      const menu = page.getByRole("listbox")
+      await expect(menu).toBeVisible()
+      const menuBox = await menu.boundingBox()
+      expect(menuBox?.y).toBeGreaterThanOrEqual((trigger?.y ?? 0) + (trigger?.height ?? 0))
+      expect(menuBox?.x).toBeGreaterThanOrEqual(0)
+      expect((menuBox?.x ?? 0) + (menuBox?.width ?? 0)).toBeLessThanOrEqual(width)
+      await testInfo.attach("file-picker", {
+        body: await page.screenshot({ animations: "disabled" }),
+        contentType: "image/png",
+      })
+      await expect(page.getByRole("option").first()).toBeFocused()
+      await page.keyboard.press("End")
+      await expect(page.getByRole("option").last()).toBeFocused()
+      await page.keyboard.press("Enter")
+      await expect(page.getByRole("heading", { name: "Document 3" })).toBeVisible()
+      await expect(picker).toBeFocused()
+      await expect(picker).toHaveAttribute("title", filenames[2])
+      const filename = picker.locator(".gist-file-name")
+      expect(await filename.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+        true,
+      )
+      const filenameBox = await filename.boundingBox()
+      const selectedTrigger = await picker.boundingBox()
+      expect((filenameBox?.x ?? 0) + (filenameBox?.width ?? 0)).toBeLessThanOrEqual(
+        (selectedTrigger?.x ?? 0) + (selectedTrigger?.width ?? 0),
+      )
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      await picker.click()
+      await page.keyboard.press("Escape")
+      await expect(menu).not.toBeVisible()
+      await expect(picker).toBeFocused()
+    })
+  }
+}
+
 test("supports keyboard navigation at desktop and narrow widths", async ({ page }) => {
   const viewports = [
     { width: 1280, height: 800 },
