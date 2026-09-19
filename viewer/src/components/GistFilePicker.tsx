@@ -42,7 +42,11 @@ export function GistFilePicker({
             <Select.Group>
               <Select.Label>Markdown files</Select.Label>
               {documents.map((document, index) => (
-                <Select.Item key={document.filename} value={String(index)}>
+                <Select.Item
+                  className="gist-file-item"
+                  key={document.filename}
+                  value={String(index)}
+                >
                   <span className="gist-file-option">{document.filename}</span>
                 </Select.Item>
               ))}

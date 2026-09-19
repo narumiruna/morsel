@@ -163,6 +163,15 @@ for (const width of [1280, 375]) {
       await expect(page.getByRole("heading", { name: "Document 3" })).toBeVisible()
       await expect(picker).toBeFocused()
       await expect(picker).toHaveAttribute("title", filenames[2])
+      const filename = picker.locator(".gist-file-name")
+      expect(await filename.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+        true,
+      )
+      const filenameBox = await filename.boundingBox()
+      const selectedTrigger = await picker.boundingBox()
+      expect((filenameBox?.x ?? 0) + (filenameBox?.width ?? 0)).toBeLessThanOrEqual(
+        (selectedTrigger?.x ?? 0) + (selectedTrigger?.width ?? 0),
+      )
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
       await picker.click()
       await page.keyboard.press("Escape")

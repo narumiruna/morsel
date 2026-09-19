@@ -119,10 +119,6 @@ summary {
   color: var(--gray-12);
 }
 
-.gist-file-trigger .rt-SelectTriggerInner {
-  min-width: 0;
-}
-
 .gist-file-name {
   display: block;
   overflow: hidden;
@@ -144,13 +140,13 @@ summary {
   max-width: calc(100vw - 2rem);
 }
 
-.gist-file-menu .rt-SelectItem {
+.gist-file-menu .gist-file-item {
   height: auto;
   min-height: 2.75rem;
   padding-block: 0.625rem;
 }
 
-.gist-file-menu .rt-SelectItem:focus-visible {
+.gist-file-menu .gist-file-item:focus-visible {
   outline: 2px solid var(--gray-8);
   outline-offset: -2px;
 }
