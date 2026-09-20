@@ -3,12 +3,11 @@ import { Button, Callout } from "@radix-ui/themes"
 import { useEffect, useRef, useState } from "react"
 import { useAppearance } from "../theme"
 import { DiagramViewer } from "./DiagramViewer"
+import { useDiagramVisibility } from "./useDiagramVisibility"
 import { maxVegaLiteBytes, renderVegaLite } from "./vegaLiteRenderer"
 
 export const maxVegaLiteCharts = 20
 export { maxVegaLiteBytes }
-
-const preloadMargin = "800px 0px"
 
 function ChartError({
   message,
@@ -44,30 +43,14 @@ function ChartError({
 
 export function VegaLiteChart({ source, index }: { source: string; index: number }) {
   const appearance = useAppearance()
-  const pending = useRef<HTMLDivElement>(null)
   const chart = useRef<HTMLDivElement>(null)
-  const [eligible, setEligible] = useState(() => typeof IntersectionObserver !== "function")
   const [ready, setReady] = useState(false)
   const [error, setError] = useState("")
   const [retry, setRetry] = useState(0)
   const byteLength = new TextEncoder().encode(source).byteLength
   const withinLimits = index < maxVegaLiteCharts && byteLength <= maxVegaLiteBytes
 
-  useEffect(() => {
-    if (!withinLimits || eligible || typeof IntersectionObserver !== "function") return
-    const target = pending.current
-    if (!target) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return
-        setEligible(true)
-        observer.disconnect()
-      },
-      { rootMargin: preloadMargin },
-    )
-    observer.observe(target)
-    return () => observer.disconnect()
-  }, [eligible, withinLimits])
+  const { pending, eligible } = useDiagramVisibility(withinLimits)
 
   // `retry` deliberately restarts a failed render even when all render inputs are unchanged.
   // biome-ignore lint/correctness/useExhaustiveDependencies: Retry is an explicit render generation.
@@ -142,14 +125,10 @@ export function VegaLiteChart({ source, index }: { source: string; index: number
   return (
     <DiagramViewer
       appearance={appearance}
-      cardClassName="vega-lite-card"
-      graphicClassName="vega-lite-chart"
-      graphicName="Vega-Lite chart"
-      graphicRole={null}
+      kind="vega-lite"
       ready={ready}
       source={source}
       stageRef={chart}
-      type="chart"
     />
   )
 }

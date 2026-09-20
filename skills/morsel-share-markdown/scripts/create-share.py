@@ -7,7 +7,6 @@ import argparse
 import json
 from pathlib import Path
 import re
-import subprocess
 import sys
 import unicodedata
 from urllib.parse import urlsplit
@@ -16,10 +15,9 @@ from morsel_config import (
     add_config_arguments,
     fail,
     load_config,
-    quote_curl_config,
-    safe_curl_diagnostic,
     validate_origin,
 )
+from morsel_transport import quote_curl_config, run_curl
 
 
 PREVIEW_LIMITS = {"title": 80, "description": 200}
@@ -123,49 +121,15 @@ def create_share(url, api_key, configured_keys, parsed_url, payload):
             + quote_curl_config(json.dumps(payload, ensure_ascii=False)),
         ]
     )
-    command = [
-        "curl",
-        "--disable",
-        "--globoff",
-        "--silent",
-        "--show-error",
-        "--fail-with-body",
-        "--connect-timeout",
-        "10",
-        "--max-time",
-        "40",
-        "--proto",
-        "=http,https",
-        "--max-filesize",
-        "65536",
-    ]
-    if parsed_url.scheme == "http":
-        command.extend(["--noproxy", "*"])
-    command.extend(["--write-out", "\n%{http_code}", "--config", "-"])
-
-    try:
-        result = subprocess.run(
-            command,
-            input=curl_config,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-        )
-    except FileNotFoundError:
-        fail("curl is required")
-
-    body, _, status = result.stdout.rpartition("\n")
-    if status != "201" or result.returncode:
+    body, status, exit_code, diagnostic = run_curl(
+        curl_config, parsed_url, api_key, configured_keys
+    )
+    if status != "201" or exit_code:
         # Do not echo intermediary bodies, which could contain credentials.
-        safe_status = status if status.isdigit() and len(status) == 3 else "unknown"
-        diagnostic = safe_curl_diagnostic(
-            result.stderr,
-            {api_key, configured_keys, *configured_keys.split(",")},
-        )
         if diagnostic.strip():
             print("curl: " + diagnostic, file=sys.stderr)
         fail(
-            f"creation not confirmed (HTTP {safe_status}, curl exit {result.returncode}); "
+            f"creation not confirmed (HTTP {status}, curl exit {exit_code}); "
             "not retried; a share may exist if transmission occurred"
         )
 

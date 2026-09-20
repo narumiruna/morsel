@@ -21,10 +21,7 @@ import { createDiagramView, type DiagramViewController } from "./diagramView"
 
 interface DiagramViewerProps {
   appearance?: Appearance
-  cardClassName?: string
-  graphicClassName?: string
-  graphicName?: string
-  graphicRole?: "img" | null
+  kind: "mermaid" | "vega-lite"
   ready?: boolean
   refreshing?: boolean
   renderError?: string
@@ -32,7 +29,6 @@ interface DiagramViewerProps {
   source: string
   stageRef?: RefObject<HTMLDivElement | null>
   svg?: string
-  type?: "chart" | "diagram"
 }
 
 interface IsolationRecord {
@@ -48,10 +44,7 @@ interface ScrollLockRecord {
 
 export function DiagramViewer({
   appearance = "light",
-  cardClassName = "",
-  graphicClassName = "mermaid-diagram",
-  graphicName = "Mermaid diagram",
-  graphicRole = "img",
+  kind,
   ready = true,
   refreshing = false,
   renderError = "",
@@ -59,8 +52,11 @@ export function DiagramViewer({
   source,
   stageRef,
   svg = "",
-  type = "diagram",
 }: DiagramViewerProps) {
+  const isChart = kind === "vega-lite"
+  const type = isChart ? "chart" : "diagram"
+  const graphicName = isChart ? "Vega-Lite chart" : "Mermaid diagram"
+  const graphicClassName = isChart ? "vega-lite-chart" : "mermaid-diagram"
   const card = useRef<HTMLDivElement>(null)
   const viewport = useRef<HTMLDivElement>(null)
   const stage = useRef<HTMLDivElement>(null)
@@ -267,7 +263,7 @@ export function DiagramViewer({
     downloadDiagram(
       new Blob([source], { type: "image/svg+xml;charset=utf-8" }),
       "svg",
-      type === "chart" ? "vega-lite-chart" : "mermaid-diagram",
+      graphicClassName,
     )
     setStatus("SVG download started.")
   }
@@ -279,7 +275,7 @@ export function DiagramViewer({
     setStatus("Creating PNG…")
     try {
       const png = await createPngExport(diagram, appearance)
-      downloadDiagram(png, "png", type === "chart" ? "vega-lite-chart" : "mermaid-diagram")
+      downloadDiagram(png, "png", graphicClassName)
       setStatus("PNG download started.")
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "PNG export failed.")
@@ -297,7 +293,7 @@ export function DiagramViewer({
 
   const tooltipContainer = expanded ? card.current : undefined
   const liveStatus = refreshing ? `Refreshing ${type} theme…` : renderError || status
-  const cardClasses = `diagram-card${cardClassName ? ` ${cardClassName}` : ""}${
+  const cardClasses = `diagram-card${isChart ? " vega-lite-card" : ""}${
     fallback ? " diagram-expanded" : ""
   }`
 
@@ -417,23 +413,13 @@ export function DiagramViewer({
         tabIndex={0}
         aria-label={`Interactive ${graphicName}. Use arrow keys to pan, plus or minus to zoom, and zero to fit.`}
       >
-        {graphicRole ? (
-          <div
-            ref={setStage}
-            className={graphicClassName}
-            role="img"
-            aria-label={graphicName}
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: Mermaid SVG is sanitized before insertion.
-            dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
-          />
-        ) : (
-          <div
-            ref={setStage}
-            className={graphicClassName}
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: This mount is populated only by the trusted local renderer.
-            dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
-          />
-        )}
+        <div
+          ref={setStage}
+          className={graphicClassName}
+          {...(isChart ? {} : { role: "img", "aria-label": graphicName })}
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: Mermaid SVG is sanitized; Vega populates the mount through its trusted local renderer.
+          dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
+        />
         {!ready && (
           <div
             className="vega-lite-loading"

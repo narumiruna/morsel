@@ -1,13 +1,18 @@
 """Local-only regression tests for curl transport and dotenv values."""
 
+from contextlib import redirect_stderr
 import http.server
+import io
 import json
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
+from urllib.parse import urlsplit
 
 SCRIPT = Path(__file__).with_name("create-share.py").resolve()
 
@@ -26,7 +31,10 @@ class TransportTests(unittest.TestCase):
             def do_POST(self):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 requests.append((self.path, self.headers["Authorization"], body))
-                self.send_response(201 if len(body) <= 1114112 else 413)
+                status = getattr(self.server, "response_status", 201 if len(body) <= 1114112 else 413)
+                self.send_response(status)
+                if getattr(self.server, "redirect", False):
+                    self.send_header("Location", "/redirected")
                 response = getattr(self.server, "response", None)
                 if response is None:
                     payload = json.loads(body)
@@ -87,6 +95,19 @@ class TransportTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("curl exit 63", result.stderr)
                 self.assertEqual(result.stdout, "")
+
+    def test_redirects_and_failures_are_not_retried(self):
+        for status in (302, 503):
+            with self.subTest(status=status):
+                self.requests.clear()
+                self.server.response_status = status
+                self.server.redirect = True
+                result = self.run_script()
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(f"creation not confirmed (HTTP {status}", result.stderr)
+                self.assertIn("not retried; a share may exist", result.stderr)
+                self.assertEqual(len(self.requests), 1)
 
     def test_empty_query_and_fragment_are_rejected(self):
         for suffix in ("?", "#", "/?", "/#"):
@@ -238,6 +259,105 @@ class TransportTests(unittest.TestCase):
         self.assertNotIn("secret-response-body", result.stderr + result.stdout)
         self.assertLess(len(result.stderr), 1300)
         self.assertEqual(self.requests, [])
+
+
+class CurlInvocationTests(unittest.TestCase):
+    """Characterize the same security policy through both CLI operations."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.operations = {
+            "create": runpy.run_path(str(SCRIPT))["create_share"],
+            "revoke": runpy.run_path(str(SCRIPT.with_name("revoke-share.py")))["revoke_share"],
+        }
+
+    def invoke(self, operation, url="https://morsel.example"):
+        argument = (
+            {"content": "# 文\r\n"} if operation == "create"
+            else "123e4567-e89b-12d3-a456-426614174000"
+        )
+        return self.operations[operation](
+            url, "first-key", "first-key, second-key", urlsplit(url), argument
+        )
+
+    def test_fixed_options_and_stdin_credentials(self):
+        for operation in self.operations:
+            for url in ("http://127.0.0.1:1234", "https://morsel.example"):
+                with self.subTest(operation=operation, url=url):
+                    output = (
+                        '{"id":"id","share_url":"https://morsel.example/#/s/token"}\n201'
+                        if operation == "create" else "\n204"
+                    )
+                    result = subprocess.CompletedProcess([], 0, output, "ignored success diagnostic")
+                    stderr = io.StringIO()
+                    with patch("subprocess.run", return_value=result) as run, redirect_stderr(stderr):
+                        self.invoke(operation, url)
+                    expected = [
+                        "curl", "--disable", "--globoff", "--silent", "--show-error",
+                        "--fail-with-body", "--connect-timeout", "10", "--max-time", "40",
+                        "--proto", "=http,https", "--max-filesize", "65536",
+                    ]
+                    if url.startswith("http:"):
+                        expected.extend(["--noproxy", "*"])
+                    expected.extend(["--write-out", "\n%{http_code}", "--config", "-"])
+                    run.assert_called_once()
+                    self.assertEqual(run.call_args.args, (expected,))
+                    options = run.call_args.kwargs.copy()
+                    config = options.pop("input")
+                    self.assertEqual(
+                        options, {"encoding": "utf-8", "errors": "replace", "capture_output": True}
+                    )
+                    self.assertIn('header = "Authorization: Bearer first-key"', config)
+                    self.assertNotIn("second-key", config)
+                    if operation == "create":
+                        self.assertIn('header = "Content-Type: application/json"', config)
+                        self.assertIn('data-binary = ', config)
+                    else:
+                        self.assertIn('request = "DELETE"', config)
+                        self.assertNotIn("data-binary", config)
+                    self.assertEqual(stderr.getvalue(), "")
+
+    def test_missing_curl(self):
+        for operation in self.operations:
+            with self.subTest(operation=operation):
+                stderr = io.StringIO()
+                with patch("subprocess.run", side_effect=FileNotFoundError) as run:
+                    with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+                        self.invoke(operation)
+                self.assertEqual(raised.exception.code, 1)
+                self.assertEqual(stderr.getvalue(), "Error: curl is required\n")
+                run.assert_called_once()
+
+    def test_failed_status_diagnostics(self):
+        for operation in self.operations:
+            success_status = "201" if operation == "create" else "204"
+            cases = (
+                ("invalid", 0, "unknown"), ("", 60, "unknown"),
+                ("503", 22, "503"), (success_status, 63, success_status),
+            )
+            for status, exit_code, safe_status in cases:
+                with self.subTest(operation=operation, status=status, exit_code=exit_code):
+                    result = subprocess.CompletedProcess(
+                        [], exit_code, "secret-response-body\n" + status,
+                        "TLS failed first-key, second-key\x1b[31m\n" + "x" * 2000,
+                    )
+                    stderr = io.StringIO()
+                    with patch("subprocess.run", return_value=result) as run:
+                        with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+                            self.invoke(operation)
+                    self.assertEqual(raised.exception.code, 1)
+                    run.assert_called_once()
+                    diagnostic = stderr.getvalue()
+                    self.assertIn(f"HTTP {safe_status}, curl exit {exit_code}", diagnostic)
+                    self.assertIn("[REDACTED]", diagnostic)
+                    for secret in ("first-key", "second-key", "secret-response-body", "\x1b"):
+                        self.assertNotIn(secret, diagnostic)
+                    self.assertLess(len(diagnostic), 1300)
+                    message = (
+                        "not retried; a share may exist if transmission occurred"
+                        if operation == "create" else "retrying the same administrative UUID is safe"
+                    )
+                    self.assertIn(message, diagnostic)
 
 
 if __name__ == "__main__":
