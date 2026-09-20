@@ -1,14 +1,13 @@
 import { ExclamationTriangleIcon, ReloadIcon } from "@radix-ui/react-icons"
 import { Button, Callout } from "@radix-ui/themes"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { type Appearance, useAppearance } from "../theme"
 import { DiagramViewer } from "./DiagramViewer"
 import { maxMermaidBytes, renderMermaid } from "./mermaidRenderer"
+import { useDiagramVisibility } from "./useDiagramVisibility"
 
 export const maxMermaidDiagrams = 20
 export { maxMermaidBytes }
-
-const preloadMargin = "800px 0px"
 
 function DiagramError({
   message,
@@ -44,8 +43,6 @@ function DiagramError({
 
 export function MermaidDiagram({ source, index }: { source: string; index: number }) {
   const appearance = useAppearance()
-  const pending = useRef<HTMLDivElement>(null)
-  const [eligible, setEligible] = useState(() => typeof IntersectionObserver !== "function")
   const [result, setResult] = useState<{
     appearance: Appearance
     source: string
@@ -57,22 +54,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
   const byteLength = new TextEncoder().encode(source).byteLength
   const withinLimits = index < maxMermaidDiagrams && byteLength <= maxMermaidBytes
   const visibleResult = result?.source === source ? result : undefined
-
-  useEffect(() => {
-    if (!withinLimits || eligible || typeof IntersectionObserver !== "function") return
-    const target = pending.current
-    if (!target) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return
-        setEligible(true)
-        observer.disconnect()
-      },
-      { rootMargin: preloadMargin },
-    )
-    observer.observe(target)
-    return () => observer.disconnect()
-  }, [eligible, withinLimits])
+  const { pending, eligible } = useDiagramVisibility(withinLimits)
 
   // `retry` deliberately restarts a failed render even when all render inputs are unchanged.
   // biome-ignore lint/correctness/useExhaustiveDependencies: Retry is an explicit render generation.
@@ -133,6 +115,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
   }
   return (
     <DiagramViewer
+      kind="mermaid"
       appearance={visibleResult.appearance}
       refreshing={rendering}
       renderError={error}

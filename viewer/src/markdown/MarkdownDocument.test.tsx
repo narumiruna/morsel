@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ThemeProvider } from "../theme"
 import { MarkdownDocument } from "./MarkdownDocument"
+import { MermaidDiagram } from "./MermaidDiagram"
+import { VegaLiteChart } from "./VegaLiteChart"
 
 const mermaidMock = vi.hoisted(() => ({
   configuration: undefined as unknown,
@@ -192,7 +194,18 @@ alert("escaped")
     })
     render(<MarkdownDocument content={`\`\`\`vega-lite\n${source}\n\`\`\``} />)
 
-    await screen.findByRole("graphics-document", { name: "Controlled chart" })
+    const graphic = await screen.findByRole("graphics-document", { name: "Controlled chart" })
+    const stage = graphic.parentElement
+    expect(stage).toHaveClass("vega-lite-chart")
+    expect(stage).not.toHaveAttribute("role")
+    expect(stage).not.toHaveAttribute("aria-label")
+    expect(graphic.closest('[role="img"]')).toBeNull()
+    expect(stage?.parentElement).toBe(
+      screen.getByRole("region", {
+        name: "Interactive Vega-Lite chart. Use arrow keys to pan, plus or minus to zoom, and zero to fit.",
+      }),
+    )
+    expect(graphic.closest(".diagram-card")).toHaveAttribute("class", "diagram-card vega-lite-card")
     expect(screen.getByRole("button", { name: "Fit to screen" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Fullscreen" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Show source" })).toBeVisible()
@@ -202,6 +215,8 @@ alert("escaped")
     fireEvent.click(screen.getByRole("button", { name: "Show source" }))
     expect(screen.getByText(source)).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: "Show chart" }))
+    expect(screen.getByRole("graphics-document", { name: "Controlled chart" })).toBe(graphic)
+    expect(finalizeChart).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole("button", { name: "Download SVG" }))
     expect(exportMock.downloadDiagram).toHaveBeenCalledWith(
@@ -216,6 +231,18 @@ alert("escaped")
       "png",
       "vega-lite-chart",
     )
+  })
+
+  it("preserves chart retry and source labels", async () => {
+    vegaEmbedMock.mockRejectedValueOnce(new Error("chart failed"))
+    const source = '{"mark":"bar"}'
+    render(<MarkdownDocument content={`\`\`\`vega-lite\n${source}\n\`\`\``} />)
+    await screen.findByText("This Vega-Lite chart could not be rendered.")
+    expect(screen.getByText("Show chart source")).toBeInTheDocument()
+    expect(screen.getByText(source)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Retry chart" }))
+    expect(await screen.findByText("Vega chart")).toBeVisible()
+    expect(vegaEmbedMock).toHaveBeenCalledTimes(2)
   })
 
   it("rerenders Vega-Lite charts for the dark theme and finalizes old views", async () => {
@@ -273,6 +300,28 @@ alert("escaped")
     expect(container.querySelectorAll(".vega-lite-render")).toHaveLength(1)
   })
 
+  it("finalizes a Vega-Lite render that resolves after unmount", async () => {
+    let finish: (() => void) | undefined
+    vegaEmbedMock.mockImplementationOnce(
+      (element: HTMLElement) =>
+        new Promise<{ finalize: () => void }>((resolve) => {
+          finish = () => {
+            element.innerHTML = "<svg><text>Unmounted chart</text></svg>"
+            resolve({ finalize: finalizeChart })
+          }
+        }),
+    )
+    const { unmount } = render(<VegaLiteChart source={'{"mark":"bar"}'} index={0} />)
+    await waitFor(() => expect(vegaEmbedMock).toHaveBeenCalledOnce())
+    const mount = vegaEmbedMock.mock.calls[0]?.[0] as HTMLElement
+    unmount()
+    await act(async () => finish?.())
+    expect(finalizeChart).toHaveBeenCalledOnce()
+    expect(mount.isConnected).toBe(false)
+    expect(mount.parentElement).toBeNull()
+    expect(screen.queryByText("Unmounted chart")).not.toBeInTheDocument()
+  })
+
   it("isolates invalid, oversized, and excess Vega-Lite charts", async () => {
     const { rerender } = render(
       <MarkdownDocument content={"Before\n\n```vega-lite\nnot JSON\n```\n\nAfter"} />,
@@ -310,28 +359,83 @@ alert("escaped")
     expect(container.innerHTML).not.toMatch(/onload|script|foreignObject/i)
   })
 
-  it("defers offscreen Mermaid work until the preload observer intersects", async () => {
-    let intersect: ((entries: Array<{ isIntersecting: boolean }>) => void) | undefined
+  describe.each([
+    {
+      name: "Mermaid diagram",
+      Component: MermaidDiagram,
+      source: "graph TD; A-->B",
+      renderer: renderDiagram,
+    },
+    {
+      name: "Vega-Lite chart",
+      Component: VegaLiteChart,
+      source: '{"mark":"bar"}',
+      renderer: vegaEmbedMock,
+    },
+  ])("$name visibility admission", ({ name, Component, source, renderer }) => {
+    let intersect: (entries: Array<{ isIntersecting: boolean }>) => void
+    const observe = vi.fn()
     const disconnect = vi.fn()
-    vi.stubGlobal(
-      "IntersectionObserver",
+    const observer = vi.fn(
       class {
-        constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
+        observe = observe
+        disconnect = disconnect
+        constructor(callback: typeof intersect) {
           intersect = callback
-        }
-        observe() {}
-        disconnect() {
-          disconnect()
         }
       },
     )
-    render(<MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />)
-    expect(screen.getByLabelText("Waiting to render Mermaid diagram")).toBeVisible()
-    expect(renderDiagram).not.toHaveBeenCalled()
-    act(() => intersect?.([{ isIntersecting: true }]))
-    await screen.findByLabelText("Mermaid diagram")
-    expect(renderDiagram).toHaveBeenCalledOnce()
-    expect(disconnect).toHaveBeenCalled()
+
+    beforeEach(() => {
+      vi.stubGlobal("IntersectionObserver", observer)
+    })
+
+    it("waits for intersection and keeps eligibility after source changes", async () => {
+      const { rerender } = render(<Component source={source} index={0} />)
+      const placeholder = screen.getByLabelText(`Waiting to render ${name}`)
+      expect(placeholder).toHaveClass("diagram-loading")
+      expect(observer).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+        rootMargin: "800px 0px",
+      })
+      expect(observe).toHaveBeenCalledWith(placeholder)
+      act(() => intersect([{ isIntersecting: false }]))
+      expect(renderer).not.toHaveBeenCalled()
+      expect(disconnect).not.toHaveBeenCalled()
+      await act(async () => intersect([{ isIntersecting: false }, { isIntersecting: true }]))
+      await waitFor(() => expect(renderer).toHaveBeenCalledOnce())
+      expect(disconnect).toHaveBeenCalled()
+      rerender(<Component source={`${source}\n`} index={0} />)
+      await waitFor(() => expect(renderer).toHaveBeenCalledTimes(2))
+      expect(observer).toHaveBeenCalledOnce()
+    })
+
+    it("disconnects a waiting observer on unmount without rendering", () => {
+      const { unmount } = render(<Component source={source} index={0} />)
+      expect(observe).toHaveBeenCalledOnce()
+      unmount()
+      expect(disconnect).toHaveBeenCalledOnce()
+      expect(renderer).not.toHaveBeenCalled()
+    })
+
+    it("does not observe or render over-limit blocks", async () => {
+      const { rerender } = render(<Component source={source} index={20} />)
+      expect(observer).not.toHaveBeenCalled()
+      rerender(<Component source={"x".repeat(50 * 1024 + 1)} index={0} />)
+      expect(observer).not.toHaveBeenCalled()
+      expect(renderer).not.toHaveBeenCalled()
+      rerender(<Component source={source} index={0} />)
+      expect(observer).toHaveBeenCalledOnce()
+      await act(async () => intersect([{ isIntersecting: true }]))
+      await waitFor(() => expect(renderer).toHaveBeenCalledOnce())
+    })
+
+    it("renders immediately without IntersectionObserver", async () => {
+      vi.stubGlobal("IntersectionObserver", undefined)
+      render(<Component source={source} index={0} />)
+      await waitFor(() => expect(renderer).toHaveBeenCalledOnce())
+      expect(screen.queryByLabelText(`Waiting to render ${name}`)).not.toBeInTheDocument()
+      expect(observer).not.toHaveBeenCalled()
+    })
   })
 
   it("retries an invalid diagram while preserving its source", async () => {

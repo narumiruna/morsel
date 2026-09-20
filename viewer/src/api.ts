@@ -53,78 +53,84 @@ export class GistRequestError extends Error {
 const requests = new Map<string, Promise<Share>>()
 const gistRequests = new Map<string, Promise<GistDocument[]>>()
 
-export function getShare(token: string): Promise<Share> {
-  const existing = requests.get(token)
+// Keep successful reads for this page lifetime; consuming a share again spends another view.
+function cachedRequest<T>(
+  cache: Map<string, Promise<T>>,
+  key: string,
+  load: () => Promise<T>,
+): Promise<T> {
+  const existing = cache.get(key)
   if (existing) return existing
-  const pending = fetch(`/v1/shares/${encodeURIComponent(token)}`, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-    credentials: "omit",
-    referrerPolicy: "no-referrer",
-  }).then(async (response) => {
-    if (!response.ok) {
-      let code: ShareErrorCode = "unknown"
-      try {
-        const body = (await response.json()) as { code?: string }
-        if (isShareErrorCode(body.code)) code = body.code
-      } catch {
-        // The status remains useful when a proxy returns a non-JSON error.
-      }
-      throw new ShareRequestError(code, response.status)
-    }
-    const body = (await response.json()) as Partial<Share>
-    if (
-      typeof body.content !== "string" ||
-      typeof body.created_at !== "string" ||
-      typeof body.view_count !== "number"
-    ) {
-      throw new ShareRequestError("unknown", response.status)
-    }
-    return body as Share
-  })
-  requests.set(token, pending)
+  const pending = load()
+  cache.set(key, pending)
   void pending.catch(() => {
-    if (requests.get(token) === pending) requests.delete(token)
+    if (cache.get(key) === pending) cache.delete(key)
   })
   return pending
 }
 
+export function getShare(token: string): Promise<Share> {
+  return cachedRequest(requests, token, () =>
+    fetch(`/v1/shares/${encodeURIComponent(token)}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+    }).then(async (response) => {
+      if (!response.ok) {
+        let code: ShareErrorCode = "unknown"
+        try {
+          const body = (await response.json()) as { code?: string }
+          if (isShareErrorCode(body.code)) code = body.code
+        } catch {
+          // The status remains useful when a proxy returns a non-JSON error.
+        }
+        throw new ShareRequestError(code, response.status)
+      }
+      const body = (await response.json()) as Partial<Share>
+      if (
+        typeof body.content !== "string" ||
+        typeof body.created_at !== "string" ||
+        typeof body.view_count !== "number"
+      ) {
+        throw new ShareRequestError("unknown", response.status)
+      }
+      return body as Share
+    }),
+  )
+}
+
 export function getGist(id: string): Promise<GistDocument[]> {
-  const existing = gistRequests.get(id)
-  if (existing) return existing
-  const pending = fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`, {
-    method: "GET",
-    headers: {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    cache: "no-store",
-    credentials: "omit",
-    referrerPolicy: "no-referrer",
-  }).then(async (response) => {
-    if (!response.ok) {
-      const code: GistErrorCode =
-        response.status === 404
-          ? "not_found"
-          : response.status === 403 || response.status === 429
-            ? "service_unavailable"
-            : "unknown"
-      throw new GistRequestError(code, response.status)
-    }
-    let body: unknown
-    try {
-      body = await response.json()
-    } catch {
-      throw new GistRequestError("unknown", response.status)
-    }
-    return selectMarkdownFiles(body, response.status)
-  })
-  gistRequests.set(id, pending)
-  void pending.catch(() => {
-    if (gistRequests.get(id) === pending) gistRequests.delete(id)
-  })
-  return pending
+  return cachedRequest(gistRequests, id, () =>
+    fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`, {
+      method: "GET",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      cache: "no-store",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+    }).then(async (response) => {
+      if (!response.ok) {
+        const code: GistErrorCode =
+          response.status === 404
+            ? "not_found"
+            : response.status === 403 || response.status === 429
+              ? "service_unavailable"
+              : "unknown"
+        throw new GistRequestError(code, response.status)
+      }
+      let body: unknown
+      try {
+        body = await response.json()
+      } catch {
+        throw new GistRequestError("unknown", response.status)
+      }
+      return selectMarkdownFiles(body, response.status)
+    }),
+  )
 }
 
 function selectMarkdownFiles(body: unknown, status: number): GistDocument[] {

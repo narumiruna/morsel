@@ -116,16 +116,3 @@ def validate_origin(config):
     ):
         fail("MORSEL_URL must use HTTPS except for localhost, 127.0.0.1, or ::1")
     return url.rstrip("/"), api_key, parsed
-
-
-def quote_curl_config(value):
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def safe_curl_diagnostic(diagnostic, secrets):
-    for secret in sorted(set(secrets), key=len, reverse=True):
-        if secret.strip():
-            diagnostic = diagnostic.replace(secret.strip(), "[REDACTED]")
-    return "".join(
-        character if character.isprintable() else " " for character in diagnostic
-    )[:1024]

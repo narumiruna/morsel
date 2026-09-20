@@ -18,7 +18,7 @@ function renderViewer(
     retryRender: () => void
   }> = {},
 ) {
-  return render(<DiagramViewer svg={svg} source="graph TD; A-->B" {...props} />)
+  return render(<DiagramViewer kind="mermaid" svg={svg} source="graph TD; A-->B" {...props} />)
 }
 
 describe("DiagramViewer", () => {
@@ -79,6 +79,23 @@ describe("DiagramViewer", () => {
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeDisabled()
     fireEvent.click(screen.getByRole("button", { name: "Show diagram" }))
     expect(screen.getByRole("img")).toBeVisible()
+  })
+
+  it("preserves Mermaid presentation and SVG export", () => {
+    const retryRender = vi.fn()
+    const { container } = renderViewer({ renderError: "Render failed.", retryRender })
+    const stage = screen.getByRole("img", { name: "Mermaid diagram" })
+    expect(stage).toHaveClass("mermaid-diagram")
+    expect(stage.parentElement).toBe(
+      screen.getByRole("region", {
+        name: "Interactive Mermaid diagram. Use arrow keys to pan, plus or minus to zoom, and zero to fit.",
+      }),
+    )
+    expect(container.querySelector(".diagram-card")).toHaveAttribute("class", "diagram-card")
+    fireEvent.click(screen.getByRole("button", { name: "Retry diagram" }))
+    expect(retryRender).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole("button", { name: "Download SVG" }))
+    expect(downloadDiagram).toHaveBeenCalledWith(expect.any(Blob), "svg", "mermaid-diagram")
   })
 
   it("supports keyboard zoom and fit without consuming inline touch", () => {

@@ -2,7 +2,6 @@ package testdb
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -60,12 +59,4 @@ func Count(t *testing.T, pool *pgxpool.Pool, query string, args ...any) int64 {
 		t.Fatalf("query count: %v", err)
 	}
 	return count
-}
-
-func URL() (string, error) {
-	value := os.Getenv("MORSEL_TEST_DATABASE_URL")
-	if value == "" {
-		return "", fmt.Errorf("MORSEL_TEST_DATABASE_URL is not set")
-	}
-	return value, nil
 }

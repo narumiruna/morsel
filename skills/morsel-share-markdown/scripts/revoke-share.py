@@ -5,7 +5,6 @@
 
 import argparse
 import json
-import subprocess
 import sys
 import uuid
 
@@ -13,10 +12,9 @@ from morsel_config import (
     add_config_arguments,
     fail,
     load_config,
-    quote_curl_config,
-    safe_curl_diagnostic,
     validate_origin,
 )
+from morsel_transport import quote_curl_config, run_curl
 
 
 def administrative_id(value):
@@ -46,48 +44,14 @@ def revoke_share(url, api_key, configured_keys, parsed_url, share_id):
             'request = "DELETE"',
         ]
     )
-    command = [
-        "curl",
-        "--disable",
-        "--globoff",
-        "--silent",
-        "--show-error",
-        "--fail-with-body",
-        "--connect-timeout",
-        "10",
-        "--max-time",
-        "40",
-        "--proto",
-        "=http,https",
-        "--max-filesize",
-        "65536",
-    ]
-    if parsed_url.scheme == "http":
-        command.extend(["--noproxy", "*"])
-    command.extend(["--write-out", "\n%{http_code}", "--config", "-"])
-
-    try:
-        result = subprocess.run(
-            command,
-            input=curl_config,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-        )
-    except FileNotFoundError:
-        fail("curl is required")
-
-    _, _, status = result.stdout.rpartition("\n")
-    if status != "204" or result.returncode:
-        safe_status = status if status.isdigit() and len(status) == 3 else "unknown"
-        diagnostic = safe_curl_diagnostic(
-            result.stderr,
-            {api_key, configured_keys, *configured_keys.split(",")},
-        )
+    _, status, exit_code, diagnostic = run_curl(
+        curl_config, parsed_url, api_key, configured_keys
+    )
+    if status != "204" or exit_code:
         if diagnostic.strip():
             print("curl: " + diagnostic, file=sys.stderr)
         fail(
-            f"revocation not confirmed (HTTP {safe_status}, curl exit {result.returncode}); "
+            f"revocation not confirmed (HTTP {status}, curl exit {exit_code}); "
             "retrying the same administrative UUID is safe"
         )
 
