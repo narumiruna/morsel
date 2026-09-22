@@ -253,7 +253,9 @@ summary {
   color-scheme: dark;
 }
 
-[data-theme-mode="sepia"] {
+/* Radix Select portals create separate theme roots outside .morsel-theme. */
+[data-theme-mode="sepia"],
+body:has(.morsel-theme[data-theme-mode="sepia"]) .radix-themes {
   --color-background: #f4ecd8;
   --color-panel-solid: #fbf7ec;
   --color-panel-translucent: rgb(251 247 236 / 92%);
@@ -262,7 +264,8 @@ summary {
   --diagram-panel: #fbf7ec;
 }
 
-[data-theme-mode="sage"] {
+[data-theme-mode="sage"],
+body:has(.morsel-theme[data-theme-mode="sage"]) .radix-themes {
   --color-background: #edf3ea;
   --color-panel-solid: #f8fbf6;
   --color-panel-translucent: rgb(248 251 246 / 92%);
@@ -271,7 +274,8 @@ summary {
   --diagram-panel: #f8fbf6;
 }
 
-[data-theme-mode="midnight"] {
+[data-theme-mode="midnight"],
+body:has(.morsel-theme[data-theme-mode="midnight"]) .radix-themes {
   --color-background: #0e171f;
   --color-panel-solid: #14212b;
   --color-panel-translucent: rgb(20 33 43 / 92%);

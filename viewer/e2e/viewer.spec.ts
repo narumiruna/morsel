@@ -121,6 +121,62 @@ test("loads Gist Markdown directly from GitHub without credentials", async ({ pa
   )
 })
 
+test("applies custom panel colors to portaled selectors", async ({ page }) => {
+  await page.route(`https://api.github.com/gists/${gist}`, (route) =>
+    route.fulfill({
+      json: {
+        files: {
+          "01-first.md": {
+            filename: "01-first.md",
+            language: "Markdown",
+            content: "# First document",
+          },
+          "02-second.md": {
+            filename: "02-second.md",
+            language: "Markdown",
+            content: "# Second document",
+          },
+        },
+      },
+    }),
+  )
+  await page.goto(`/gist/#${gist}`)
+  await expect(page.getByRole("heading", { name: "First document" })).toBeVisible()
+
+  const theme = page.getByRole("combobox", { name: "Theme" })
+  const themeRoot = page.locator(".morsel-theme")
+  const portal = page.locator(".rt-SelectContent")
+  for (const [label, mode, panelColor] of [
+    ["Sepia", "sepia", "#fbf7ec"],
+    ["Sage", "sage", "#f8fbf6"],
+    ["Midnight", "midnight", "#14212b"],
+  ] as const) {
+    await theme.click()
+    await page.getByRole("option", { name: label }).click()
+    await expect(themeRoot).toHaveAttribute("data-theme-mode", mode)
+    await theme.click()
+    await expect(portal).toBeVisible()
+    await expect
+      .poll(() =>
+        portal.evaluate((element) =>
+          getComputedStyle(element).getPropertyValue("--color-panel-solid").trim(),
+        ),
+      )
+      .toBe(panelColor)
+    await page.keyboard.press("Escape")
+  }
+
+  await page.getByRole("combobox", { name: "Markdown file" }).click()
+  await expect(portal).toBeVisible()
+  await expect
+    .poll(() =>
+      portal.evaluate((element) =>
+        getComputedStyle(element).getPropertyValue("--color-panel-solid").trim(),
+      ),
+    )
+    .toBe("#14212b")
+})
+
 for (const width of [1280, 375]) {
   for (const theme of ["light", "dark"]) {
     test(`Gist file picker fits ${width}px in ${theme} mode`, async ({ page }, testInfo) => {
