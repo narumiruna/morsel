@@ -11,15 +11,23 @@
 
 html {
   min-width: 320px;
-  background: var(--color-background);
+  background: #fdfcfa;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+}
+
+.morsel-theme {
+  --theme-code-background: var(--gray-2);
+  --theme-glow: var(--accent-4);
+
+  min-height: 100vh;
   background:
-    radial-gradient(circle at 15% -20%, var(--orange-4), transparent 34rem), var(--color-background);
+    radial-gradient(circle at 15% -20%, var(--theme-glow), transparent 34rem),
+    var(--color-background);
   color: var(--gray-12);
 }
 
@@ -229,6 +237,8 @@ summary {
   --syntax-variable: #953800;
   --syntax-meta: #0550ae;
   --diagram-panel: #fff;
+
+  color-scheme: light;
 }
 
 [data-appearance="dark"] {
@@ -239,6 +249,35 @@ summary {
   --syntax-variable: #ffa657;
   --syntax-meta: #79c0ff;
   --diagram-panel: #111113;
+
+  color-scheme: dark;
+}
+
+[data-theme-mode="sepia"] {
+  --color-background: #f4ecd8;
+  --color-panel-solid: #fbf7ec;
+  --color-panel-translucent: rgb(251 247 236 / 92%);
+  --theme-code-background: #ede2c8;
+  --theme-glow: #e6d2a3;
+  --diagram-panel: #fbf7ec;
+}
+
+[data-theme-mode="sage"] {
+  --color-background: #edf3ea;
+  --color-panel-solid: #f8fbf6;
+  --color-panel-translucent: rgb(248 251 246 / 92%);
+  --theme-code-background: #e4ede1;
+  --theme-glow: #cfe1ca;
+  --diagram-panel: #f8fbf6;
+}
+
+[data-theme-mode="midnight"] {
+  --color-background: #0e171f;
+  --color-panel-solid: #14212b;
+  --color-panel-translucent: rgb(20 33 43 / 92%);
+  --theme-code-background: #172832;
+  --theme-glow: #174052;
+  --diagram-panel: #14212b;
 }
 
 .markdown-document code,
@@ -314,7 +353,7 @@ summary {
   padding: 1rem;
   border: 1px solid var(--gray-a5);
   border-radius: var(--radius-4);
-  background: var(--gray-2);
+  background: var(--theme-code-background);
   line-height: 1.55;
   white-space: pre;
 }
