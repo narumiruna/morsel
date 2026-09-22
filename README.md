@@ -8,6 +8,7 @@ Morsel supports:
 - direct viewing of Markdown files from GitHub Gists
 - optional expiration times, view limits, standards-based Open Graph previews, and opt-in Telegram Instant View articles
 - GitHub Flavored Markdown, syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts
+- system-aware light and dark modes plus eye-comfort Sepia, Sage, and Midnight reader themes
 - sanitized output with authored HTML disabled
 - a single production image with no Node.js runtime
 
