@@ -6,7 +6,7 @@ COPY packages/client/package.json packages/client/package.json
 COPY packages/viewer/package.json packages/viewer/package.json
 RUN npm ci
 COPY packages/viewer/ packages/viewer/
-RUN npm run build --workspace @morsel/viewer
+RUN npm run build --workspace @narumitw/morsel-viewer
 
 FROM golang:1.27.1-alpine3.23 AS api-build
 WORKDIR /src/api

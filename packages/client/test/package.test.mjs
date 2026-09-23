@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { access, readFile } from "node:fs/promises"
-import { test } from "node:test"
+import { test } from "vitest"
 
 // Node10 module resolution reads the top-level types field, not exports.types.
 test("package exposes built declarations to both legacy and modern TypeScript consumers", async () => {

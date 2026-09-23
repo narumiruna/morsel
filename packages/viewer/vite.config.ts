@@ -22,6 +22,7 @@ export default defineConfig({
     proxy: apiProxy,
   },
   test: {
+    name: "viewer",
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
     css: true,

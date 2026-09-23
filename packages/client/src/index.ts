@@ -85,14 +85,19 @@ export class MorselClient {
       url.search ||
       url.hash
     ) {
-      throw new TypeError("baseUrl must be an HTTP(S) origin without credentials, path, query or fragment")
+      throw new TypeError(
+        "baseUrl must be an HTTP(S) origin without credentials, path, query or fragment",
+      )
     }
     this.origin = url.origin
     this.apiKey = options.apiKey
     this.fetcher = options.fetch ?? globalThis.fetch
   }
 
-  async createShare(body: CreateShareRequest, options: RequestOptions = {}): Promise<CreateShareResponse> {
+  async createShare(
+    body: CreateShareRequest,
+    options: RequestOptions = {},
+  ): Promise<CreateShareResponse> {
     const response = await this.fetcher(`${this.origin}/v1/shares`, {
       method: "POST",
       headers: {
@@ -159,7 +164,14 @@ export class MorselClient {
 
 function isErrorCode(code: string): code is MorselErrorCode {
   return [
-    "invalid_request", "content_too_large", "unauthorized", "not_found", "expired",
-    "revoked", "view_limit_exhausted", "internal_error", "service_unavailable",
+    "invalid_request",
+    "content_too_large",
+    "unauthorized",
+    "not_found",
+    "expired",
+    "revoked",
+    "view_limit_exhausted",
+    "internal_error",
+    "service_unavailable",
   ].includes(code)
 }
