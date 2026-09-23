@@ -70,7 +70,7 @@ jobs:
           push: false
           tags: morsel:test
 
-  sdk:
+  client:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -78,12 +78,12 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: sdk/package-lock.json
-      - working-directory: sdk
+          cache-dependency-path: client/package-lock.json
+      - working-directory: client
         run: npm ci
-      - working-directory: sdk
+      - working-directory: client
         run: npm run ci
-      - working-directory: sdk
+      - working-directory: client
         run: npm pack --dry-run
 
   viewer:

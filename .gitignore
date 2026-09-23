@@ -13,8 +13,8 @@ viewer/dist/
 viewer/coverage/
 viewer/playwright-report/
 viewer/test-results/
-sdk/node_modules/
-sdk/dist/
+client/node_modules/
+client/dist/
 *.tsbuildinfo
 
 # Logs and editor files
