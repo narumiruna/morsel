@@ -9,10 +9,10 @@
     "npm": ">=11.0.0"
   },
   "scripts": {
-    "dev": "npm run dev --workspace @morsel/viewer",
-    "ci": "biome ci .",
+    "dev": "npm run dev --workspace @narumitw/morsel-viewer",
+    "ci": "biome ci . && npm run ci --workspaces",
     "test": "vitest run",
-    "test:browser": "npm run test:browser --workspace @morsel/viewer",
+    "test:browser": "npm run test:browser --workspace @narumitw/morsel-viewer",
     "prepare": "husky"
   },
   "overrides": {

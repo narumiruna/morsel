@@ -29,10 +29,11 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test test/*.test.mjs",
-    "ci": "npm run build && npm test"
+    "test": "vitest run",
+    "ci": "npm test"
   },
   "devDependencies": {
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
   }
 }

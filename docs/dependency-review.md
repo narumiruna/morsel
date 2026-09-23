@@ -1,6 +1,6 @@
 # Dependency review
 
-Reviewed for the Morsel v1 release candidate on 2026-09-16; the Goldmark review was added on 2026-09-17. The commands below document the original, pre-workspace layout. In the current layout, run `npm ci` and `npm audit --omit=dev --workspace @morsel/viewer` from the repository root.
+Reviewed for the Morsel v1 release candidate on 2026-09-16; the Goldmark review was added on 2026-09-17. The commands below document the original, pre-workspace layout. In the current layout, run `npm ci` and `npm audit --omit=dev --workspace @narumitw/morsel-viewer` from the repository root.
 
 ## Production licenses
 

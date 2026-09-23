@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { test } from "node:test"
+import { test } from "vitest"
 import { MorselApiError, MorselClient } from "../dist/index.js"
 
 const origin = "https://morsel.example.com"

@@ -96,10 +96,10 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npm run ci --workspace @morsel/viewer
+      - run: npm run ci --workspace @narumitw/morsel-viewer
       - name: Audit production dependencies
-        run: npm audit --omit=dev --workspace @morsel/viewer
+        run: npm audit --omit=dev --workspace @narumitw/morsel-viewer
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Browser tests
-        run: npm run test:browser --workspace @morsel/viewer
+        run: npm run test:browser --workspace @narumitw/morsel-viewer
