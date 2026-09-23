@@ -1,6 +1,6 @@
 # Release validation
 
-Validated for the Morsel v1 release candidate on 2026-09-16.
+Validated for the Morsel v1 release candidate on 2026-09-16. The commands below record the original, pre-workspace layout. For the current layout, install from the repository root with `npm ci`, run `npm run ci` and `npm run test:browser`, and use `npm audit --omit=dev --workspace @morsel/viewer`. The viewer now lives in `packages/viewer/`.
 
 ## API and PostgreSQL
 

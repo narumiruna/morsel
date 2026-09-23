@@ -113,6 +113,23 @@ curl --fail-with-body -X DELETE \
 
 See [`api/openapi.yaml`](api/openapi.yaml) for the complete contract. Public error responses contain stable `code` and `message` fields.
 
+### TypeScript client
+
+An independent, typed npm package lives in [`packages/client/`](packages/client/README.md). It provides `createShare`, `consumeShare`, and `revokeShare` for the HTTP API. From the repository root, run `npm ci && npm run ci --workspace @narumitw/morsel-client` to build and test it. The package is not published automatically.
+
+```ts
+import { MorselClient } from "@narumitw/morsel-client"
+
+// Run on your server; never expose MORSEL_API_KEY in browser code.
+const client = new MorselClient({
+  baseUrl: "https://morsel.example.com",
+  apiKey: process.env.MORSEL_API_KEY,
+})
+const { share_url } = await client.createShare({ content: "# Hello" })
+```
+
+Reading with `consumeShare(token)` does not need an API key, but every successful call consumes one view. See the [client instructions](packages/client/README.md) for full usage and security notes.
+
 ## View a GitHub Gist
 
 Put the GitHub Gist ID in the fragment after `/gist/#`:
@@ -189,7 +206,7 @@ The API reads these environment variables:
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
 | `MORSEL_API_KEY` or `MORSEL_API_KEY_FILE` | yes | — | Comma-separated keys or a newline-delimited key file. Each key must contain at least 32 characters. Both sources may be combined during rotation. |
 | `MORSEL_URL` | yes | — | Public origin used to construct hash-route or preview-enabled path links. Non-root paths, queries, fragments, and credentials are rejected. |
-| `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Production viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
+| `MORSEL_VIEWER_DIR` | no | `../packages/viewer/dist` | Production viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require an HTTPS public URL. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
 | `MORSEL_MAX_DOCUMENT_BYTES` | no | `1048576` | UTF-8 Markdown byte limit. |
@@ -243,24 +260,24 @@ The Morsel image contains both the API and viewer. Roll them back together; hash
 
 ### Viewer
 
-Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. The development server proxies `/v1/*` requests to the Go API at `127.0.0.1:12647`.
+Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. Install both npm workspaces from the repository root. The development server proxies `/v1/*` requests to the Go API at `127.0.0.1:12647`.
 
 ```sh
-cd viewer
 npm ci
 npm run dev
 ```
 
-Run the full viewer checks:
+Run the workspace checks and browser tests:
 
 ```sh
-cd viewer
 npm run ci
 npx playwright install chromium
 npm run test:browser
 ```
 
-Production has no separate viewer deployment or build-time API hostname. The root Docker build runs Vite, copies `viewer/dist` into the image, and lets the Go service serve both the viewer and API.
+If port 4173 is occupied, run browser tests with `MORSEL_E2E_PREVIEW_PORT=4181 npm run test:browser` (choose an unused port).
+
+Production has no separate viewer deployment or build-time API hostname. The root Docker build runs Vite, copies `packages/viewer/dist` into the image, and lets the Go service serve both the viewer and API.
 
 #### Mermaid diagram controls
 
@@ -340,7 +357,10 @@ Morsel cannot protect a share after its capability URL is disclosed. Revoke expo
 
 ```text
 api/          Go API, static-file serving, OpenAPI contract, and migrations
-viewer/       React viewer source and build-time tests
+packages/viewer/  React viewer source and build-time tests
+packages/client/  Publishable TypeScript client for the share API
+package.json      npm workspace scripts and shared overrides
+package-lock.json npm workspace lockfile
 docs/         Release validation and dependency review notes
 .github/      GitHub Actions workflows for CI and deployment
 Dockerfile    Production image build

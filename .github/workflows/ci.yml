@@ -70,6 +70,19 @@ jobs:
           push: false
           tags: morsel:test
 
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run ci --workspace @narumitw/morsel-client
+      - run: npm pack --workspace @narumitw/morsel-client --dry-run
+
   viewer:
     runs-on: ubuntu-latest
     concurrency:
@@ -81,17 +94,12 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: viewer/package-lock.json
-      - working-directory: viewer
-        run: npm ci
-      - working-directory: viewer
-        run: npm run ci
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run ci --workspace @morsel/viewer
       - name: Audit production dependencies
-        working-directory: viewer
-        run: npm audit --omit=dev
+        run: npm audit --omit=dev --workspace @morsel/viewer
       - name: Install Chromium
-        working-directory: viewer
         run: npx playwright install --with-deps chromium
       - name: Browser tests
-        working-directory: viewer
-        run: npm run test:browser
+        run: npm run test:browser --workspace @morsel/viewer
