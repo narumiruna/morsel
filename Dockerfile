@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.12
-FROM node:26.8-alpine3.23 AS viewer-build
+FROM node:26.9-alpine3.23 AS viewer-build
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY packages/client/package.json packages/client/package.json
