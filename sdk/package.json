@@ -1,0 +1,31 @@
+{
+  "name": "@narumiruna/morsel",
+  "version": "0.1.0",
+  "description": "TypeScript client for the Morsel share API",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narumiruna/morsel.git",
+    "directory": "sdk"
+  },
+  "publishConfig": { "access": "public" },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs",
+    "ci": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

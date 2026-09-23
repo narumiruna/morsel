@@ -113,6 +113,23 @@ curl --fail-with-body -X DELETE \
 
 See [`api/openapi.yaml`](api/openapi.yaml) for the complete contract. Public error responses contain stable `code` and `message` fields.
 
+### TypeScript SDK
+
+An independent, typed npm package lives in [`sdk/`](sdk/README.md). It provides `createShare`, `consumeShare`, and `revokeShare` for the HTTP API. From `sdk/`, run `npm ci && npm run ci` to build and test it. The package is not published automatically.
+
+```ts
+import { MorselClient } from "@narumiruna/morsel"
+
+// Run on your server; never expose MORSEL_API_KEY in browser code.
+const client = new MorselClient({
+  baseUrl: "https://morsel.example.com",
+  apiKey: process.env.MORSEL_API_KEY,
+})
+const { share_url } = await client.createShare({ content: "# Hello" })
+```
+
+Reading with `consumeShare(token)` does not need an API key, but every successful call consumes one view. See the [SDK instructions](sdk/README.md) for full usage and security notes.
+
 ## View a GitHub Gist
 
 Put the GitHub Gist ID in the fragment after `/gist/#`:
@@ -341,6 +358,7 @@ Morsel cannot protect a share after its capability URL is disclosed. Revoke expo
 ```text
 api/          Go API, static-file serving, OpenAPI contract, and migrations
 viewer/       React viewer source and build-time tests
+sdk/          Publishable TypeScript client for the share API
 docs/         Release validation and dependency review notes
 .github/      GitHub Actions workflows for CI and deployment
 Dockerfile    Production image build
