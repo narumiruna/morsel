@@ -8,13 +8,12 @@ api/coverage.out
 api/bin/
 
 # Node / Vite / test artifacts
-viewer/node_modules/
-viewer/dist/
-viewer/coverage/
-viewer/playwright-report/
-viewer/test-results/
-client/node_modules/
-client/dist/
+node_modules/
+packages/*/node_modules/
+packages/*/dist/
+packages/viewer/coverage/
+packages/viewer/playwright-report/
+packages/viewer/test-results/
 *.tsbuildinfo
 
 # Logs and editor files

@@ -1,8 +1,11 @@
 .git
 .env
 api/coverage.out
-viewer/node_modules
-viewer/dist
-viewer/coverage
-viewer/playwright-report
-viewer/test-results
+node_modules
+packages/client/node_modules
+packages/client/dist
+packages/viewer/node_modules
+packages/viewer/dist
+packages/viewer/coverage
+packages/viewer/playwright-report
+packages/viewer/test-results

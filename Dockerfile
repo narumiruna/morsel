@@ -1,10 +1,12 @@
 # syntax=docker/dockerfile:1.12
 FROM node:26.8-alpine3.23 AS viewer-build
-WORKDIR /src/viewer
-COPY viewer/package.json viewer/package-lock.json ./
+WORKDIR /src
+COPY package.json package-lock.json ./
+COPY packages/client/package.json packages/client/package.json
+COPY packages/viewer/package.json packages/viewer/package.json
 RUN npm ci
-COPY viewer/ ./
-RUN npm run build
+COPY packages/viewer/ packages/viewer/
+RUN npm run build --workspace @morsel/viewer
 
 FROM golang:1.27.1-alpine3.23 AS api-build
 WORKDIR /src/api
@@ -19,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpat
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=api-build --chown=65532:65532 /out/server /usr/local/bin/server
 COPY --from=api-build --chown=65532:65532 /out/migrate /usr/local/bin/migrate
-COPY --from=viewer-build --chown=65532:65532 /src/viewer/dist /srv/viewer
+COPY --from=viewer-build --chown=65532:65532 /src/packages/viewer/dist /srv/viewer
 ENV MORSEL_VIEWER_DIR=/srv/viewer
 USER 65532:65532
 EXPOSE 12647

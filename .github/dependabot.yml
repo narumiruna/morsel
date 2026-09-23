@@ -9,7 +9,7 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: npm
-    directory: /viewer
+    directory: /
     schedule:
       interval: weekly
   - package-ecosystem: docker
