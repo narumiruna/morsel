@@ -4,7 +4,7 @@ Reviewed for the Morsel v1 release candidate on 2026-09-16; the Goldmark review 
 
 ## Production licenses
 
-The direct Go runtime modules use licenses compatible with this MIT-licensed project:
+The direct Go runtime modules use permissive licenses; Morsel is licensed under AGPL-3.0:
 
 | Module | Version | License |
 | --- | --- | --- |
