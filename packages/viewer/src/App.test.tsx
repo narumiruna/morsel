@@ -140,6 +140,7 @@ describe("App", () => {
       ),
     )
     vi.stubGlobal("fetch", fetchMock)
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test")
     const anchorClick = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined)
