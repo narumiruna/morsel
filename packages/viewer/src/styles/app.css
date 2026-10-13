@@ -22,12 +22,9 @@ body {
 
 .morsel-theme {
   --theme-code-background: var(--gray-2);
-  --theme-glow: var(--accent-4);
 
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 15% -20%, var(--theme-glow), transparent 34rem),
-    var(--color-background);
+  background: var(--color-background);
   color: var(--gray-12);
 }
 
@@ -260,7 +257,6 @@ body:has(.morsel-theme[data-theme-mode="sepia"]) .radix-themes {
   --color-panel-solid: #fbf7ec;
   --color-panel-translucent: rgb(251 247 236 / 92%);
   --theme-code-background: #ede2c8;
-  --theme-glow: #e6d2a3;
   --diagram-panel: #fbf7ec;
 }
 
@@ -270,7 +266,6 @@ body:has(.morsel-theme[data-theme-mode="sage"]) .radix-themes {
   --color-panel-solid: #f8fbf6;
   --color-panel-translucent: rgb(248 251 246 / 92%);
   --theme-code-background: #e4ede1;
-  --theme-glow: #cfe1ca;
   --diagram-panel: #f8fbf6;
 }
 
@@ -280,7 +275,6 @@ body:has(.morsel-theme[data-theme-mode="midnight"]) .radix-themes {
   --color-panel-solid: #14212b;
   --color-panel-translucent: rgb(20 33 43 / 92%);
   --theme-code-background: #172832;
-  --theme-glow: #174052;
   --diagram-panel: #14212b;
 }
 
