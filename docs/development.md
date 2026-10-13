@@ -23,7 +23,7 @@ Production has no separate viewer deployment or build-time API hostname. The roo
 
 ## Backend
 
-Requirements: Go 1.26.6+, PostgreSQL 17, and Docker for integration tests.
+Requirements: Go 1.26.9+, PostgreSQL 17, and Docker for integration tests.
 
 ```sh
 cd api
