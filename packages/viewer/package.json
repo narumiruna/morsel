@@ -38,7 +38,7 @@
     "vega": "6.4.0",
     "vega-embed": "7.3.0",
     "vega-expression": "6.2.2",
-    "vega-lite": "6.4.3"
+    "vega-lite": "6.5.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
