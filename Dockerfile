@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.12
-FROM node:26.10-alpine3.23 AS viewer-build
+FROM node:26.11-alpine3.23 AS viewer-build
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY packages/client/package.json packages/client/package.json
@@ -8,7 +8,7 @@ RUN npm ci
 COPY packages/viewer/ packages/viewer/
 RUN npm run build --workspace @narumitw/morsel-viewer
 
-FROM golang:1.27.1-alpine3.23 AS api-build
+FROM golang:1.27.2-alpine3.23 AS api-build
 WORKDIR /src/api
 COPY api/go.mod api/go.sum ./
 RUN go mod download
