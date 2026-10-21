@@ -6,7 +6,7 @@ Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. 
 
 ```sh
 npm ci
-npm run dev
+npm run dev --workspace @narumitw/morsel-viewer -- --host localhost --port 5173 --strictPort
 ```
 
 Run the workspace checks and browser tests:
@@ -21,9 +21,47 @@ If port 4173 is occupied, run browser tests with `MORSEL_E2E_PREVIEW_PORT=4181 n
 
 Production has no separate viewer deployment or build-time API hostname. The root Docker build runs Vite, copies `packages/viewer/dist` into the image, and lets the Go service serve both the viewer and API. See [viewer features](viewer.md) for diagram and chart controls and limits.
 
+## Interactive account development
+
+Start PostgreSQL and apply [migrations](#migrations). In one terminal, run the API with a development origin that matches Vite:
+
+```sh
+cd api
+export MORSEL_DATABASE_URL='postgres://morsel:LOCAL_PASSWORD@127.0.0.1:5432/morsel?sslmode=disable'
+export MORSEL_ENVIRONMENT=development
+export MORSEL_URL=http://localhost:5173
+export MORSEL_ADDRESS=:12647
+go run ./cmd/server
+```
+
+In another terminal, start Vite with the command above. Open only <http://localhost:5173/account>. The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The existing Vite `/v1` proxy still targets `http://127.0.0.1:12647`; relative API paths keep cookies and Origin checks at the browser origin. CORS stays disabled.
+
+With the same local database variable set, generate a setup token:
+
+```sh
+cd api
+go run ./cmd/account -kind setup
+```
+
+The command needs only `MORSEL_DATABASE_URL`. Enter the token in the setup form, not a URL, within 15 minutes. Enroll the first passkey and a backup, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For lost credentials, use `go run ./cmd/account -kind recover` and the recovery form; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
+
+## Authentication browser tests
+
+The mocked viewer suite (`npm run test:browser`) remains separate from the real Go/PostgreSQL authentication suite:
+
+```sh
+export MORSEL_TEST_DATABASE_URL='postgres://morsel:test-only-password@127.0.0.1:5432/morsel_test?sslmode=disable'
+npx playwright install chromium
+npm run test:auth:browser
+```
+
+Use a test-only PostgreSQL role with permission to create databases. The harness creates an isolated database, applies migrations, builds the viewer and backend, starts Go on an available dynamic port, and stops Go and removes the database on success or failure. It does not use the interactive service on port 12647. The browser origin is `http://localhost:<selected-port>` and the RP ID is `localhost`; the harness sets a matching `MORSEL_URL`. Direct navigation and refresh use Go's built viewer, not Vite preview. Never point this command at production.
+
+The separate required authentication CI job provisions PostgreSQL, Go, Node.js, and Chromium. Missing infrastructure, zero executed tests, or skipped required tests must fail the job. This suite does not use `MORSEL_E2E_LIVE`.
+
 ## Backend
 
-Requirements: Go 1.26.10+, PostgreSQL 17, and Docker for integration tests.
+Requirements: Go 1.26.10+ in the 1.26 line, or Go 1.27.3+; PostgreSQL 17; and Docker for integration tests. Go 1.27.0–1.27.2 are affected by GO-2026-6809 in the WebAuthn certificate verification path.
 
 ```sh
 cd api
@@ -61,7 +99,7 @@ MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction up
 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction down -steps 1
 ```
 
-The runner rejects dirty, unknown, or gapped migration histories. Apply migrations before starting a newer API. Never automatically downgrade production.
+The runner rejects dirty, unknown, or gapped migration histories. Apply migrations before starting a newer API. An older runner can reject the new schema's migration version even when changes are additive. Never automatically downgrade production; test migrations and any downgrade on a restored database first. See [backup and rollback](deployment.md#backup-restore-and-rollback) for write-window and authentication cautions.
 
 ## Repository layout
 

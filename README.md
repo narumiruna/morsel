@@ -2,6 +2,7 @@
 
 Morsel is a small, self-hosted service for sharing Markdown through revocable capability URLs. One Go service exposes the API and serves the React viewer from the same origin; PostgreSQL is the only content store.
 
+- Sign in with a passkey and manage API keys in `/account`.
 - Create and revoke shares through an API, with optional expiration and view limits.
 - Render GitHub Flavored Markdown with syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts.
 - View Markdown files from GitHub Gists without storing them in Morsel.
@@ -14,28 +15,35 @@ Requirements: Docker with Compose and `openssl`.
 
 ```sh
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
-MORSEL_API_KEY="$(openssl rand -hex 32)"
 umask 077
 cat > .env <<EOF
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-MORSEL_API_KEY=$MORSEL_API_KEY
 MORSEL_ENVIRONMENT=development
 MORSEL_URL=http://localhost:12647/
 MORSEL_PORT=12647
 EOF
-export MORSEL_API_KEY
-docker compose up --build -d
+export MORSEL_IMAGE=morsel:local
+docker build --tag "$MORSEL_IMAGE" .
+docker compose up --detach --wait --wait-timeout 120
 docker compose ps
 curl --fail http://127.0.0.1:12647/readyz
 ```
 
-Open <http://localhost:12647/> to check the viewer. The root [`compose.yaml`](compose.yaml) starts Morsel and PostgreSQL, applies migrations, and binds the service to loopback by default. `.env` is ignored by Git; [`.env.example`](.env.example) contains no secrets. Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
+Create a one-use operator token after the services and migrations are ready:
+
+```sh
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind setup
+```
+
+Open <http://localhost:12647/account>, enter the token in the setup form within 15 minutes, and enroll the owner passkey. Only the first account can register. Add a backup passkey, then create an API key. Copy the key when shown; it cannot be recovered. Export it as the **client-only** secret `MORSEL_API_KEY` for the examples below. Privileged share operations are rejected until setup; public share reads are unchanged.
+
+The root [`compose.yaml`](compose.yaml) uses the explicitly built image, starts PostgreSQL, applies migrations, and binds Morsel to loopback. Keep `MORSEL_IMAGE=morsel:local` exported for later Compose commands. `.env` is ignored by Git; [`.env.example`](.env.example) contains no secrets. Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
 
 Stop without deleting data with `docker compose down`. **`docker compose down --volumes` deletes the local database.** For public deployment, see [deployment and configuration](docs/deployment.md).
 
 ## Create a share
 
-With `MORSEL_API_KEY` exported in your shell:
+With the UI-created API key exported as `MORSEL_API_KEY` in your client shell (never as server configuration):
 
 ```sh
 curl --fail-with-body \

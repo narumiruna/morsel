@@ -65,6 +65,23 @@ func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing
 	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") == "" {
 		t.Fatalf("Gist HEAD status=%d length=%q body=%q", head.Code, head.Header().Get("Content-Length"), head.Body.String())
 	}
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		account := httptest.NewRecorder()
+		handler.ServeHTTP(account, httptest.NewRequest(method, "/account", nil))
+		if account.Code != http.StatusOK || account.Header().Get("Cache-Control") != "no-cache" || account.Header().Get("Content-Length") == "" {
+			t.Fatalf("account shell %s status=%d headers=%v", method, account.Code, account.Header())
+		}
+		if method == http.MethodHead && account.Body.Len() != 0 {
+			t.Fatal("account HEAD returned a body")
+		}
+	}
+	for _, path := range []string{"/account/", "/account/unknown", "/missing-asset.js"} {
+		missing := httptest.NewRecorder()
+		handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, path, nil))
+		if missing.Code != http.StatusNotFound {
+			t.Fatalf("unknown shell path %s returned %d", path, missing.Code)
+		}
+	}
 	pathID := httptest.NewRecorder()
 	handler.ServeHTTP(pathID, httptest.NewRequest(http.MethodGet, "/gist/7dbaf8170c7292354678069a9acb061f", nil))
 	if pathID.Code != http.StatusNotFound {

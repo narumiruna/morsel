@@ -1,6 +1,17 @@
 # Using Morsel
 
-Start with the [Quick start](../README.md#quick-start). Create and revoke shares with an administrative API key; readers need only the capability URL. Never expose `MORSEL_API_KEY` in browser code.
+Start with the [Quick start](../README.md#quick-start). Create and revoke shares with an owner-issued API key; readers need only the capability URL. `MORSEL_API_KEY` remains a client-side secret, not server configuration. Never expose it in browser code.
+
+## Account and client keys
+
+1. Ask the operator to complete [initial setup](deployment.md#operator-setup-and-recovery). Only the first account can register; invitations are not implemented.
+2. Open `/account` at the configured origin (production: <https://morsel.narumi.dev/account>) and sign in with a passkey. Add a backup passkey; the last credential cannot be removed.
+3. Complete fresh passkey verification and create a named API key. Copy it once into your client secret store. Only its SHA-256 hash and metadata are stored; the raw value cannot be recovered or listed later.
+4. Export the UI-created value as `MORSEL_API_KEY` for existing scripts, curl examples, and the TypeScript client. Do not pass it to the Morsel server.
+
+All owner-issued keys have administrator access and can revoke any share, including older shares. Use `/account` to list key metadata and revoke keys after fresh verification. Key revocation stops subsequent requests, but does not cancel an already-authorized request or revoke shares. Revoke exposed shares separately. API keys cannot manage account credentials, sessions, or other keys; browser sessions cannot authorize share writes.
+
+Sessions last 12 hours; fresh verification lasts 5 minutes. Logout invalidates the server session. If passkeys are lost, request operator recovery. Recovery invalidates old credentials, sessions, and pending authentication grants, but **does not revoke API keys**. Review and revoke suspect keys separately. Existing public share URLs do not require login.
 
 ## Create a share
 
@@ -72,7 +83,7 @@ import { MorselClient } from "@narumitw/morsel-client"
 
 // Run on your server; never expose MORSEL_API_KEY in browser code.
 const client = new MorselClient({
-  baseUrl: "https://morsel.example.com",
+  baseUrl: "https://morsel.narumi.dev",
   apiKey: process.env.MORSEL_API_KEY,
 })
 const { share_url } = await client.createShare({ content: "# Hello" })

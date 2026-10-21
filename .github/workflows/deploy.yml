@@ -28,7 +28,6 @@ jobs:
         shell: bash
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          MORSEL_API_KEY: ${{ secrets.MORSEL_API_KEY }}
           MORSEL_ENVIRONMENT: ${{ secrets.MORSEL_ENVIRONMENT || 'production' }}
           MORSEL_URL: ${{ secrets.MORSEL_URL }}
           MORSEL_PORT: ${{ secrets.MORSEL_PORT || '12647' }}

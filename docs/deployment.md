@@ -1,6 +1,6 @@
 # Deployment and configuration
 
-For a local deployment, start with the [Quick start](../README.md#quick-start). The root [`compose.yaml`](../compose.yaml) builds one Morsel image, waits for PostgreSQL, applies pending migrations, and starts the service as a non-root user. It binds Morsel to loopback by default. Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL. `.env` is ignored by Git and may contain runtime secrets; [`.env.example`](../.env.example) contains no secrets.
+For local deployment, use the [Quick start](../README.md#quick-start). Build the image explicitly with `docker build --tag "$MORSEL_IMAGE" .`; [`compose.yaml`](../compose.yaml) has no build definition. Compose starts PostgreSQL, applies migrations, and starts Morsel as a non-root user on loopback. Keep the PostgreSQL password URL-safe because Compose uses it in a connection URL. `.env` is ignored by Git; [`.env.example`](../.env.example) contains no secrets.
 
 ## Configuration
 
@@ -9,10 +9,9 @@ The API reads these environment variables:
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
-| `MORSEL_API_KEY` or `MORSEL_API_KEY_FILE` | yes | — | Comma-separated keys or a newline-delimited key file. Each key must contain at least 32 characters. Both sources may be combined during rotation. |
-| `MORSEL_URL` | yes | — | Public origin used to construct hash-route or preview-enabled path links. Non-root paths, queries, fragments, and credentials are rejected. |
-| `MORSEL_VIEWER_DIR` | no | `../packages/viewer/dist` | Production viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
-| `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require an HTTPS public URL. |
+| `MORSEL_URL` | yes | — | Public origin for share links and WebAuthn. Non-root paths, queries, fragments, and credentials are rejected. |
+| `MORSEL_VIEWER_DIR` | no | `../packages/viewer/dist` | Viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
+| `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
 | `MORSEL_MAX_DOCUMENT_BYTES` | no | `1048576` | UTF-8 Markdown byte limit. |
 | `MORSEL_MAX_REQUEST_BYTES` | no | `1114112` | Whole request-body limit; must exceed the document limit. |
@@ -24,31 +23,73 @@ The API reads these environment variables:
 | `MORSEL_SHUTDOWN_TIMEOUT` | no | `10s` | Graceful shutdown deadline. |
 | `MORSEL_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error`. |
 
-Startup rejects insecure public URLs, short API keys, empty viewer paths, and invalid limits or timeouts. Errors never echo configured secrets. Morsel does not enable cross-origin access to its API; the bundled viewer calls the share API on the same origin and only calls `api.github.com` directly for Gists.
+Startup rejects insecure public URLs, empty viewer paths, and invalid limits or timeouts. Errors do not echo configured secrets. Server API key environment configuration and key-file loading are removed. Clients and scripts can still use `MORSEL_API_KEY` for a key created in the UI; do not pass it to the server.
 
-### Rotate API keys
+The WebAuthn RP ID is derived from the hostname in `MORSEL_URL`, without a scheme or port. The allowed origin includes its scheme and port. Production uses `MORSEL_URL=https://morsel.narumi.dev`, RP ID `morsel.narumi.dev`, and origin `https://morsel.narumi.dev`. These values are not derived from request headers. WebAuthn requires a hostname RP ID; numeric IP origins are not supported. Use `localhost`, not `127.0.0.1` or `::1`, for the configured development browser origin. API clients can still connect through loopback IPs. Keep the hostname stable: an RP ID change can require passkey re-enrollment. Development uses [the exact localhost origin](development.md#interactive-account-development).
 
-1. Configure both the old and new keys, preferably with `MORSEL_API_KEY_FILE`.
-2. Restart the API and move all administrative clients to the new key.
-3. Remove the old key and restart again.
+## Operator setup and recovery
 
-All configured keys are trusted administrators and may revoke any share.
+The image contains the static `/usr/local/bin/account` executable. It reads only `MORSEL_DATABASE_URL`; it does not require viewer or public-origin configuration. From source, run `cd api` and `go run ./cmd/account -kind setup` or `-kind recover` with that database variable set. Each command prints one raw token; only its hash is stored. Treat the output as a secret. Do not put it in a URL, log, ticket, or shell trace.
 
-## Production deployment
+For Compose, use the same environment, image, project, and database as the target deployment. Start PostgreSQL and complete migrations first. The image is distroless and has no shell; use the executable directly:
 
-Set `MORSEL_ENVIRONMENT=production`, set `MORSEL_URL` to the public HTTPS origin—for example, `https://morsel.example.com/`—and route that domain to port 12647 through an HTTPS reverse proxy.
+```sh
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind setup
+```
+
+1. Open `/account` at the configured browser origin. For production, use <https://morsel.narumi.dev/account>.
+2. Enter the token in the setup form within 15 minutes and complete passkey registration. The WebAuthn flow expires after 5 minutes. The token is single-use; only the first owner can register. Invitations and additional accounts are not implemented.
+3. Add a backup passkey. Removal of the last passkey is rejected.
+4. Create named API keys and save each raw value in the appropriate client secret store when shown. It is shown only once; only its SHA-256 hash and metadata are stored.
+
+Before setup, health checks and the setup UI work, but privileged share operations are rejected. Existing public capability reads are unchanged.
+
+If all passkeys are lost or compromised, an authorized operator can issue a recovery token:
+
+```sh
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind recover
+```
+
+Enter the single-use token in the recovery form at `/account` within 15 minutes and enroll a replacement passkey. Recovery completion replaces old credentials, advances the account authentication generation, and invalidates old sessions, pending authentication flows, verification grants, and recovery grants. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
+
+Sessions expire after 12 hours. Key creation, key revocation, and passkey changes require fresh passkey verification, valid for 5 minutes. Production session cookies are `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
+
+Authentication POST requests have a fixed limit of 60 attempts per source address and ceremony kind per minute, plus a service-wide limit of 1000 per minute. Account-state reads and key-management requests do not consume ceremony limits. Forwarded client IP headers are not trusted; clients behind the same proxy share source-address limits. Apply per-client abuse controls at the existing trusted reverse proxy when needed. Login attempts have a separate budget from verification, setup, and recovery.
+
+### Rotate or revoke client keys
+
+1. Sign in at `/account`, complete fresh passkey verification, and create a named replacement key.
+2. Save its one-time value in the client secret store and update all affected clients. Existing clients and scripts can retain the variable name `MORSEL_API_KEY`.
+3. Verify share creation and revocation with the replacement, then revoke the old key in the UI. No server restart is needed.
+
+All owner-issued keys are administrators and can revoke any share, including shares created before this release. Key revocation blocks subsequent requests, not an operation already authorized. Revoking a key does not revoke its shares; revoke exposed shares separately.
+
+## Production deployment and first-release handoff
+
+HTTPS and reverse-proxy provisioning are already in place and are not changed here. Set `MORSEL_ENVIRONMENT=production` and `MORSEL_URL=https://morsel.narumi.dev`. Keep port 12647 behind the existing HTTPS reverse proxy.
 
 The reverse proxy must:
 
-- preserve `X-Request-ID` response headers
-- avoid logging authorization headers or raw `/s/<token>` paths
-- never cache `/v1/shares/*` or `/s/*`
+- Preserve the browser `Origin` header unchanged and preserve `X-Request-ID` response headers.
+- Never cache `/v1/*` (including authentication and management), `/account`, `/account/*`, or `/s/*`; honor `Cache-Control: no-store`.
+- Exclude authorization headers, cookies, setup/recovery tokens, WebAuthn payloads, raw keys, request bodies, and raw `/s/<token>` paths from logs. Do not enable shell tracing around secret operations.
+- Not replace the configured WebAuthn origin with forwarded request headers. Do not assume arbitrary forwarded client IP headers are trusted.
 
-The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. Default hash routing keeps the capability out of the initial document request. Providing preview metadata intentionally uses a path capability so Telegram can fetch it; the Go request logger records this route as `unmatched` rather than logging the raw path.
+The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. CORS remains disabled. Default hash routing keeps capabilities out of initial document requests. Preview metadata intentionally uses a path capability; the Go logger does not log the raw path.
 
-### Backup, restore, and rollback
+This release stops accepting all old environment-configured keys. There is no legacy compatibility path. Coordinate a maintenance write window; readers can continue to use existing share URLs when the service is available.
 
-PostgreSQL is authoritative. Define recovery point and recovery time objectives appropriate to the deployment.
+1. Pause automatic deployment and administrative client writes. Keep the previous immutable image and a tested database backup. Test the migration and restore on a separate database.
+2. Remove obsolete server key settings, then deploy the API and viewer together and apply migrations. The deployment workflow does not enroll an owner or rotate clients.
+3. A human operator must run the setup command against the intended production database, enroll at the HTTPS origin, add a backup passkey, and create replacement client keys. Do not run setup/recovery against production as an automated agent check.
+4. A human operator must update client secrets, verify replacement-key create/revoke operations and revoked-key rejection, check public share URLs, and then resume writes.
+5. Delete the obsolete GitHub `MORSEL_API_KEY` secret after successful validation. Keep client-side secrets that now contain UI-created keys.
+
+Production enrollment and client rotation are operator handoff steps, not actions performed by the coding agent.
+
+## Backup, restore, and rollback
+
+PostgreSQL is authoritative for shares, accounts, passkeys, API key hashes, sessions, and temporary authentication grants. Protect backups as secrets and define recovery point and recovery time objectives.
 
 ```sh
 pg_dump --format=custom --dbname="$MORSEL_DATABASE_URL" --file=morsel.dump
@@ -57,6 +98,6 @@ pg_restore --clean --if-exists --no-owner \
   --dbname=morsel_restored morsel.dump
 ```
 
-Back up before every schema change and test restores regularly. Roll back to a previous immutable image only when it supports the current schema; otherwise, roll forward with a corrective migration. Restore a database backup before accepting new writes, then reconcile shares created after the backup according to the recovery point objective.
+Back up before every schema change and test migrations on a restored copy. After accounts or keys exist, prefer a corrective migration and roll forward. The old migration runner rejects unknown migration versions: an older image may not start its migration service against the upgraded schema even when changes are additive. Do not automatically downgrade. Test any downgrade on a restored copy first; reverting authentication also requires the previous server key and matching client configuration.
 
-The Morsel image contains both the API and viewer. Roll them back together; hash-route share URLs remain stable. See [migrations](development.md#migrations) for the migration runner.
+Stop writes before restoring or downgrading. A database restore discards later writes and can restore old session or key state; reconcile later shares and authentication changes before resuming service. Roll back the API and viewer together. Public share URL formats remain stable. See [migrations](development.md#migrations) for the runner.

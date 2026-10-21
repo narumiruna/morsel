@@ -72,7 +72,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveShare(w, r, strings.TrimPrefix(r.URL.Path, "/s/"))
 		return
 	}
-	if r.URL.Path == "/gist/" {
+	if r.URL.Path == "/gist/" || r.URL.Path == "/account" {
 		h.serveApp(w, r)
 		return
 	}

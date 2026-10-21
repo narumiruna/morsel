@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	morselapi "github.com/narumiruna/morsel/api/internal/api"
+	"github.com/narumiruna/morsel/api/internal/auth"
 	"github.com/narumiruna/morsel/api/internal/config"
 	"github.com/narumiruna/morsel/api/internal/share"
 	viewerfiles "github.com/narumiruna/morsel/api/internal/viewer"
@@ -55,6 +56,11 @@ func run() int {
 	}
 	defer pool.Close()
 
+	accounts, err := auth.NewService(pool, cfg.PublicViewerURL)
+	if err != nil {
+		logger.Error("initialize authentication", "error", err)
+		return 1
+	}
 	repository := share.NewPostgresRepository(pool)
 	viewer, err := viewerfiles.New(cfg.ViewerDir, repository, cfg.PublicViewerURL)
 	if err != nil {
@@ -63,7 +69,7 @@ func run() int {
 	}
 	handler := morselapi.NewService(repository, share.TokenGenerator{}, cfg.PublicViewerURL, cfg.MaxDocumentBytes, logger)
 	router := morselapi.NewRouter(handler, morselapi.RouterConfig{
-		APIKeys: cfg.APIKeys, Viewer: viewer,
+		Authenticator: accounts, Account: accounts, Viewer: viewer,
 		MaxRequestBody: cfg.MaxRequestBytes, RequestTimeout: cfg.RequestTimeout, Logger: logger,
 	})
 	server := &http.Server{

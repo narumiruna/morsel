@@ -27,6 +27,6 @@ export default defineConfig({
     setupFiles: "./src/test/setup.ts",
     css: true,
     clearMocks: true,
-    exclude: ["e2e/**", "node_modules/**", "dist/**"],
+    exclude: ["e2e/**", "e2e-auth/**", "node_modules/**", "dist/**"],
   },
 })

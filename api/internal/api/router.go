@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,12 +12,16 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/narumiruna/morsel/api/internal/auth"
 	"github.com/narumiruna/morsel/api/internal/telemetry"
 )
 
+type BearerAuthenticator interface {
+	Valid(context.Context, string) (bool, error)
+}
+
 type RouterConfig struct {
-	APIKeys        []string
+	Authenticator  BearerAuthenticator
+	Account        http.Handler
 	Viewer         http.Handler
 	MaxRequestBody int64
 	RequestTimeout time.Duration
@@ -30,8 +35,7 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 	router.Use(telemetry.Timeout(cfg.RequestTimeout))
 	router.Use(telemetry.SecurityHeaders)
 	router.Use(telemetry.BodyLimit(cfg.MaxRequestBody))
-	authenticator := auth.New(cfg.APIKeys)
-	router.Use(authenticator.Middleware(isProtected))
+	router.Use(requireBearer(cfg.Authenticator))
 	router.Use(rejectUnknownCreateFields)
 
 	writeRequestError := func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -53,6 +57,11 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 			writePublicError(w, http.StatusInternalServerError, ErrorCodeInternalError, "internal server error")
 		},
 	})
+	if cfg.Account != nil {
+		for _, path := range []string{"/v1/account", "/v1/auth/*", "/v1/passkeys", "/v1/passkeys/*", "/v1/api-keys", "/v1/api-keys/*"} {
+			router.Handle(path, cfg.Account)
+		}
+	}
 	HandlerWithOptions(strict, ChiServerOptions{BaseRouter: router, ErrorHandlerFunc: writeRequestError})
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		apiPath := r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/")
@@ -154,6 +163,32 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		next.ServeHTTP(w, r)
 	})
+}
+
+func requireBearer(authenticator BearerAuthenticator) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !isProtected(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			var valid bool
+			var err error
+			if authenticator != nil {
+				valid, err = authenticator.Valid(r.Context(), r.Header.Get("Authorization"))
+			}
+			if err != nil {
+				writePublicError(w, http.StatusServiceUnavailable, ErrorCodeServiceUnavailable, "authentication is unavailable")
+				return
+			}
+			if !valid {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="morsel"`)
+				writePublicError(w, http.StatusUnauthorized, ErrorCodeUnauthorized, "valid API key required")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func isProtected(r *http.Request) bool {

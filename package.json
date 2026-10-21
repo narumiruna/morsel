@@ -13,6 +13,7 @@
     "ci": "biome ci . && npm run ci --workspaces",
     "test": "vitest run",
     "test:browser": "npm run test:browser --workspace @narumitw/morsel-viewer",
+    "test:auth:browser": "node scripts/test-auth-browser.mjs",
     "prepare": "husky"
   },
   "overrides": {

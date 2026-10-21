@@ -1,51 +1,151 @@
+// Package auth implements database-backed API keys and browser passkey sessions.
 package auth
 
 import (
+	"context"
+	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Authenticator struct {
-	hashes [][sha256.Size]byte
+const (
+	sessionCookie         = "morsel_session"
+	flowCookie            = "morsel_flow"
+	flowLifetime          = 5 * time.Minute
+	sessionLifetime       = 12 * time.Hour
+	grantLifetime         = 15 * time.Minute
+	verifyLifetime        = 5 * time.Minute
+	setupLock       int64 = 0x6d6f7273656c
+)
+
+type Service struct {
+	pool      *pgxpool.Pool
+	web       *webauthn.WebAuthn
+	origin    string
+	secure    bool
+	limiter   rateLimiter
+	cleanupAt atomic.Int64
 }
 
-func New(keys []string) *Authenticator {
-	hashes := make([][sha256.Size]byte, len(keys))
-	for i, key := range keys {
-		hashes[i] = sha256.Sum256([]byte(key))
+func NewService(pool *pgxpool.Pool, publicURL *url.URL) (*Service, error) {
+	if pool == nil || publicURL == nil || publicURL.Hostname() == "" || publicURL.User != nil || publicURL.RawQuery != "" || publicURL.Fragment != "" {
+		return nil, errors.New("invalid authentication configuration")
 	}
-	return &Authenticator{hashes: hashes}
+	scheme, hostname := strings.ToLower(publicURL.Scheme), strings.ToLower(publicURL.Hostname())
+	if scheme != "https" && !(scheme == "http" && hostname == "localhost") {
+		return nil, errors.New("authentication requires HTTPS or HTTP localhost")
+	}
+	port := publicURL.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	host := hostname
+	if port != "" {
+		host = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		host = "[" + hostname + "]"
+	}
+	origin := scheme + "://" + host
+	resident := true
+	web, err := webauthn.New(&webauthn.Config{
+		RPID: hostname, RPDisplayName: "Morsel", RPOrigins: []string{origin},
+		AuthenticatorSelection: protocol.AuthenticatorSelection{ResidentKey: protocol.ResidentKeyRequirementRequired, RequireResidentKey: &resident, UserVerification: protocol.VerificationRequired},
+		Timeouts:               webauthn.TimeoutsConfig{Login: webauthn.TimeoutConfig{Enforce: true, Timeout: flowLifetime}, Registration: webauthn.TimeoutConfig{Enforce: true, Timeout: flowLifetime}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure WebAuthn: %w", err)
+	}
+	return &Service{pool: pool, web: web, origin: origin, secure: scheme == "https"}, nil
 }
 
-func (a *Authenticator) Valid(header string) bool {
+func randomToken() string { return base64.RawURLEncoding.EncodeToString(randomBytes(32)) }
+func randomBytes(n int) []byte {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return b
+}
+func hashToken(token string) []byte { h := sha256.Sum256([]byte(token)); return h[:] }
+
+// Valid checks PostgreSQL on every request. Database errors never authorize requests.
+func (s *Service) Valid(ctx context.Context, header string) (bool, error) {
 	parts := strings.Split(header, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" || parts[1] == "" {
-		return false
+	if len(parts) != 2 || parts[0] != "Bearer" || len(parts[1]) < 32 || len(parts[1]) > 256 {
+		return false, nil
 	}
-	candidate := sha256.Sum256([]byte(parts[1]))
-	valid := 0
-	for _, expected := range a.hashes {
-		valid |= subtle.ConstantTimeCompare(candidate[:], expected[:])
-	}
-	return valid == 1
+	var valid bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM api_keys WHERE token_hash=$1 AND revoked_at IS NULL)`, hashToken(parts[1])).Scan(&valid)
+	return valid, err
 }
 
-func (a *Authenticator) Middleware(protected func(*http.Request) bool) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if protected(r) && !a.Valid(r.Header.Get("Authorization")) {
-				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("WWW-Authenticate", `Bearer realm="morsel"`)
-				w.WriteHeader(http.StatusUnauthorized)
-				_ = json.NewEncoder(w).Encode(map[string]string{
-					"code": "unauthorized", "message": "valid API key required",
-				})
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
+type apiError struct {
+	status        int
+	code, message string
+}
+
+func (e *apiError) Error() string                    { return e.message }
+func failure(status int, code, message string) error { return &apiError{status, code, message} }
+
+var (
+	errUnauthorized = failure(401, "unauthorized", "browser session required")
+	errFlow         = failure(400, "invalid_flow", "authentication flow expired or invalid")
+	errGrant        = failure(403, "invalid_grant", "operator grant expired or invalid")
+	errGeneration   = failure(401, "authentication_changed", "authentication changed; sign in again")
+	errFresh        = failure(403, "verification_required", "fresh passkey verification required")
+)
+
+func respond(w http.ResponseWriter, status int, value any) {
+	w.WriteHeader(status)
+	if value != nil {
+		_ = json.NewEncoder(w).Encode(value)
 	}
+}
+func respondError(w http.ResponseWriter, err error) {
+	var e *apiError
+	if !errors.As(err, &e) {
+		e = &apiError{503, "unavailable", "authentication service unavailable"}
+	}
+	respond(w, e.status, map[string]string{"code": e.code, "message": e.message})
+}
+func (s *Service) cookie(w http.ResponseWriter, name, value string, remove bool) {
+	c := &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteLaxMode}
+	if remove {
+		c.MaxAge = -1
+		c.Expires = time.Unix(1, 0)
+	}
+	http.SetCookie(w, c)
+}
+func cookieValue(r *http.Request, name string) string {
+	c, err := r.Cookie(name)
+	if err != nil || len(c.Value) > 256 {
+		return ""
+	}
+	return c.Value
+}
+func decodeJSON(r *http.Request, v any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return failure(400, "invalid_json", "valid JSON body required")
+	}
+	var extra any
+	if err := dec.Decode(&extra); err == nil || !errors.Is(err, io.EOF) {
+		return failure(400, "invalid_json", "one JSON value required")
+	}
+	return nil
 }

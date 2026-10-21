@@ -22,6 +22,10 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 	assertColumnCount(t, pool, "telegram_instant_view", 1)
 	assertColumnCount(t, pool, "preview_image", 1)
 	assertColumnCount(t, pool, "preview_locale", 1)
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("down account authentication migration: %v", err)
+	}
+	assertAuthTables(t, pool, false)
 	if _, err := pool.Exec(ctx, `INSERT INTO shares (id, token_hash, content, telegram_instant_view) VALUES ($1, $2, 'invalid', true)`, uuid.New(), bytes.Repeat([]byte{9}, 32)); err == nil {
 		t.Fatal("expected Instant View constraint failure")
 	}
@@ -112,6 +116,10 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 	}
 
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("second down account authentication migration: %v", err)
+	}
+	assertAuthTables(t, pool, false)
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatalf("second down Open Graph metadata migration: %v", err)
 	}
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
@@ -143,6 +151,52 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx, "SELECT to_regclass('shares')::text").Scan(&table); err != nil || table == nil {
 		t.Fatalf("shares missing after reapply: table=%v err=%v", table, err)
+	}
+}
+
+func TestAccountMigrationPreservesExistingShares(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatal(err)
+	}
+	assertAuthTables(t, pool, false)
+	id := uuid.New()
+	hash := bytes.Repeat([]byte{42}, 32)
+	if _, err := pool.Exec(ctx, `INSERT INTO shares (id, token_hash, content) VALUES ($1, $2, 'existing capability')`, id, hash); err != nil {
+		t.Fatal(err)
+	}
+	for cycle := 0; cycle < 2; cycle++ {
+		if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+			t.Fatal(err)
+		}
+		assertAuthTables(t, pool, true)
+		var content string
+		var storedHash []byte
+		if err := pool.QueryRow(ctx, `SELECT content, token_hash FROM shares WHERE id=$1`, id).Scan(&content, &storedHash); err != nil {
+			t.Fatal(err)
+		}
+		if content != "existing capability" || !bytes.Equal(storedHash, hash) {
+			t.Fatal("account migration changed an existing share")
+		}
+		if cycle == 0 {
+			if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func assertAuthTables(t *testing.T, pool *pgxpool.Pool, want bool) {
+	t.Helper()
+	for _, name := range []string{"accounts", "passkey_credentials", "auth_grants", "auth_sessions", "auth_flows", "api_keys"} {
+		var table *string
+		if err := pool.QueryRow(context.Background(), `SELECT to_regclass($1)::text`, name).Scan(&table); err != nil {
+			t.Fatal(err)
+		}
+		if (table != nil) != want {
+			t.Fatalf("table %s exists=%t want=%t", name, table != nil, want)
+		}
 	}
 }
 

@@ -70,6 +70,80 @@ summary {
   padding: 2rem;
 }
 
+.account-page {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 48rem);
+  margin-inline: auto;
+}
+
+.account-page fieldset {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 0;
+  border: 0;
+}
+
+.account-page input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--gray-a7);
+  border-radius: var(--radius-2);
+  background: var(--color-background);
+  color: var(--gray-12);
+  font: inherit;
+}
+
+.account-page button {
+  min-height: 2.75rem;
+  width: fit-content;
+}
+
+.account-page p {
+  margin-block: 0.5rem;
+}
+
+.account-error {
+  color: var(--red-11);
+}
+
+.account-error:empty,
+.account-page [role="status"]:empty {
+  display: none;
+}
+
+.account-list {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.account-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-block: 1rem;
+  border-top: 1px solid var(--gray-a5);
+  overflow-wrap: anywhere;
+}
+
+.account-list li > div {
+  min-width: 0;
+}
+
+.account-secret {
+  border: 1px solid var(--accent-8);
+}
+
+.account-secret input {
+  margin-block: 0.5rem 1rem;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
 .share-view {
   overflow: hidden;
   border: 1px solid var(--gray-a5);
