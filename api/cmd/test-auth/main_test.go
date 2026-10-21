@@ -153,7 +153,7 @@ func TestRejectUnsafeDatabaseNames(t *testing.T) {
 }
 
 func TestMutationRequiresDisposableDatabase(t *testing.T) {
-	for _, command := range []string{"expire-sessions", "assert-no-secret"} {
+	for _, command := range []string{"expire-sessions", "expire-verification", "assert-no-secret"} {
 		for _, database := range []string{"production", "postgres", "morsel_test", "morsel_auth_e2e_invalid"} {
 			t.Run(command+"/"+database, func(t *testing.T) {
 				t.Setenv("MORSEL_DATABASE_URL", "postgres://operator:secret@127.0.0.1:1/"+database+"?connect_timeout=1")
@@ -167,7 +167,7 @@ func TestMutationRequiresDisposableDatabase(t *testing.T) {
 }
 
 func TestRejectUnknownCommandsAndArguments(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions", "extra"}, {"assert-no-secret", "extra"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}} {
 		if err := run(context.Background(), args); err == nil {
 			t.Fatal("invalid command accepted")
 		}

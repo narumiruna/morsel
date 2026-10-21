@@ -11,6 +11,7 @@ export type Account = {
   setup_required: boolean
   authenticated: boolean
   csrf_token?: string
+  verification_required?: boolean
 }
 
 export type Passkey = { id: string; name: string; created_at: string }

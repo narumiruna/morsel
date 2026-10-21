@@ -11,7 +11,7 @@ Start with the [Quick start](../README.md#quick-start). Create and revoke shares
 
 All owner-issued keys have administrator access and can revoke any share, including older shares. Use `/account` to list key metadata and revoke keys after fresh verification. Key revocation stops subsequent requests, but does not cancel an already-authorized request or revoke shares. Revoke exposed shares separately. API keys cannot manage account credentials, sessions, or other keys; browser sessions cannot authorize share writes.
 
-Sessions last 12 hours; fresh verification lasts 5 minutes. Logout invalidates the server session. If passkeys are lost, request operator recovery. Recovery invalidates old credentials, sessions, and pending authentication grants, but **does not revoke API keys**. Review and revoke suspect keys separately. Existing public share URLs do not require login.
+Sessions last 30 days from login and survive browser restarts; activity does not extend them. Sensitive changes reuse passkey verification for 12 hours. After deployment, log out and sign in again to use the longer session lifetime. Logout invalidates the server session. If passkeys are lost, request operator recovery. Recovery invalidates old credentials, sessions, and pending authentication grants, but **does not revoke API keys**. Review and revoke suspect keys separately. Existing public share URLs do not require login.
 
 ## Create a share
 

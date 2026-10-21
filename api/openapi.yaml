@@ -599,7 +599,7 @@ components:
       type: apiKey
       in: cookie
       name: morsel_session
-      description: Opaque browser session. Mutations also require exact Origin and session-bound X-CSRF-Token; sensitive changes require passkey verification within five minutes.
+      description: Opaque browser session. Mutations also require exact Origin and session-bound X-CSRF-Token; sensitive changes require passkey verification within twelve hours. Sessions expire after 30 days without sliding renewal and use a persistent cookie.
     bearerAuth:
       type: http
       scheme: bearer
@@ -647,6 +647,9 @@ components:
         csrf_token:
           type: string
           description: Session-bound token, returned only to an authenticated browser.
+        verification_required:
+          type: boolean
+          description: Returned only to an authenticated browser. True when sensitive changes need a new passkey verification; verification remains valid for twelve hours. The server rechecks it on each change.
     EmptyRequest:
       type: object
       additionalProperties: false

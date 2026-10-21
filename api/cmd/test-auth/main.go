@@ -87,7 +87,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Println(derived)
 		return nil
 	}
-	if len(args) != 1 || (args[0] != "expire-sessions" && args[0] != "assert-no-secret") {
+	if len(args) != 1 || (args[0] != "expire-sessions" && args[0] != "expire-verification" && args[0] != "assert-no-secret") {
 		return errors.New("unknown command")
 	}
 	cfg, err := pgx.ParseConfig(os.Getenv("MORSEL_DATABASE_URL"))
@@ -101,6 +101,10 @@ func run(ctx context.Context, args []string) error {
 	defer conn.Close(ctx)
 	if args[0] == "expire-sessions" {
 		_, err := conn.Exec(ctx, `UPDATE auth_sessions SET expires_at=clock_timestamp()-interval '1 second'`)
+		return err
+	}
+	if args[0] == "expire-verification" {
+		_, err := conn.Exec(ctx, `UPDATE auth_sessions SET verified_at=to_timestamp(0)`)
 		return err
 	}
 	secret, err := io.ReadAll(io.LimitReader(os.Stdin, 4097))

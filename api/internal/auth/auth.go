@@ -25,10 +25,10 @@ import (
 const (
 	sessionCookie         = "morsel_session"
 	flowCookie            = "morsel_flow"
-	flowLifetime          = 5 * time.Minute
-	sessionLifetime       = 12 * time.Hour
-	grantLifetime         = 15 * time.Minute
-	verifyLifetime        = 5 * time.Minute
+	flowLifetime          = 10 * time.Minute
+	sessionLifetime       = 30 * 24 * time.Hour
+	grantLifetime         = time.Hour
+	verifyLifetime        = 12 * time.Hour
 	setupLock       int64 = 0x6d6f7273656c
 )
 
@@ -124,6 +124,10 @@ func respondError(w http.ResponseWriter, err error) {
 }
 func (s *Service) cookie(w http.ResponseWriter, name, value string, remove bool) {
 	c := &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteLaxMode}
+	if name == sessionCookie && !remove {
+		c.MaxAge = int(sessionLifetime / time.Second)
+		c.Expires = time.Now().Add(sessionLifetime).UTC()
+	}
 	if remove {
 		c.MaxAge = -1
 		c.Expires = time.Unix(1, 0)

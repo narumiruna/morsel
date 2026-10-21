@@ -36,7 +36,7 @@ func TestAccountAndAPIKeyLifecycle(t *testing.T) {
 	requireStatus(t, b.request("POST", "/v1/api-keys", []byte(`{"name":"test"}`)), 403)
 	b.csrf = oldCSRF
 	// Key creation requires recent verification even when the session is active.
-	if _, err := pool.Exec(ctx, `UPDATE auth_sessions SET verified_at=clock_timestamp()-interval '6 minutes'`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE auth_sessions SET verified_at=clock_timestamp()-make_interval(secs => $1)`, verifyLifetime.Seconds()+1); err != nil {
 		t.Fatal(err)
 	}
 	requireStatus(t, b.request("POST", "/v1/api-keys", []byte(`{"name":"test"}`)), 403)

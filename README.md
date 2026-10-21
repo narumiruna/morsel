@@ -35,7 +35,7 @@ Create a one-use operator token after the services and migrations are ready:
 docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind setup
 ```
 
-Open <http://localhost:12647/account>, enter the token in the setup form within 15 minutes, and enroll the owner passkey. Only the first account can register. Add a backup passkey, then create an API key. Copy the key when shown; it cannot be recovered. Export it as the **client-only** secret `MORSEL_API_KEY` for the examples below. Privileged share operations are rejected until setup; public share reads are unchanged.
+Open <http://localhost:12647/account>, enter the token in the setup form within one hour, and enroll the owner passkey. Only the first account can register. Add a backup passkey, then create an API key. Copy the key when shown; it cannot be recovered. Export it as the **client-only** secret `MORSEL_API_KEY` for the examples below. Privileged share operations are rejected until setup; public share reads are unchanged.
 
 The root [`compose.yaml`](compose.yaml) uses the explicitly built image, starts PostgreSQL, applies migrations, and binds Morsel to loopback. Keep `MORSEL_IMAGE=morsel:local` exported for later Compose commands. `.env` is ignored by Git; [`.env.example`](.env.example) contains no secrets. Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
 

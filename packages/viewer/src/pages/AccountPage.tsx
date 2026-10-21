@@ -125,9 +125,15 @@ export function AccountPage() {
 
   const mutate = (action: (signal: AbortSignal, csrf: string) => Promise<void>) => {
     void run(async (signal) => {
-      const csrf = account?.csrf_token
-      if (!csrf) throw new AccountError(401, "session_expired", "Your session expired.")
-      await authenticate("verify", {}, csrf, signal)
+      const current = await accountRequest<Account>("account", { signal })
+      if (signal.aborted) return
+      setAccount(current)
+      const csrf = current.csrf_token
+      if (!current.authenticated || !csrf)
+        throw new AccountError(401, "session_expired", "Your session expired.")
+      if (current.verification_required !== false) {
+        await authenticate("verify", {}, csrf, signal)
+      }
       await action(signal, csrf)
       await refreshLists(signal)
     })
@@ -227,13 +233,12 @@ export function AccountPage() {
                   API keys
                 </Heading>
                 <Text as="p">
-                  API keys can create and revoke shares. They cannot manage your account. Each
-                  change requires passkey verification.
+                  API keys can create and revoke shares. They cannot manage your account. Account
+                  changes require passkey verification within the last 12 hours.
                 </Text>
                 <form
                   onSubmit={(event) => {
                     event.preventDefault()
-                    setRawKey(null)
                     mutate(async (signal, csrf) => {
                       const result = await accountRequest<APIKey & { key: string }>("api-keys", {
                         method: "POST",
