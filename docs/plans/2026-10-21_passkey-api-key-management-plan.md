@@ -4,7 +4,7 @@
 
 Remove server-configured `MORSEL_API_KEY` and `MORSEL_API_KEY_FILE`. Let the operator open the Morsel web UI, sign in with a passkey, and create, list, and revoke database-backed API keys. Keep capability share URLs public and unchanged.
 
-Status: implementation and local validation complete; pull request delivery is in progress. The initial release permits only the first account to register. Invitations remain deferred. Production deployment, owner enrollment, client key replacement, and obsolete GitHub secret removal remain open operator handoff tasks; the full plan is not complete.
+Status: implementation delivered in [pull request #111](https://github.com/narumiruna/morsel/pull/111); local validation and GitHub CI pass. The initial release permits only the first account to register. Invitations remain deferred. Production deployment, owner enrollment, client key replacement, and obsolete GitHub secret removal remain open operator handoff tasks; the full plan is not complete.
 
 ## Context
 
@@ -98,7 +98,7 @@ flowchart LR
 - [x] Implement setup/recovery commands, passkey verification, session handling, CSRF checks, and authentication rate limits. Evidence: unit and PostgreSQL tests reject invalid origins, RP IDs, expired/replayed flows, missing user verification, invalid setup grants, concurrent owner claims, and expired/revoked sessions. Tests verify hostname-only RP IDs, exact localhost origins, recovery races with pending authentication and management requests, recovery grant replay rejection, and concurrent last-passkey deletion protection.
 - [x] Replace static key validation with database-backed Bearer authentication and session-only key management. Evidence: raw keys are returned once and absent from database records, lists, and logs; revoked and unknown keys fail; API keys cannot call account management endpoints; public capability reads still work. Database failures fail closed without reporting successful authentication.
 - [x] Add the account pages to `packages/viewer/`, including loading, cancellation, unsupported-browser, expired-session, and error states. Evidence: component tests and browser tests cover setup, login, backup passkey, key creation, key revocation, and logout. Run a real Go/PostgreSQL browser flow with a virtual WebAuthn authenticator; include refresh and direct-route navigation.
-- [ ] Add the isolated authentication browser suite, `npm run test:auth:browser`, and the required CI job described above. Evidence: a CI run provisions PostgreSQL, starts Go with the built viewer, completes setup and passkey login with a virtual authenticator, creates a key, uses it to create a share, revokes it, confirms it is rejected, and logs out. Missing infrastructure, zero executed tests, or skipped required tests fail the job.
+- [x] Add the isolated authentication browser suite, `npm run test:auth:browser`, and the required CI job described above. Evidence: a CI run provisions PostgreSQL, starts Go with the built viewer, completes setup and passkey login with a virtual authenticator, creates a key, uses it to create a share, revokes it, confirms it is rejected, and logs out. Missing infrastructure, zero executed tests, or skipped required tests fail the job.
 - [x] Integrate the release: remove static key loading and server wiring; remove the key from Compose, `.env.example`, and `deploy.yml`; package operator commands; update configuration tests, README, deployment, design, usage, and client onboarding instructions. Keep client-side key configuration supported. Evidence: production image starts without either server key variable; setup and recovery work in the image; a UI-created key works with the existing TypeScript client and CLI scripts.
 - [ ] Blocked — human production handoff required: validate and deploy the complete API and UI together. Back up PostgreSQL, test the migration on a restored database, enroll the owner, create replacement client keys, and update clients. Delete the obsolete GitHub secret after successful validation. Evidence: production login succeeds at the configured HTTPS origin, replacement clients create/revoke shares, revoked keys fail, and existing share URLs remain usable.
 
@@ -111,6 +111,8 @@ flowchart LR
 - Preserve the configured hostname. Changing the WebAuthn RP ID can make stored passkeys unusable; plan credential re-enrollment before a domain change.
 
 ## Verification evidence
+
+- [GitHub CI run 39628078016](https://github.com/narumiruna/morsel/actions/runs/39628078016) passes all four checks: API, authentication browser, client, and viewer. The required authentication browser check passed on retry after its initial GitHub check status remained pending despite successful steps.
 
 - Go 1.27.3: `go generate ./...`, `go vet ./...`, `go mod verify`, and all PostgreSQL-backed `go test -race ./...` checks pass. Authentication coverage is 83.4%. Authentication concurrency tests pass with `-count=10`; the share final-view concurrency test also passes with `-count=10`.
 - `npm run ci` passes: 171 viewer tests, 9 client tests, OpenAPI lint, TypeScript checks, formatting, and production build.
@@ -133,7 +135,7 @@ flowchart LR
 - [x] Local development works through Vite with RP ID `localhost` and origin `http://localhost:5173`; origin ports never appear in RP IDs, and wrong-port origins are rejected.
 - [x] `cd api && go generate ./... && go vet ./... && go test -race ./...` passes with `MORSEL_TEST_DATABASE_URL` set; generated files have no unexpected drift.
 - [x] `npm run ci` and `npm run test:browser` pass; existing share, preview, Instant View, Gist, and client tests remain green.
-- [ ] `npm run test:auth:browser` passes in the required CI job against Go and PostgreSQL, with all required tests executed and no skips.
+- [x] `npm run test:auth:browser` passes in the required CI job against Go and PostgreSQL, with all required tests executed and no skips.
 - [x] A built production image starts without server API key configuration and supports operator setup/recovery commands.
 - [ ] Blocked — production operator must complete client cutover and HTTPS passkey checks, then remove the obsolete GitHub secret. Local migration and restored-data checks pass.
 - [ ] User accepts the implementation and release. Delete this plan only after all tasks and checks pass.
