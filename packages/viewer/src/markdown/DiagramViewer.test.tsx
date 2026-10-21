@@ -178,7 +178,10 @@ describe("DiagramViewer", () => {
     card.requestFullscreen = vi.fn().mockRejectedValue(new Error("denied"))
     const button = screen.getByRole("button", { name: "Fullscreen" })
     button.focus()
-    fireEvent.click(button)
+    // Flush the rejected fullscreen request and the effect that installs the Escape listener.
+    await act(async () => {
+      fireEvent.click(button)
+    })
 
     await waitFor(() => expect(card).toHaveClass("diagram-expanded"))
     expect(outside.inert).toBe(true)
