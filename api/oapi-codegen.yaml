@@ -6,4 +6,11 @@ generate:
   chi-server: true
   strict-server: true
 output-options:
+  # Account routes are implemented by internal/auth; keep the share client contract separate.
+  include-operation-ids:
+    - getHealth
+    - getReadiness
+    - createShare
+    - consumeShare
+    - revokeShare
   skip-prune: false

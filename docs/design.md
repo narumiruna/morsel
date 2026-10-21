@@ -7,6 +7,7 @@ Morsel exposes the API and React viewer from one Go service on one domain. Postg
 ```mermaid
 flowchart LR
     Client[CLI / agent / internal app] -->|Bearer API key| Morsel[Go service]
+    Owner[Owner browser / account UI] -->|Passkey and session cookie| Morsel
     Reader[Reader] -->|viewer and same-origin share API| Morsel
     Reader -->|browser fetches Gist Markdown| GitHub[GitHub Gist API]
     Morsel --> DB[(PostgreSQL)]
@@ -38,7 +39,19 @@ sequenceDiagram
     Viewer->>Viewer: Sanitize and render Markdown
 ```
 
-The service handles `/`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell. Instant View shares additionally inject server-rendered GFM into the viewer root; the React viewer replaces it after loading in a browser. JavaScript and CSS remain static assets. Morsel v1 has no Redis, object storage, queue, account system, separate static host, or Node.js runtime server.
+The service handles `/`, `/account`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell. Instant View shares additionally inject server-rendered GFM into the viewer root; the React viewer replaces it after loading in a browser. JavaScript and CSS remain static assets. Morsel has no Redis, object storage, queue, separate static host, or Node.js runtime server.
+
+## Account and authentication boundaries
+
+- Only the first account can register, with a single-use operator setup token. Registration is serialized in PostgreSQL; later account creation is rejected by the API. Invitations are not implemented.
+- `/account` supports passkey setup, login, backup credentials, API key management, and logout. Registration and login require discoverable credentials and user verification. The last passkey cannot be removed.
+- The RP ID is the hostname from `MORSEL_URL`; the allowed origin includes its scheme and port. Production uses RP ID `morsel.narumi.dev` and origin `https://morsel.narumi.dev`, derived from configuration rather than request headers. Local Vite development uses RP ID `localhost` and exact origin `http://localhost:5173`.
+- Browser sessions alone can manage passkeys and API keys. Cookie-authenticated mutations require exact Origin checks and session-bound CSRF tokens. Share writes remain Bearer-only; session cookies do not authorize them. Public capability reads remain unchanged.
+- PostgreSQL stores credential records and hashes of opaque session tokens. Production cookies are host-only, `Secure`, `HttpOnly`, and `SameSite=Lax`. Non-Secure cookies are permitted only for supported localhost HTTP development.
+- Setup grants expire after 15 minutes, WebAuthn flows after 5 minutes, and sessions after 12 hours. Key creation, revocation, and passkey changes require fresh verification, valid for 5 minutes. Authentication and management responses use `Cache-Control: no-store`.
+- Recovery replaces credentials and advances the account authentication generation. Completion invalidates old sessions, pending flows, and verification/recovery grants. Account mutations recheck generation and authorization under the account lock, so old in-flight authorization cannot commit after recovery. Recovery does not revoke API keys; review them separately.
+- API keys contain at least 256 random bits. Only a SHA-256 hash and metadata are stored; the raw key is shown once at creation. Each privileged request checks active key state in PostgreSQL, without an authentication cache. Database errors fail closed.
+- All owner-issued API keys retain administrator rights, including revocation of any existing share. Key revocation blocks subsequent requests but does not cancel an already-authorized operation or revoke shares. Existing environment-configured keys are not supported after cutover; client-side `MORSEL_API_KEY` remains supported for UI-created keys.
 
 ## View and availability semantics
 
@@ -57,8 +70,8 @@ The service handles `/`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/healthz`, and
 - Capability tokens contain 256 random bits, are base64url encoded, and are never stored raw.
 - Preview is disabled when its metadata object is omitted. Hash-route URLs keep the capability out of the initial document request; preview metadata intentionally places it in `/s/<token>` so link crawlers can request the explicit title, description, optional image and locale, and canonical share URL.
 - Telegram Instant View is separately disabled by default. Enabling it exposes sanitized rendered Markdown in the initial HTML and permits Telegram to retain a cached copy outside Morsel's revocation controls.
-- Administrative API keys are hashed before constant-time comparison.
-- Request logs use route templates instead of token-bearing paths and omit bodies and authorization headers.
+- Authentication attempts have rate and request-size limits. WebAuthn verification uses a maintained library; expiring flows are browser-bound, operation-bound, and single-use.
+- Request logs use route templates instead of token-bearing paths and omit bodies, authorization headers, cookies, operator tokens, WebAuthn payloads, and raw API keys.
 - Authored HTML is disabled. Markdown from both Morsel shares and GitHub Gists passes through the same reviewed sanitation schema; KaTeX output is sanitized as well.
 - Gist IDs are validated before the browser makes an unauthenticated request to the CSP-allowlisted `api.github.com` origin.
 - KaTeX trust is disabled. Mermaid renders sequentially with strict security, source and count limits, and DOMPurify SVG sanitation.

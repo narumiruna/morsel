@@ -38,6 +38,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock)
     const { rerender } = renderApp()
     expect(screen.getByRole("heading", { name: "Morsel" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Manage account" })).toHaveAttribute("href", "/account")
     window.location.hash = "#/s/short"
     fireEvent(window, new HashChangeEvent("hashchange"))
     expect(screen.getByRole("heading", { name: "Invalid share link" })).toBeInTheDocument()
@@ -46,6 +47,24 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Share not found" })).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
     rerender(<div />)
+  })
+
+  it("loads the account page only at the explicit account path", async () => {
+    window.history.replaceState({}, "", "/account")
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ setup_required: false, authenticated: false })),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    renderApp()
+    expect(screen.getByLabelText("Loading account")).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Morsel account" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sign in with passkey" })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/account",
+      expect.objectContaining({ credentials: "same-origin", cache: "no-store" }),
+    )
   })
 
   it("loads a GitHub Gist route with the shared document controls", async () => {

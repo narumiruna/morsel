@@ -21,6 +21,14 @@ import (
 
 const testAPIKey = "0123456789abcdef0123456789abcdef"
 
+type authenticatorStub struct {
+	err error
+}
+
+func (a authenticatorStub) Valid(_ context.Context, header string) (bool, error) {
+	return header == "Bearer "+testAPIKey, a.err
+}
+
 type repositoryStub struct {
 	createResults []share.Share
 	createErrors  []error
@@ -77,7 +85,7 @@ func testRouter(t *testing.T, repository share.Repository, tokenReader io.Reader
 	logger := slog.New(slog.NewJSONHandler(logOutput, nil))
 	service := NewService(repository, share.TokenGenerator{Reader: tokenReader}, viewerURL, maxDocumentBytes, logger)
 	return NewRouter(service, RouterConfig{
-		APIKeys:        []string{testAPIKey},
+		Authenticator:  authenticatorStub{},
 		MaxRequestBody: maxDocumentBytes + 4096, RequestTimeout: time.Second, Logger: logger,
 	})
 }
@@ -385,7 +393,7 @@ func TestRouterServesViewerWithoutMaskingUnknownAPIRoutes(t *testing.T) {
 	service := NewService(repository, share.TokenGenerator{}, viewerURL, 100, slog.Default())
 	viewerCalls := 0
 	router := NewRouter(service, RouterConfig{
-		APIKeys: []string{testAPIKey},
+		Authenticator: authenticatorStub{},
 		Viewer: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			viewerCalls++
 			_, _ = io.WriteString(w, "viewer")

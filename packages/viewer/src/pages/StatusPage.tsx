@@ -1,5 +1,5 @@
 import { ExclamationTriangleIcon, FileTextIcon } from "@radix-ui/react-icons"
-import { Callout, Card, Flex, Heading, Spinner, Text } from "@radix-ui/themes"
+import { Callout, Card, Flex, Heading, Link, Spinner, Text } from "@radix-ui/themes"
 
 export function HomePage() {
   return (
@@ -10,6 +10,7 @@ export function HomePage() {
         <Text align="center" color="gray">
           Open a Morsel share or GitHub Gist URL to read a Markdown document.
         </Text>
+        <Link href="/account">Manage account</Link>
       </Flex>
     </Card>
   )

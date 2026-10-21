@@ -114,12 +114,504 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/account:
+    get:
+      operationId: getAccount
+      summary: Report initial setup and browser session state
+      security: []
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountState"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/logout:
+    post:
+      operationId: logoutAccount
+      summary: Revoke the current session; requires Origin and X-CSRF-Token
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Operation completed
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/setup/begin:
+    post:
+      operationId: beginSetup
+      summary: Begin setup with exact Origin and a browser-bound flow cookie
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantFlowRequest"
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/setup/finish:
+    post:
+      operationId: finishSetup
+      summary: Complete the single-use setup flow
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnCredential"
+      responses:
+        "200":
+          description: Flow completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticatedResult"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/login/begin:
+    post:
+      operationId: beginLogin
+      summary: Begin login with exact Origin and a browser-bound flow cookie
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmptyRequest"
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/login/finish:
+    post:
+      operationId: finishLogin
+      summary: Complete the single-use login flow
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnCredential"
+      responses:
+        "200":
+          description: Flow completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticatedResult"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/recover/begin:
+    post:
+      operationId: beginRecover
+      summary: Begin recover with exact Origin and a browser-bound flow cookie
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantFlowRequest"
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/recover/finish:
+    post:
+      operationId: finishRecover
+      summary: Complete the single-use recover flow
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnCredential"
+      responses:
+        "200":
+          description: Flow completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticatedResult"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/verify/begin:
+    post:
+      operationId: beginVerify
+      summary: Begin verify with exact Origin and a browser-bound flow cookie
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmptyRequest"
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/verify/finish:
+    post:
+      operationId: finishVerify
+      summary: Complete the single-use verify flow
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnCredential"
+      responses:
+        "200":
+          description: Flow completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticatedResult"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/passkey/begin:
+    post:
+      operationId: beginPasskey
+      summary: Begin passkey with exact Origin and a browser-bound flow cookie
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NameRequest"
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/passkey/finish:
+    post:
+      operationId: finishPasskey
+      summary: Complete the single-use passkey flow
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnCredential"
+      responses:
+        "200":
+          description: Flow completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticatedResult"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/api-keys:
+    get:
+      operationId: listAPIKeys
+      summary: List key metadata without raw keys or hashes
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/APIKey"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+    post:
+      operationId: createAPIKey
+      summary: Create a key after fresh verification; requires Origin and X-CSRF-Token
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NameRequest"
+      responses:
+        "201":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedAPIKey"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/api-keys/{id}:
+    delete:
+      operationId: revokeAPIKey
+      summary: Revoke a key idempotently after fresh verification; requires Origin and X-CSRF-Token
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountItemID"
+      responses:
+        "204":
+          description: Operation completed
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/passkeys:
+    get:
+      operationId: listPasskeys
+      summary: List registered passkeys
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Passkey"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/passkeys/{id}:
+    delete:
+      operationId: removePasskey
+      summary: Remove a passkey after fresh verification; never remove the last
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountItemID"
+      responses:
+        "204":
+          description: Operation completed
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
 components:
   securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: morsel_session
+      description: Opaque browser session. Mutations also require exact Origin and session-bound X-CSRF-Token; sensitive changes require passkey verification within five minutes.
     bearerAuth:
       type: http
       scheme: bearer
   parameters:
+    AccountItemID:
+      name: id
+      in: path
+      required: true
+      description: API key UUID or base64url passkey credential ID.
+      schema:
+        type: string
+        minLength: 1
     ShareCapability:
       name: share
       in: path
@@ -128,6 +620,121 @@ components:
         type: string
         pattern: "^[A-Za-z0-9_-]{43}$"
   schemas:
+    AuthenticatedResult:
+      type: object
+      required: [authenticated]
+      properties:
+        authenticated:
+          type: boolean
+          enum: [true]
+    AccountFailure:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Account-specific error code, such as invalid_origin, invalid_csrf, invalid_flow, invalid_grant, setup_closed, last_passkey, or verification_required.
+        message:
+          type: string
+    AccountState:
+      type: object
+      required: [setup_required, authenticated]
+      properties:
+        setup_required:
+          type: boolean
+        authenticated:
+          type: boolean
+        csrf_token:
+          type: string
+          description: Session-bound token, returned only to an authenticated browser.
+    EmptyRequest:
+      type: object
+      additionalProperties: false
+    NameRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Trimmed name limited to 200 UTF-8 bytes by the server.
+    GrantFlowRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Operator-issued token; never place it in a URL.
+        name:
+          type: string
+          maxLength: 200
+          description: Trimmed passkey name limited to 200 UTF-8 bytes; defaults to Passkey when omitted.
+    WebAuthnOptions:
+      type: object
+      required: [publicKey]
+      properties:
+        publicKey:
+          type: object
+          additionalProperties: true
+          description: WebAuthn PublicKeyCredentialCreationOptionsJSON or PublicKeyCredentialRequestOptionsJSON. RP ID is hostname-only and user verification is required.
+    WebAuthnCredential:
+      type: object
+      additionalProperties: true
+      required: [id, rawId, type, response]
+      properties:
+        id:
+          type: string
+        rawId:
+          type: string
+        type:
+          type: string
+          enum: [public-key]
+        response:
+          type: object
+          additionalProperties: true
+      description: Raw browser registration or assertion JSON with base64url binary members. The server validates it with its WebAuthn library and a browser-bound flow cookie.
+    APIKey:
+      type: object
+      required: [id, name, prefix, created_at, revoked_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: Safe display prefix; not a usable API key.
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: [string, "null"]
+          format: date-time
+    CreatedAPIKey:
+      allOf:
+        - $ref: "#/components/schemas/APIKey"
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: Secret returned only once. Never cache or persist it in browser storage.
+    Passkey:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id:
+          type: string
+          description: Base64url credential ID.
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     Health:
       type: object
       additionalProperties: false
@@ -252,6 +859,12 @@ components:
         message:
           type: string
   responses:
+    AccountError:
+      description: Invalid request, authentication failure, forbidden origin or CSRF, conflict, rate limit, or unavailable database. Account routes always return Cache-Control no-store.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AccountFailure"
     BadRequest:
       description: Request validation failed
       content:

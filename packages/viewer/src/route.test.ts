@@ -5,6 +5,15 @@ const token = "A".repeat(43)
 const gist = "7dbaf8170c7292354678069a9acb061f"
 
 describe("parseRoute", () => {
+  it("matches only the explicit account route", () => {
+    expect(parseRoute("/account", "")).toEqual({ kind: "account" })
+    expect(parseRoute("/account", "#ignored")).toEqual({ kind: "account" })
+    expect(parseRoute("/account/", "")).toEqual({ kind: "not-found" })
+    expect(parseRoute("/account/keys", "")).toEqual({ kind: "not-found" })
+    expect(parseRoute("/v1/account", "")).toEqual({ kind: "not-found" })
+    expect(parseRoute("/", "#/account")).toEqual({ kind: "not-found" })
+  })
+
   it("parses path-based preview routes before hash routes", () => {
     expect(parseRoute(`/s/${token}`, "")).toEqual({ kind: "share", token })
     expect(parseRoute("/s/short", "")).toEqual({ kind: "invalid-share" })

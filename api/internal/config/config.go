@@ -15,7 +15,6 @@ type Config struct {
 	Environment       string
 	Address           string
 	DatabaseURL       string
-	APIKeys           []string
 	PublicViewerURL   *url.URL
 	ViewerDir         string
 	MaxDocumentBytes  int64
@@ -47,17 +46,6 @@ func Load() (Config, error) {
 	var err error
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("MORSEL_DATABASE_URL is required")
-	}
-	if cfg.APIKeys, err = loadValues("MORSEL_API_KEY", "MORSEL_API_KEY_FILE"); err != nil {
-		return Config{}, fmt.Errorf("load API keys: %w", err)
-	}
-	if len(cfg.APIKeys) == 0 {
-		return Config{}, errors.New("at least one API key is required")
-	}
-	for _, key := range cfg.APIKeys {
-		if len(key) < 32 {
-			return Config{}, errors.New("each API key must contain at least 32 characters")
-		}
 	}
 	if strings.TrimSpace(cfg.ViewerDir) == "" {
 		return Config{}, errors.New("MORSEL_VIEWER_DIR must not be empty")
@@ -95,34 +83,6 @@ func Load() (Config, error) {
 		return Config{}, errors.New("MORSEL_LOG_LEVEL must be debug, info, warn, or error")
 	}
 	return cfg, nil
-}
-
-func loadValues(valueEnv, fileEnv string) ([]string, error) {
-	var values []string
-	if raw := os.Getenv(valueEnv); raw != "" {
-		values = append(values, strings.Split(raw, ",")...)
-	}
-	if path := os.Getenv(fileEnv); path != "" {
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return nil, errors.New("cannot read configured file")
-		}
-		values = append(values, strings.Split(string(body), "\n")...)
-	}
-	result := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	return result, nil
 }
 
 func parsePublicURL(raw, environment string) (*url.URL, error) {
