@@ -56,7 +56,7 @@ func TestConfiguration(t *testing.T) {
 			w := httptest.NewRecorder()
 			s.cookie(w, sessionCookie, "token", false)
 			c := w.Result().Cookies()[0]
-			if c.Domain != "" || c.Path != "/" || !c.HttpOnly || c.Secure != test.secure || c.SameSite != http.SameSiteLaxMode || c.MaxAge != 0 || !c.Expires.IsZero() {
+			if c.Domain != "" || c.Path != "/" || !c.HttpOnly || c.Secure != test.secure || c.SameSite != http.SameSiteLaxMode || c.MaxAge != 30*24*60*60 || c.Expires.Before(time.Now().Add(sessionLifetime-time.Minute)) || c.Expires.After(time.Now().Add(sessionLifetime+time.Minute)) {
 				t.Fatalf("unsafe cookie: %+v", c)
 			}
 		})

@@ -43,7 +43,7 @@ cd api
 go run ./cmd/account -kind setup
 ```
 
-The command needs only `MORSEL_DATABASE_URL`. Enter the token in the setup form, not a URL, within 15 minutes. Enroll the first passkey and a backup, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For lost credentials, use `go run ./cmd/account -kind recover` and the recovery form; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
+The command needs only `MORSEL_DATABASE_URL`. Enter the token in the setup form, not a URL, within one hour. Enroll the first passkey and a backup, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For lost credentials, use `go run ./cmd/account -kind recover` and the recovery form; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
 
 ## Authentication browser tests
 

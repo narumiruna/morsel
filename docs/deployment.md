@@ -38,7 +38,7 @@ docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -ki
 ```
 
 1. Open `/account` at the configured browser origin. For production, use <https://morsel.narumi.dev/account>.
-2. Enter the token in the setup form within 15 minutes and complete passkey registration. The WebAuthn flow expires after 5 minutes. The token is single-use; only the first owner can register. Invitations and additional accounts are not implemented.
+2. Enter the token in the setup form within one hour and complete passkey registration. The WebAuthn flow expires after 10 minutes; the browser can end its prompt sooner. The token is single-use; only the first owner can register. Invitations and additional accounts are not implemented.
 3. Add a backup passkey. Removal of the last passkey is rejected.
 4. Create named API keys and save each raw value in the appropriate client secret store when shown. It is shown only once; only its SHA-256 hash and metadata are stored.
 
@@ -50,9 +50,11 @@ If all passkeys are lost or compromised, an authorized operator can issue a reco
 docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind recover
 ```
 
-Enter the single-use token in the recovery form at `/account` within 15 minutes and enroll a replacement passkey. Recovery completion replaces old credentials, advances the account authentication generation, and invalidates old sessions, pending authentication flows, verification grants, and recovery grants. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
+Enter the single-use token in the recovery form at `/account` within one hour and enroll a replacement passkey. Recovery completion replaces old credentials, advances the account authentication generation, and invalidates old sessions, pending authentication flows, verification grants, and recovery grants. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
 
-Sessions expire after 12 hours. Key creation, key revocation, and passkey changes require fresh passkey verification, valid for 5 minutes. Production session cookies are `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
+Sessions expire 30 days after login, without sliding renewal. Their persistent cookies survive browser restarts; logout and account recovery still revoke sessions immediately. Key creation, key revocation, and passkey changes reuse passkey verification for 12 hours, then require verification again. The UI checks the current server session before each change. Production session cookies remain `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
+
+Existing sessions keep their original database expiry and cookie lifetime. After deployment, log out and sign in again to receive a 30-day persistent session. Tokens already issued keep their stored expiry. Longer lifetimes increase the time that a stolen session or unused operator token can remain valid; revoke compromised sessions or issue a replacement operator token.
 
 Authentication POST requests have a fixed limit of 60 attempts per source address and ceremony kind per minute, plus a service-wide limit of 1000 per minute. Account-state reads and key-management requests do not consume ceremony limits. Forwarded client IP headers are not trusted; clients behind the same proxy share source-address limits. Apply per-client abuse controls at the existing trusted reverse proxy when needed. Login attempts have a separate budget from verification, setup, and recovery.
 

@@ -85,6 +85,7 @@ type session struct {
 	AccountID  uuid.UUID
 	Generation int64
 	CSRF       string
+	Verified   bool
 }
 
 // Lock order is always account, then authorization records. Entry checks alone are
@@ -105,8 +106,7 @@ func (s *Service) authorize(ctx context.Context, tx pgx.Tx, token, csrf string, 
 	if err != nil {
 		return nil, nil, err
 	}
-	var verified bool
-	err = tx.QueryRow(ctx, `SELECT csrf_token, verified_at > clock_timestamp()-make_interval(secs => $4) FROM auth_sessions WHERE token_hash=$1 AND account_id=$2 AND generation=$3 AND expires_at>clock_timestamp() FOR UPDATE`, ss.Hash, u.ID, u.Generation, verifyLifetime.Seconds()).Scan(&ss.CSRF, &verified)
+	err = tx.QueryRow(ctx, `SELECT csrf_token, verified_at > clock_timestamp()-make_interval(secs => $4) FROM auth_sessions WHERE token_hash=$1 AND account_id=$2 AND generation=$3 AND expires_at>clock_timestamp() FOR UPDATE`, ss.Hash, u.ID, u.Generation, verifyLifetime.Seconds()).Scan(&ss.CSRF, &ss.Verified)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil, errUnauthorized
 	}
@@ -116,7 +116,7 @@ func (s *Service) authorize(ctx context.Context, tx pgx.Tx, token, csrf string, 
 	if mutation && subtle.ConstantTimeCompare([]byte(csrf), []byte(ss.CSRF)) != 1 {
 		return nil, nil, failure(403, "invalid_csrf", "valid CSRF token required")
 	}
-	if fresh && !verified {
+	if fresh && !ss.Verified {
 		return nil, nil, errFresh
 	}
 	return u, ss, nil

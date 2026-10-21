@@ -138,8 +138,12 @@ test("required real-backend account and API key lifecycle", async ({
     const state = await account(page)
     expect(state.authenticated).toBe(true)
     expect(state.setup_required).toBe(false)
+    expect(state.verification_required).toBe(false)
     const cookies = await context.cookies()
-    expect(cookies.some((cookie) => cookie.httpOnly && cookie.sameSite === "Lax")).toBe(true)
+    const session = cookies.find((cookie) => cookie.name === "morsel_session")
+    expect(session?.httpOnly).toBe(true)
+    expect(session?.sameSite).toBe("Lax")
+    expect((session?.expires ?? 0) - Date.now() / 1000).toBeGreaterThan(29 * 24 * 60 * 60)
     await noBrowserSecret(page, token)
     const rejected = await page.request.post("/v1/auth/setup/begin", {
       headers: { Origin: baseURL as string },
@@ -148,6 +152,33 @@ test("required real-backend account and API key lifecycle", async ({
     expect(rejected.status() >= 400 && rejected.status() < 500).toBe(true)
     await page.reload()
     await expect(page.getByRole("button", { name: "Log out", exact: true })).toBeVisible()
+  })
+
+  await test.step("persistent login reuses verification without extra passkey prompts", async () => {
+    const restoredContext = await browser.newContext({
+      baseURL,
+      storageState: await context.storageState(),
+    })
+    const restored = await restoredContext.newPage()
+    try {
+      await restored.goto("/account")
+      await expect(restored.getByRole("button", { name: "Log out", exact: true })).toBeVisible()
+      let prompts = 0
+      restored.on("request", (request) => {
+        if (request.url().endsWith("/v1/auth/verify/begin")) prompts += 1
+      })
+      await createKey(restored, "Remembered browser")
+      await restored
+        .getByRole("button", { name: "Revoke API key Remembered browser", exact: true })
+        .click()
+      await expect(
+        restored.getByRole("button", { name: "Revoke API key Remembered browser", exact: true }),
+      ).toHaveCount(0)
+      expect(prompts).toBe(0)
+      expect((await account(restored)).verification_required).toBe(false)
+    } finally {
+      await restoredContext.close()
+    }
   })
 
   await test.step("backup passkey enrollment and last-passkey protection", async () => {
@@ -314,6 +345,7 @@ test("required real-backend account and API key lifecycle", async ({
   })
 
   await test.step("cancelled browser authentication does not create an API key", async () => {
+    await command(helper, ["expire-verification"])
     await page.evaluate(() => {
       Object.defineProperty(navigator.credentials, "get", {
         configurable: true,

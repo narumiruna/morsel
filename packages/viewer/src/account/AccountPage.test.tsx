@@ -36,7 +36,7 @@ let account: Account
 let passkeys: Passkey[]
 let keys: APIKey[]
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>
-let fail: { path: string; status: number; message?: string } | undefined
+let fail: { path: string; status: number; code?: string; message?: string } | undefined
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
@@ -66,7 +66,10 @@ beforeEach(() => {
   fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const path = String(input).replace("/v1/", "")
     if (fail?.path === path)
-      return json({ code: "rejected", message: fail.message ?? "Request rejected." }, fail.status)
+      return json(
+        { code: fail.code ?? "rejected", message: fail.message ?? "Request rejected." },
+        fail.status,
+      )
     if (path === "account") return json(account)
     if (path === "passkeys" && init?.method === "GET") return json(passkeys)
     if (path === "api-keys" && init?.method === "GET") return json(keys)
@@ -78,7 +81,12 @@ beforeEach(() => {
       })
     if (path.endsWith("/finish")) {
       if (/auth\/(setup|login|recover)\//.test(path))
-        account = { setup_required: false, authenticated: true, csrf_token: "csrf-secret" }
+        account = {
+          setup_required: false,
+          authenticated: true,
+          csrf_token: "csrf-secret",
+          verification_required: true,
+        }
       if (path === "auth/passkey/finish")
         passkeys = [...passkeys, { id: "backup", name: "Phone", created_at: created }]
       return json({})
@@ -114,7 +122,12 @@ beforeEach(() => {
 })
 
 async function signedIn() {
-  account = { setup_required: false, authenticated: true, csrf_token: "csrf-secret" }
+  account = {
+    setup_required: false,
+    authenticated: true,
+    csrf_token: "csrf-secret",
+    verification_required: true,
+  }
   const result = showPage()
   await screen.findByRole("heading", { name: "API keys" })
   return result
@@ -208,7 +221,7 @@ describe("AccountPage", () => {
     expect(logs).not.toHaveBeenCalled()
   })
 
-  it("re-verifies for every key creation and revocation and encodes key IDs", async () => {
+  it("verifies key creation and revocation when the server requires it and encodes key IDs", async () => {
     await signedIn()
     await createKey()
     await userEvent.setup().click(screen.getByRole("button", { name: "Revoke API key CLI" }))
@@ -222,7 +235,7 @@ describe("AccountPage", () => {
     expect(screen.getByText("API key revoked. Existing shares are unchanged.")).toBeInTheDocument()
   })
 
-  it("adds and removes named backup passkeys after separate verification and disables last removal", async () => {
+  it("adds and removes named backup passkeys with required verification and disables last removal", async () => {
     const { container } = await signedIn()
     const user = userEvent.setup()
     expect(screen.getByRole("button", { name: "Remove passkey Laptop" })).toBeDisabled()
@@ -240,6 +253,156 @@ describe("AccountPage", () => {
     expect(callsTo("auth/verify/begin")).toHaveLength(2)
     expect(screen.getByRole("button", { name: "Remove passkey Laptop" })).toBeDisabled()
     expect(await axe.run(container).then((result) => result.violations)).toEqual([])
+  })
+
+  it("uses fresh server state to skip verification for multiple actions and keeps the raw key", async () => {
+    await signedIn()
+    account = { ...account, verification_required: false }
+    await createKey()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "Revoke API key CLI" }))
+    await screen.findByText(/Revoked/)
+    await user.type(screen.getByLabelText("Passkey name"), "Phone")
+    await user.click(screen.getByRole("button", { name: "Add passkey" }))
+    await user.click(await screen.findByRole("button", { name: "Remove passkey Phone" }))
+    await waitFor(() => expect(screen.queryByText("Phone")).not.toBeInTheDocument())
+    expect(callsTo("account")).toHaveLength(5)
+    expect(callsTo("auth/verify/begin")).toHaveLength(0)
+    expect(startAuthentication).not.toHaveBeenCalled()
+    expect(startRegistration).toHaveBeenCalledOnce()
+    expect(screen.getByLabelText("New API key")).toHaveValue("raw-secret-only-once")
+  })
+
+  it("does not trust a stale UI flag when the current session needs verification", async () => {
+    await signedIn()
+    account = { ...account, verification_required: false }
+    await createKey()
+    account = { ...account, verification_required: true }
+    await userEvent.setup().click(screen.getByRole("button", { name: "Revoke API key CLI" }))
+    await screen.findByText(/Revoked/)
+    expect(callsTo("auth/verify/begin")).toHaveLength(1)
+    expect(callsTo("auth/verify/finish")).toHaveLength(1)
+    expect(callsTo("api-keys/key%2Fid")).toHaveLength(1)
+  })
+
+  it("requires verification when an older backend omits the freshness flag", async () => {
+    await signedIn()
+    delete account.verification_required
+    await createKey()
+    expect(startAuthentication).toHaveBeenCalledOnce()
+    expect(callsTo("auth/verify/finish")).toHaveLength(1)
+  })
+
+  it.each([false, true])(
+    "uses the preflight CSRF token with verification_required=%s",
+    async (required) => {
+      await signedIn()
+      account = { ...account, csrf_token: "current-session-csrf", verification_required: required }
+      await createKey()
+      const creation = callsTo("api-keys").filter(([, init]) => init?.method === "POST")
+      expect(creation).toHaveLength(1)
+      expect(creation[0]?.[1]?.headers).toHaveProperty("X-CSRF-Token", "current-session-csrf")
+      expect(callsTo("auth/verify/begin")).toHaveLength(required ? 1 : 0)
+      if (required) {
+        for (const path of ["auth/verify/begin", "auth/verify/finish"]) {
+          expect(callsTo(path)[0]?.[1]?.headers).toHaveProperty(
+            "X-CSRF-Token",
+            "current-session-csrf",
+          )
+        }
+      }
+      await userEvent.setup().click(screen.getByRole("button", { name: "Log out" }))
+      await screen.findByRole("button", { name: "Sign in with passkey" })
+      expect(callsTo("auth/logout")[0]?.[1]?.headers).toHaveProperty(
+        "X-CSRF-Token",
+        "current-session-csrf",
+      )
+    },
+  )
+
+  it.each(["signed out", "missing CSRF", "expired"])(
+    "clears session state and does not mutate when preflight is %s",
+    async (state) => {
+      await signedIn()
+      await createKey()
+      const prompts = callsTo("auth/verify/begin").length
+      if (state === "signed out") account = { setup_required: false, authenticated: false }
+      if (state === "missing CSRF") account = { ...account, csrf_token: undefined }
+      if (state === "expired") fail = { path: "account", status: 401 }
+      await userEvent.setup().click(screen.getByRole("button", { name: "Revoke API key CLI" }))
+      await screen.findByText("Your session expired. Sign in again.")
+      expect(screen.queryByLabelText("New API key")).not.toBeInTheDocument()
+      expect(screen.queryByRole("heading", { name: "API keys" })).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Sign in with passkey" })).toBeEnabled()
+      expect(callsTo("auth/verify/begin")).toHaveLength(prompts)
+      expect(callsTo("api-keys/key%2Fid")).toHaveLength(0)
+    },
+  )
+
+  it.each([
+    ["api key", "403"],
+    ["api key", "network"],
+    ["passkey", "403"],
+    ["passkey", "network"],
+  ])("does not retry %s creation after a %s failure", async (operation, failure) => {
+    await signedIn()
+    account = { ...account, verification_required: false }
+    const path = operation === "api key" ? "api-keys" : "auth/passkey/finish"
+    const original = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input) === `/v1/${path}` && init?.method === "POST") {
+        account = { ...account, verification_required: true }
+        if (failure === "network") throw new TypeError("connection lost after commit")
+        return json({ code: "verification_required" }, 403)
+      }
+      if (!original) throw new Error("Missing fetch implementation")
+      return original(input, init)
+    })
+    const user = userEvent.setup()
+    await user.type(
+      screen.getByLabelText(operation === "api key" ? "API key name" : "Passkey name"),
+      "New credential",
+    )
+    await user.click(
+      screen.getByRole("button", {
+        name: operation === "api key" ? "Create API key" : "Add passkey",
+      }),
+    )
+    await screen.findByText(failure === "403" ? /Authorization expired/ : /could not be completed/)
+    expect(callsTo(path).filter(([, init]) => init?.method === "POST")).toHaveLength(1)
+    expect(callsTo("auth/verify/begin")).toHaveLength(0)
+    expect(startAuthentication).not.toHaveBeenCalled()
+    expect(startRegistration).toHaveBeenCalledTimes(operation === "passkey" ? 1 : 0)
+    expect(callsTo("auth/passkey/begin")).toHaveLength(operation === "passkey" ? 1 : 0)
+  })
+
+  it("verifies on the next user retry after verification expires during a mutation", async () => {
+    await signedIn()
+    account = { ...account, verification_required: false }
+    fail = { path: "api-keys", status: 403, code: "verification_required" }
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText("API key name"), "CLI")
+    await user.click(screen.getByRole("button", { name: "Create API key" }))
+    await screen.findByText(/Authorization expired/)
+    expect(callsTo("auth/verify/begin")).toHaveLength(0)
+    account = { ...account, verification_required: true }
+    fail = undefined
+    await user.click(screen.getByRole("button", { name: "Create API key" }))
+    await screen.findByLabelText("New API key")
+    expect(callsTo("auth/verify/begin")).toHaveLength(1)
+    expect(callsTo("api-keys").filter(([, init]) => init?.method === "POST")).toHaveLength(2)
+  })
+
+  it("keeps a displayed raw key when a later creation preflight fails", async () => {
+    await signedIn()
+    await createKey()
+    fail = { path: "account", status: 500 }
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText("API key name"), "Another key")
+    await user.click(screen.getByRole("button", { name: "Create API key" }))
+    await screen.findByText("Request rejected.")
+    expect(screen.getByLabelText("New API key")).toHaveValue("raw-secret-only-once")
+    expect(callsTo("api-keys").filter(([, init]) => init?.method === "POST")).toHaveLength(1)
   })
 
   it("clears the raw key on logout and uses CSRF", async () => {

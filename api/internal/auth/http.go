@@ -163,6 +163,7 @@ func (s *Service) accountState(w http.ResponseWriter, r *http.Request) error {
 		if e == nil {
 			state["authenticated"] = true
 			state["csrf_token"] = ss.CSRF
+			state["verification_required"] = !ss.Verified
 		} else if _, ok := e.(*apiError); !ok {
 			return e
 		} else {
