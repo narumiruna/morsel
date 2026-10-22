@@ -188,8 +188,7 @@ summary {
   margin: 0.125rem 0 0;
 }
 
-.share-confirmation,
-.share-admin-detail {
+.share-confirmation {
   margin-top: 1.25rem;
   border: 1px solid var(--gray-a6);
   border-radius: var(--radius-3);

@@ -6,10 +6,25 @@ const created = "2026-10-22T09:41:00Z"
 const longTitle = "長".repeat(80)
 const themes = ["light", "dark", "sepia", "sage", "midnight", "system"] as const
 
-async function mockManagement(page: Page) {
+async function mockManagement(page: Page, backupPasskey = false) {
   let authenticated = true
   let reads = 0
+  let creations = 0
+  let failedList: "api-keys" | "passkeys" | null = null
   const mutations: string[] = []
+  const passkeys = [
+    { id: "fixture-passkey", name: "Laptop", created_at: created },
+    ...(backupPasskey ? [{ id: "backup-passkey", name: "Phone", created_at: created }] : []),
+  ]
+  const keys = [
+    {
+      id: "fixture-key",
+      name: "Build agent",
+      prefix: "fixture-prefix",
+      created_at: created,
+      revoked_at: null as string | null,
+    },
+  ]
   const items = Array.from({ length: 30 }, (_, index) => ({
     id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
     label: index === 7 ? longTitle : `Project note ${String(index + 1).padStart(2, "0")}`,
@@ -48,34 +63,33 @@ async function mockManagement(page: Page) {
       await route.fulfill({ status: 401, json: { code: "session_expired" } })
       return
     }
-    if (path === "/v1/passkeys") {
-      await route.fulfill({
-        json: [{ id: "fixture-passkey", name: "Laptop", created_at: created }],
-      })
+    if (path === `/v1/${failedList}` && request.method() === "GET") {
+      await route.fulfill({ status: 503, json: { message: "Fixture list unavailable." } })
+    } else if (path === "/v1/passkeys") {
+      await route.fulfill({ json: passkeys })
+    } else if (path.startsWith("/v1/passkeys/") && request.method() === "DELETE") {
+      mutations.push(path)
+      passkeys.splice(
+        passkeys.findIndex((passkey) => path.endsWith(passkey.id)),
+        1,
+      )
+      await route.fulfill({ status: 204 })
     } else if (path === "/v1/api-keys" && request.method() === "POST") {
+      creations += 1
+      const key = {
+        id: `new-fixture-key-${creations}`,
+        name: String(request.postDataJSON().name),
+        prefix: `fixture-prefix-${creations}`,
+        created_at: created,
+        revoked_at: null,
+      }
+      keys.push(key)
       await route.fulfill({
         status: 201,
-        json: {
-          id: "new-fixture-key",
-          name: "Browser key",
-          prefix: "fixture-prefix",
-          created_at: created,
-          revoked_at: null,
-          key: "one-time-fixture-value-not-a-real-api-key",
-        },
+        json: { ...key, key: "one-time-fixture-value-not-a-real-api-key" },
       })
     } else if (path === "/v1/api-keys") {
-      await route.fulfill({
-        json: [
-          {
-            id: "fixture-key",
-            name: "Build agent",
-            prefix: "fixture-prefix",
-            created_at: created,
-            revoked_at: null,
-          },
-        ],
-      })
+      await route.fulfill({ json: keys })
     } else if (path === "/v1/account/shares") {
       const status = url.searchParams.get("status") ?? "all"
       const query = (url.searchParams.get("q") ?? "").toLowerCase()
@@ -112,8 +126,10 @@ async function mockManagement(page: Page) {
           },
         })
       }
-    } else if (path === "/v1/api-keys/fixture-key" && request.method() === "DELETE") {
+    } else if (path.startsWith("/v1/api-keys/") && request.method() === "DELETE") {
       mutations.push(path)
+      const key = keys.find((key) => path.endsWith(key.id))
+      if (key) key.revoked_at = created
       await route.fulfill({ status: 204 })
     } else if (path === "/v1/auth/logout") {
       authenticated = false
@@ -122,7 +138,15 @@ async function mockManagement(page: Page) {
       throw new Error(`Unexpected fixture request: ${request.method()} ${path}`)
     }
   })
-  return { reads: () => reads, requests, mutations }
+  return {
+    reads: () => reads,
+    creations: () => creations,
+    failList: (value: typeof failedList) => {
+      failedList = value
+    },
+    requests,
+    mutations,
+  }
 }
 
 async function checkControlContrast(page: Page) {
@@ -232,6 +256,10 @@ for (const width of [1280, 375]) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         width,
       )
+      if (width === 375) {
+        const first = await page.locator(".share-table tbody tr").first().boundingBox()
+        expect(first?.y).toBeLessThanOrEqual(450)
+      }
       if (width === 1280) {
         const fifth = await page
           .getByRole("button", { name: "Preview share Project note 26", exact: true })
@@ -332,6 +360,7 @@ test("search, ordering, pagination, copy feedback, preview and confirmation rema
   })
   await page.getByRole("button", { name: "Copy share ID", exact: true }).click()
   await expect(page.getByText(/(could not|failed|unable).*cop/i)).toBeVisible()
+  await page.getByRole("button", { name: "Close share details", exact: true }).click()
   await page.getByRole("button", { name: "Revoke share Project note 30", exact: true }).click()
   await page.getByRole("button", { name: "Cancel revocation", exact: true }).click()
   expect(api.mutations).toHaveLength(0)
@@ -343,6 +372,210 @@ test("search, ordering, pagination, copy feedback, preview and confirmation rema
   await expect(page.getByText(/integrations/i)).toBeVisible()
   expect(api.mutations).toHaveLength(1)
 })
+
+for (const width of [1280, 375, 320]) {
+  test(`preview keeps list position and contains keyboard focus at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 800 })
+    const api = await mockManagement(page)
+    await page.goto("/manage/shares")
+    const trigger = page.getByRole("button", { name: "Preview share Project note 30", exact: true })
+    await trigger.focus()
+    const scroll = await page.evaluate(() => window.scrollY)
+    await page.keyboard.press("Enter")
+    const dialog = page.getByRole("dialog", { name: "Share details: Project note 30", exact: true })
+    await expect(
+      dialog.getByRole("heading", { name: "Preview content", exact: true }),
+    ).toBeInViewport()
+    await expect(
+      dialog.getByRole("heading", { name: "Share details: Project note 30", exact: true }),
+    ).toBeFocused()
+    expect(await page.evaluate(() => window.scrollY)).toBe(scroll)
+    const bounds = await dialog.boundingBox()
+    expect(bounds?.y).toBeGreaterThanOrEqual(0)
+    expect((bounds?.y ?? 800) + (bounds?.height ?? 1)).toBeLessThanOrEqual(800)
+    for (let index = 0; index < 8; index += 1) {
+      await page.keyboard.press("Tab")
+      expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(
+        true,
+      )
+    }
+    await page.locator(".share-preview-body").evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    await expect(
+      dialog.getByRole("button", { name: "Close share details", exact: true }),
+    ).toBeInViewport()
+    await checkAxe(page)
+    await page.locator(".share-preview-body").evaluate((element) => {
+      element.scrollTop = 0
+    })
+    const path = testInfo.outputPath(`manage-preview-${width}.png`)
+    await page.screenshot({ path, animations: "disabled" })
+    await testInfo.attach(`manage-preview-${width}`, { path, contentType: "image/png" })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    expect(await page.evaluate(() => window.scrollY)).toBe(scroll)
+    expect(api.reads()).toBe(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    )
+  })
+}
+
+test("Escape exits an expanded preview chart before closing its parent dialog", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 800 })
+  await page.addInitScript(() => {
+    Element.prototype.requestFullscreen = async () => {
+      throw new Error("Use fullscreen fallback")
+    }
+  })
+  await mockManagement(page)
+  await page.route("**/v1/account/shares/*", (route) =>
+    route.fulfill({
+      json: {
+        id: "chart-fixture",
+        label: "Project note 30",
+        created_at: created,
+        expires_at: null,
+        max_views: null,
+        view_count: 0,
+        revoked_at: null,
+        status: "active",
+        content:
+          '# Chart preview\n\n```vega-lite\n{"data":{"values":[{"x":"A","y":1}]},"mark":"bar","encoding":{"x":{"field":"x","type":"nominal"},"y":{"field":"y","type":"quantitative"}}}\n```',
+      },
+    }),
+  )
+  await page.goto("/manage/shares")
+  const trigger = page.getByRole("button", { name: "Preview share Project note 30", exact: true })
+  await trigger.click()
+  const dialog = page.getByRole("dialog", { name: "Share details: Project note 30", exact: true })
+  const chart = dialog.locator(".vega-lite-card")
+  await expect(chart.locator(".vega-lite-chart svg")).toBeVisible()
+  const fullscreen = chart.getByRole("button", { name: "Fullscreen", exact: true })
+  await fullscreen.click()
+  await expect(chart).toHaveClass(/diagram-expanded/)
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeVisible()
+  await expect(chart).not.toHaveClass(/diagram-expanded/)
+  await expect(fullscreen).toBeFocused()
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+})
+
+test("share controls survive section navigation and history without persisting private search", async ({
+  page,
+}) => {
+  await mockManagement(page)
+  await page.goto("/manage/shares")
+  await page.getByLabel("Search shares", { exact: true }).fill("Project note")
+  await page.getByRole("button", { name: "Search shares", exact: true }).click()
+  await page.getByLabel("Share status", { exact: true }).selectOption("active")
+  await page.getByLabel("Share order", { exact: true }).selectOption("oldest")
+  await page.getByRole("button", { name: "Next shares", exact: true }).click()
+  await expect(page.locator(".share-page-summary")).toContainText("Page 2")
+  await page.getByLabel("Search shares", { exact: true }).fill("Unsubmitted private draft")
+  await page.getByRole("link", { name: "API keys", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "API keys", exact: true })).toBeVisible()
+  await page.getByRole("link", { name: "Security", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Passkeys", exact: true })).toBeVisible()
+  await page.goBack()
+  await page.goBack()
+  await expect(page.getByLabel("Search shares", { exact: true })).toHaveValue(
+    "Unsubmitted private draft",
+  )
+  await expect(page.getByLabel("Share order", { exact: true })).toHaveValue("oldest")
+  await expect(page.getByLabel("Share status", { exact: true })).toHaveValue("active")
+  await expect(page.locator(".share-page-summary")).toContainText("29 matching shares · Page 1")
+  expect(
+    await page.evaluate(
+      () => JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + location.href,
+    ),
+  ).not.toContain("private draft")
+})
+
+test("one-time key creation focuses the save panel and blocks replacement until dismissal", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 800 })
+  const api = await mockManagement(page)
+  await page.goto("/manage/api-keys")
+  await page.getByLabel("API key name", { exact: true }).fill("First key")
+  await page.getByRole("button", { name: "Create API key", exact: true }).focus()
+  await page.keyboard.press("Enter")
+  await expect(
+    page.getByRole("heading", { name: "Save your new API key", exact: true }),
+  ).toBeFocused()
+  await expect(page.getByRole("status")).toContainText("API key created.")
+  await expect(page.getByRole("status")).not.toContainText("one-time-fixture-value")
+  await expect(page.getByLabel("API key name", { exact: true })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Create API key", exact: true })).toBeDisabled()
+  await page.keyboard.press("Tab")
+  await expect(page.getByLabel("New API key", { exact: true })).toBeFocused()
+  expect(api.creations()).toBe(1)
+  await checkAxe(page)
+  const path = testInfo.outputPath("manage-api-key-mobile.png")
+  await page.screenshot({ path, animations: "disabled" })
+  await testInfo.attach("manage-api-key-mobile", { path, contentType: "image/png" })
+  await page.getByRole("button", { name: "Dismiss API key", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "API keys", exact: true })).toBeFocused()
+  await page.getByLabel("API key name", { exact: true }).fill("Second key")
+  await page.getByRole("button", { name: "Create API key", exact: true }).click()
+  await expect.poll(api.creations).toBe(2)
+})
+
+test("passkey removal requires confirmation and cancellation restores focus", async ({ page }) => {
+  const api = await mockManagement(page, true)
+  await page.goto("/account")
+  const remove = page.getByRole("button", { name: "Remove passkey Laptop", exact: true })
+  await remove.click()
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused()
+  expect(api.mutations).toEqual([])
+  await checkAxe(page)
+  await page.getByRole("button", { name: "Cancel", exact: true }).click()
+  await expect(remove).toBeFocused()
+  expect(api.mutations).toEqual([])
+  await remove.click()
+  await page.getByRole("button", { name: "Confirm remove passkey", exact: true }).click()
+  await expect(page.getByText("Passkey removed.", { exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Passkeys", exact: true })).toBeFocused()
+  expect(api.mutations).toEqual(["/v1/passkeys/fixture-passkey"])
+  await expect(
+    page.getByRole("button", { name: "Remove passkey Phone", exact: true }),
+  ).toBeDisabled()
+})
+
+for (const list of ["api-keys", "passkeys"] as const) {
+  test(`${list} failures provide a read-only retry rather than a false empty state`, async ({
+    page,
+  }) => {
+    const api = await mockManagement(page)
+    api.failList(list)
+    await page.goto(list === "api-keys" ? "/manage/api-keys" : "/account")
+    await expect(page.getByText(/Could not load/)).toBeVisible()
+    await expect(page.getByText("No API keys.", { exact: true })).toHaveCount(0)
+    await expect(page.getByText(/You cannot remove your last passkey/)).toHaveCount(0)
+    api.failList(null)
+    await page
+      .getByRole("button", {
+        name: list === "api-keys" ? "Retry API keys" : "Retry passkeys",
+        exact: true,
+      })
+      .click()
+    await expect(
+      page.getByText(list === "api-keys" ? "Build agent" : "Laptop", { exact: true }),
+    ).toBeVisible()
+    await expect(page.getByText(/Could not load/)).toHaveCount(0)
+    expect(api.mutations).toEqual([])
+    expect(api.creations()).toBe(0)
+  })
+}
 
 test("home and example do not fetch account state, and opening a fragment share consumes once", async ({
   page,

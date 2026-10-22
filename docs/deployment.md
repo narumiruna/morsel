@@ -121,12 +121,12 @@ Generated local fixtures measured list/count queries at approximately 4–9 ms a
   - Expected result: global title search includes legacy shares and existing public URLs retain their behavior.
   - Unverified behavior: production-scale parsing, lock duration, older-writer coordination, and release integration. Do not deploy this data change until backup, recovery, and write-impact procedures are confirmed. Local validation authorizes no production writes.
 - Product owner:
-  - Prerequisite: fixture captures are available. `npm run test:browser` generates after captures under ignored `packages/viewer/test-results/task-ui-*/`, named `task-ui-<width>-<theme>.png` and `home-<width>-<theme>.png`. The implementation session's before captures are retained under ignored `packages/viewer/test-results/ux-before/`.
-  - Action: compare homepage entry, section navigation, list density, preview, and confirmation consequences at desktop/mobile widths.
-  - Expected result: the main tasks are clear without the old long-page ordering. Subjective visual/usability acceptance remains unverified; no additional human approval gate is imposed.
+  - Prerequisite: fixture captures are available. `npm run test:browser` generates captures under ignored `packages/viewer/test-results/task-ui-*/`, named `task-ui-<width>-<theme>.png`, `home-<width>-<theme>.png`, `manage-preview-<width>.png`, and `manage-api-key-mobile.png`. The 2026-10-23 review session's before captures are local-only under `/tmp/morsel-ui-review/`; they are not repository assets.
+  - Action: review homepage entry, retained share controls, compact mobile layout, preview dialogs, one-time-key creation, and destructive-action confirmations at desktop/mobile widths.
+  - Expected result: the main tasks are clear, preview does not change the list position, and confirmations identify the affected credential. Subjective visual/usability acceptance remains unverified; no additional human approval gate is imposed.
 - Accessibility reviewer:
   - Prerequisite: automated keyboard, axe, text contrast, control-boundary contrast, and focus-ring evidence is available from the browser suite.
-  - Action: review supported real browser/screen-reader combinations for navigation, announcements, focus, and destructive actions.
+  - Action: review supported real browser/screen-reader combinations for preview focus containment, nested chart Escape handling, key-creation announcements, list retries, and passkey-removal confirmation.
   - Expected result: these operations are understandable with assistive technology. Unavailable native assistive-technology behavior remains unverified; automated checks do not establish complete WCAG conformance. No additional human-review gate is imposed.
 
 ### Share management rollback

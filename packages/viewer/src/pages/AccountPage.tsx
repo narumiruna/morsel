@@ -11,7 +11,12 @@ import {
   type Passkey,
   supportsPasskeys,
 } from "../account/accountApi"
-import { type AccountMutation, ShareManagement } from "../account/ShareManagement"
+import {
+  type AccountMutation,
+  initialShareListState,
+  type ShareListState,
+  ShareManagement,
+} from "../account/ShareManagement"
 import { AppHeader } from "../components/AppHeader"
 import { formatDate } from "../formatDate"
 import { useKeyDiscardWarning } from "../navigation"
@@ -29,6 +34,8 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
   const [account, setAccount] = useState<Account | null>(null)
   const [passkeys, setPasskeys] = useState<Passkey[]>([])
   const [keys, setKeys] = useState<APIKey[]>([])
+  const [listError, setListError] = useState("")
+  const [shareListState, setShareListState] = useState<ShareListState>(initialShareListState)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [busyAction, setBusyAction] = useState("")
@@ -36,6 +43,11 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
   const revokeTrigger = useRef<HTMLButtonElement | null>(null)
   const cancelRevoke = useRef<HTMLButtonElement | null>(null)
   const keyHeading = useRef<HTMLHeadingElement | null>(null)
+  const saveKeyHeading = useRef<HTMLHeadingElement | null>(null)
+  const [removePasskey, setRemovePasskey] = useState<Passkey | null>(null)
+  const removeTrigger = useRef<HTMLButtonElement | null>(null)
+  const cancelRemove = useRef<HTMLButtonElement | null>(null)
+  const passkeyHeading = useRef<HTMLHeadingElement | null>(null)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [token, setToken] = useState("")
@@ -51,6 +63,14 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
     if (revokeKey) cancelRevoke.current?.focus()
   }, [revokeKey])
 
+  useEffect(() => {
+    if (rawKey) saveKeyHeading.current?.focus()
+  }, [rawKey])
+
+  useEffect(() => {
+    if (removePasskey) cancelRemove.current?.focus()
+  }, [removePasskey])
+
   const forgetSession = useCallback(() => {
     controller.current?.abort()
     controller.current = new AbortController()
@@ -59,6 +79,9 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
     setLoading(false)
     setRawKey(null)
     setRevokeKey(null)
+    setRemovePasskey(null)
+    setListError("")
+    setShareListState(initialShareListState)
     setKeys([])
     setPasskeys([])
     setToken("")
@@ -74,12 +97,19 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
 
   const refreshLists = useCallback(
     async (signal: AbortSignal) => {
-      if (section === "security") {
-        const next = await accountRequest<Passkey[]>("passkeys", { signal })
-        if (!signal.aborted) setPasskeys(next)
-      } else if (section === "api-keys") {
-        const next = await accountRequest<APIKey[]>("api-keys", { signal })
-        if (!signal.aborted) setKeys(next)
+      try {
+        if (section === "security") {
+          const next = await accountRequest<Passkey[]>("passkeys", { signal })
+          if (!signal.aborted) setPasskeys(next)
+        } else if (section === "api-keys") {
+          const next = await accountRequest<APIKey[]>("api-keys", { signal })
+          if (!signal.aborted) setKeys(next)
+        }
+        if (!signal.aborted) setListError("")
+      } catch (failure) {
+        if (signal.aborted) return
+        if (failure instanceof AccountError && failure.status === 401) throw failure
+        setListError(accountErrorMessage(failure))
       }
     },
     [section],
@@ -93,6 +123,9 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
       if (!next.authenticated) {
         setRawKey(null)
         setRevokeKey(null)
+        setRemovePasskey(null)
+        setListError("")
+        setShareListState(initialShareListState)
         setKeys([])
         setPasskeys([])
         setToken("")
@@ -112,6 +145,8 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
     setLoading(true)
     setRawKey(null)
     setRevokeKey(null)
+    setRemovePasskey(null)
+    setListError("")
     setKeys([])
     setPasskeys([])
     setToken("")
@@ -232,6 +267,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
     locked.current = false
     setRawKey(null)
     setRevokeKey(null)
+    setRemovePasskey(null)
     void run(async (signal) => {
       await accountRequest("auth/logout", {
         method: "POST",
@@ -297,16 +333,17 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                   <>
                     {section === "api-keys" && rawKey && (
                       <Card className="account-secret">
-                        <Heading as="h2" size="4">
+                        <Heading as="h2" size="4" tabIndex={-1} ref={saveKeyHeading}>
                           Save your new API key
                         </Heading>
-                        <Text as="p">
+                        <Text as="p" id="new-api-key-warning">
                           This key is shown only once. Copy it now. You cannot recover it after you
                           dismiss it.
                         </Text>
                         <label htmlFor="new-api-key">New API key</label>
                         <input
                           id="new-api-key"
+                          aria-describedby="new-api-key-warning"
                           readOnly
                           value={rawKey}
                           autoComplete="off"
@@ -335,6 +372,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                             onClick={() => {
                               setRawKey(null)
                               setNotice("")
+                              keyHeading.current?.focus()
                             }}
                           >
                             Dismiss API key
@@ -348,6 +386,8 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                         canVerify={supported}
                         mutate={mutate}
                         onSessionExpired={expireShareSession}
+                        controls={shareListState}
+                        onControlsChange={setShareListState}
                       />
                     )}
                     {section === "api-keys" && (
@@ -362,6 +402,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                         <form
                           onSubmit={(event) => {
                             event.preventDefault()
+                            if (rawKey) return
                             void mutateAction(async (signal, csrf) => {
                               const result = await accountRequest<APIKey & { key: string }>(
                                 "api-keys",
@@ -375,10 +416,19 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                               if (signal.aborted) return
                               setRawKey(result.key)
                               setKeyName("")
+                              setNotice("API key created. Save it now; it is shown only once.")
                             }, "Creating API key…")
                           }}
                         >
-                          <fieldset disabled={busy || !supported}>
+                          {rawKey && (
+                            <Text as="p" id="create-key-blocked">
+                              Save and dismiss your new API key before you create another key.
+                            </Text>
+                          )}
+                          <fieldset
+                            disabled={busy || !supported || rawKey !== null}
+                            aria-describedby={rawKey ? "create-key-blocked" : undefined}
+                          >
                             <label htmlFor="api-key-name">API key name</label>
                             <input
                               id="api-key-name"
@@ -392,7 +442,19 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                             </Button>
                           </fieldset>
                         </form>
-                        {keys.length === 0 ? (
+                        {listError ? (
+                          <>
+                            <Text as="p" role="alert">
+                              Could not load API keys. {listError}
+                            </Text>
+                            <Button
+                              disabled={busy}
+                              onClick={() => void run(refreshLists, "Loading API keys…")}
+                            >
+                              Retry API keys
+                            </Button>
+                          </>
+                        ) : keys.length === 0 ? (
                           <Text as="p">No API keys.</Text>
                         ) : (
                           <ul className="account-list">
@@ -446,7 +508,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                             <Flex gap="3" wrap="wrap">
                               <Button
                                 color="red"
-                                disabled={busy || !supported}
+                                disabled={busy || !supported || !!listError}
                                 onClick={() => {
                                   const key = revokeKey
                                   void mutateAction(async (signal, csrf) => {
@@ -471,7 +533,9 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                                 disabled={busy}
                                 onClick={() => {
                                   setRevokeKey(null)
-                                  revokeTrigger.current?.focus()
+                                  const trigger = revokeTrigger.current
+                                  if (trigger?.isConnected && !trigger.disabled) trigger.focus()
+                                  else keyHeading.current?.focus()
                                 }}
                               >
                                 Cancel
@@ -483,7 +547,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                     )}
                     {section === "security" && (
                       <Card>
-                        <Heading as="h2" size="5">
+                        <Heading as="h2" size="5" tabIndex={-1} ref={passkeyHeading}>
                           Passkeys
                         </Heading>
                         <Text as="p">
@@ -520,46 +584,111 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                             </Button>
                           </fieldset>
                         </form>
-                        <ul className="account-list">
-                          {passkeys.map((passkey) => (
-                            <li key={passkey.id}>
-                              <div>
-                                <strong>{passkey.name}</strong>
-                                <Text as="p" size="2">
-                                  Created {formatDate(passkey.created_at)}
-                                </Text>
-                              </div>
-                              <Button
-                                color="red"
-                                variant="soft"
-                                disabled={busy || !supported || passkeys.length <= 1}
-                                aria-label={`Remove passkey ${passkey.name}`}
-                                aria-describedby={
-                                  passkeys.length <= 1 ? "last-passkey-reason" : undefined
-                                }
-                                onClick={() =>
-                                  void mutateAction(async (signal, csrf) => {
-                                    await accountRequest(
-                                      `passkeys/${encodeURIComponent(passkey.id)}`,
-                                      {
-                                        method: "DELETE",
-                                        csrf,
-                                        signal,
-                                      },
-                                    )
-                                    if (!signal.aborted) setNotice("Passkey removed.")
-                                  }, "Removing passkey…")
-                                }
-                              >
-                                Remove
-                              </Button>
-                            </li>
-                          ))}
-                        </ul>
-                        {passkeys.length <= 1 && (
+                        {listError ? (
+                          <>
+                            <Text as="p" role="alert">
+                              Could not load passkeys. {listError}
+                            </Text>
+                            <Button
+                              disabled={busy}
+                              onClick={() => void run(refreshLists, "Loading passkeys…")}
+                            >
+                              Retry passkeys
+                            </Button>
+                          </>
+                        ) : passkeys.length === 0 ? (
+                          <Text as="p">No passkeys.</Text>
+                        ) : (
+                          <ul className="account-list">
+                            {passkeys.map((passkey) => (
+                              <li key={passkey.id}>
+                                <div>
+                                  <strong>{passkey.name}</strong>
+                                  <Text as="p" size="2">
+                                    Created {formatDate(passkey.created_at)}
+                                  </Text>
+                                </div>
+                                <Button
+                                  color="red"
+                                  variant="soft"
+                                  disabled={busy || !supported || passkeys.length <= 1}
+                                  aria-label={`Remove passkey ${passkey.name}`}
+                                  aria-describedby={
+                                    passkeys.length <= 1 ? "last-passkey-reason" : undefined
+                                  }
+                                  onClick={(event) => {
+                                    removeTrigger.current = event.currentTarget
+                                    setRemovePasskey(passkey)
+                                  }}
+                                >
+                                  Remove
+                                </Button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {!listError && passkeys.length === 1 && (
                           <Text as="p" id="last-passkey-reason">
                             You cannot remove your last passkey. Add a backup passkey first.
                           </Text>
+                        )}
+                        {removePasskey && (
+                          <section
+                            aria-labelledby="remove-passkey-title"
+                            className="share-confirmation"
+                          >
+                            <Heading as="h3" size="4" id="remove-passkey-title">
+                              Remove passkey {removePasskey.name}?
+                            </Heading>
+                            <Text as="p">
+                              You will no longer be able to sign in with this passkey. Keep another
+                              passkey that you can use to sign in. This cannot be undone.
+                            </Text>
+                            <Text as="p">
+                              If required by the server, verify your passkey to continue.
+                            </Text>
+                            <Flex gap="3" wrap="wrap">
+                              <Button
+                                color="red"
+                                disabled={
+                                  busy ||
+                                  !supported ||
+                                  !!listError ||
+                                  passkeys.length <= 1 ||
+                                  !passkeys.some((passkey) => passkey.id === removePasskey.id)
+                                }
+                                onClick={() => {
+                                  const passkey = removePasskey
+                                  void mutateAction(async (signal, csrf) => {
+                                    await accountRequest(
+                                      `passkeys/${encodeURIComponent(passkey.id)}`,
+                                      { method: "DELETE", csrf, signal },
+                                    )
+                                    if (signal.aborted) return
+                                    setRemovePasskey(null)
+                                    setNotice("Passkey removed.")
+                                  }, "Removing passkey…").then((success) => {
+                                    if (success) passkeyHeading.current?.focus()
+                                  })
+                                }}
+                              >
+                                Confirm remove passkey
+                              </Button>
+                              <Button
+                                variant="soft"
+                                ref={cancelRemove}
+                                disabled={busy}
+                                onClick={() => {
+                                  setRemovePasskey(null)
+                                  const trigger = removeTrigger.current
+                                  if (trigger?.isConnected && !trigger.disabled) trigger.focus()
+                                  else passkeyHeading.current?.focus()
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            </Flex>
+                          </section>
                         )}
                       </Card>
                     )}

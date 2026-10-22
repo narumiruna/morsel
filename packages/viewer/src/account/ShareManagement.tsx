@@ -1,4 +1,4 @@
-import { Button, Card, Flex, Heading, Text } from "@radix-ui/themes"
+import { Button, Card, Dialog, Flex, Heading, Text } from "@radix-ui/themes"
 import { useEffect, useRef, useState } from "react"
 import { formatDate } from "../formatDate"
 import { MarkdownDocument } from "../markdown/MarkdownDocument"
@@ -24,6 +24,18 @@ export type AccountMutation = (
 
 type ShareFilter = "all" | ShareStatus
 type ShareOrder = "newest" | "oldest" | "most_views" | "least_views"
+export type ShareListState = {
+  search: string
+  query: string
+  filter: ShareFilter
+  order: ShareOrder
+}
+export const initialShareListState: ShareListState = {
+  search: "",
+  query: "",
+  filter: "all",
+  order: "newest",
+}
 const statuses: Record<ShareStatus, string> = {
   active: "Active",
   revoked: "Revoked",
@@ -36,16 +48,17 @@ export function ShareManagement({
   canVerify,
   mutate,
   onSessionExpired,
+  controls,
+  onControlsChange,
 }: {
   busy: boolean
   canVerify: boolean
   mutate: AccountMutation
   onSessionExpired: () => void
+  controls: ShareListState
+  onControlsChange: (next: ShareListState) => void
 }) {
-  const [search, setSearch] = useState("")
-  const [query, setQuery] = useState("")
-  const [filter, setFilter] = useState<ShareFilter>("all")
-  const [order, setOrder] = useState<ShareOrder>("newest")
+  const { search, query, filter, order } = controls
   const [cursors, setCursors] = useState<string[]>([])
   const cursor = cursors.at(-1)
   const [page, setPage] = useState<SharePage | null>(null)
@@ -71,6 +84,7 @@ export function ShareManagement({
   const lifetime = useRef<AbortController | null>(null)
   const sharesHeading = useRef<HTMLHeadingElement>(null)
   const previewHeading = useRef<HTMLHeadingElement>(null)
+  const previewDialog = useRef<HTMLDivElement>(null)
   const confirmationHeading = useRef<HTMLHeadingElement>(null)
   const previewTrigger = useRef<HTMLButtonElement | null>(null)
   const confirmationTrigger = useRef<HTMLButtonElement | null>(null)
@@ -84,10 +98,6 @@ export function ShareManagement({
       copyGeneration.current += 1
     }
   }, [])
-
-  useEffect(() => {
-    if (selectedID) previewHeading.current?.focus()
-  }, [selectedID])
 
   useEffect(() => {
     if (confirmation) confirmationHeading.current?.focus()
@@ -168,7 +178,7 @@ export function ShareManagement({
   }
 
   const changeOrder = (value: ShareOrder) => {
-    setOrder(value)
+    onControlsChange({ ...controls, order: value })
     setConfirmation(null)
     resetPages()
   }
@@ -187,6 +197,15 @@ export function ShareManagement({
   const restoreFocus = (trigger: HTMLButtonElement | null) => {
     if (trigger?.isConnected && !trigger.disabled) trigger.focus()
     else sharesHeading.current?.focus()
+  }
+
+  const closePreview = () => {
+    detailRequest.current?.abort()
+    copyGeneration.current += 1
+    setSelected(null)
+    setDetail(null)
+    setDetailError("")
+    setCopyFeedback("")
   }
 
   const copyID = async () => {
@@ -232,7 +251,7 @@ export function ShareManagement({
   return (
     <Card asChild>
       <section aria-labelledby="shares-heading" className="account-shares">
-        <Flex align="center" justify="between" gap="3" wrap="wrap">
+        <Flex align="center" justify="between" gap="3" wrap="wrap" className="share-toolbar">
           <Heading as="h2" size="5" id="shares-heading" tabIndex={-1} ref={sharesHeading}>
             Shares
           </Heading>
@@ -240,11 +259,9 @@ export function ShareManagement({
             Refresh shares
           </Button>
         </Flex>
-        <Text as="p" size="2">
-          Preview does not use a view.
-        </Text>
         <details className="share-help">
           <summary>About share management</summary>
+          <p>Preview does not use a view.</p>
           <p>Find all shares, including shares created before account setup or with any API key.</p>
           <p>
             Status and view counts are snapshots. Public reads and expiry can change availability.
@@ -257,8 +274,7 @@ export function ShareManagement({
           onSubmit={(event) => {
             event.preventDefault()
             const normalized = Array.from(search.trim()).slice(0, 100).join("")
-            setSearch(normalized)
-            setQuery(normalized)
+            onControlsChange({ ...controls, search: normalized, query: normalized })
             setConfirmation(null)
             resetPages()
           }}
@@ -271,7 +287,7 @@ export function ShareManagement({
                 type="search"
                 value={search}
                 disabled={busy || revoking}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => onControlsChange({ ...controls, search: event.target.value })}
               />
               <Button type="submit" disabled={busy || revoking}>
                 Search shares
@@ -299,7 +315,7 @@ export function ShareManagement({
               value={filter}
               disabled={busy || revoking}
               onChange={(event) => {
-                setFilter(event.target.value as ShareFilter)
+                onControlsChange({ ...controls, filter: event.target.value as ShareFilter })
                 setConfirmation(null)
                 resetPages()
               }}
@@ -428,7 +444,6 @@ export function ShareManagement({
                         setDetailError("")
                         setDetailLoading(true)
                         setSelected(share)
-                        previewHeading.current?.focus()
                         setDetailRevision((value) => value + 1)
                       }}
                     >
@@ -524,63 +539,88 @@ export function ShareManagement({
           </section>
         )}
         <div role="status">{notice}</div>
-        {selected && (
-          <section className="share-admin-detail" aria-labelledby="share-detail-heading">
-            <Flex align="center" justify="between" gap="3" wrap="wrap">
-              <Heading
-                as="h3"
-                size="4"
-                id="share-detail-heading"
-                tabIndex={-1}
-                ref={previewHeading}
-              >
-                Share details: {selected.label}
-              </Heading>
-              <Button
-                variant="soft"
-                disabled={busy || revoking}
-                onClick={() => {
-                  detailRequest.current?.abort()
-                  copyGeneration.current += 1
-                  setSelected(null)
-                  setDetail(null)
-                  setDetailError("")
-                  setCopyFeedback("")
-                  restoreFocus(previewTrigger.current)
-                }}
-              >
-                Close share details
-              </Button>
-            </Flex>
-            <Text as="p" size="2">
-              The original public URL cannot be recovered. The share ID is not a public link. Images
-              are not loaded in previews. Mermaid diagrams are shown as source.
-            </Text>
-            {detailLoading && <Text as="p">Loading share details…</Text>}
-            {detailError && (
-              <div role="alert" className="account-error">
-                <Text as="p">{detailError}</Text>
+        <Dialog.Root open={selected !== null} onOpenChange={(open) => !open && closePreview()}>
+          <Dialog.Content
+            className="share-admin-detail"
+            maxWidth="60rem"
+            ref={previewDialog}
+            onEscapeKeyDown={(event) => {
+              // An expanded chart handles Escape before its parent preview closes.
+              const dialog = previewDialog.current
+              if (
+                dialog?.querySelector(".diagram-expanded") ||
+                (document.fullscreenElement && dialog?.contains(document.fullscreenElement))
+              )
+                event.preventDefault()
+            }}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault()
+              previewHeading.current?.focus()
+            }}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              restoreFocus(previewTrigger.current)
+            }}
+          >
+            <div className="share-preview-header">
+              <Dialog.Title size="4" mb="0" tabIndex={-1} ref={previewHeading}>
+                Share details: {selected?.label}
+              </Dialog.Title>
+              <Dialog.Close>
                 <Button
                   variant="soft"
-                  disabled={busy || revoking}
-                  onClick={() => setDetailRevision((value) => value + 1)}
+                  className="share-preview-close"
+                  highContrast
+                  aria-label="Close share details"
                 >
-                  Retry share details
+                  Close
                 </Button>
-              </div>
-            )}
-            {detail && (
-              <>
-                <ShareFacts share={detail} />
-                <Button variant="soft" onClick={() => void copyID()}>
-                  Copy share ID
-                </Button>
-                <div role="status">{copyFeedback}</div>
-                <MarkdownDocument content={detail.content} loadImages={false} />
-              </>
-            )}
-          </section>
-        )}
+              </Dialog.Close>
+            </div>
+            <Dialog.Description size="2" mb="0">
+              Preview does not use a view.
+            </Dialog.Description>
+            <section
+              className="share-preview-body"
+              aria-label="Share preview content"
+              // biome-ignore lint/a11y/noNoninteractiveTabindex: The bounded preview supports keyboard scrolling.
+              tabIndex={0}
+            >
+              {detailLoading && (
+                <Text as="p" role="status">
+                  Loading share details…
+                </Text>
+              )}
+              {detailError && (
+                <div role="alert" className="account-error">
+                  <Text as="p">{detailError}</Text>
+                  <Button
+                    variant="soft"
+                    disabled={busy || revoking}
+                    highContrast
+                    onClick={() => setDetailRevision((value) => value + 1)}
+                  >
+                    Retry share details
+                  </Button>
+                </div>
+              )}
+              {detail && (
+                <>
+                  <MarkdownDocument content={detail.content} loadImages={false} />
+                  <ShareFacts share={detail} />
+                  <Text as="p" size="2">
+                    The original public URL cannot be recovered. The share ID is not a public link.
+                    Images are not loaded in previews. Mermaid diagrams are shown as source.
+                  </Text>
+                  <Button variant="soft" highContrast onClick={() => void copyID()}>
+                    Copy share ID
+                  </Button>
+                  <div role="status">{copyFeedback}</div>
+                </>
+              )}
+            </section>
+          </Dialog.Content>
+        </Dialog.Root>
       </section>
     </Card>
   )
