@@ -58,6 +58,8 @@ The service handles `/`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/healthz`, and
 - Preview is disabled when its metadata object is omitted. Hash-route URLs keep the capability out of the initial document request; preview metadata intentionally places it in `/s/<token>` so link crawlers can request the explicit title, description, optional image and locale, and canonical share URL.
 - Telegram Instant View is separately disabled by default. Enabling it exposes sanitized rendered Markdown in the initial HTML and permits Telegram to retain a cached copy outside Morsel's revocation controls.
 - Administrative API keys are hashed before constant-time comparison.
+- `GET /v1/shares` requires an administrative key and returns paginated summaries without consuming views. All configured keys can list and revoke all shares. Responses use `Cache-Control: no-store` and omit full content and capability hashes.
+- The `/#/manage` page keeps its administrative key in memory only. Disconnecting, leaving the page, or reloading clears the key and share list. It does not recover original capability URLs.
 - Request logs use route templates instead of token-bearing paths and omit bodies and authorization headers.
 - Authored HTML is disabled. Markdown from both Morsel shares and GitHub Gists passes through the same reviewed sanitation schema; KaTeX output is sanitized as well.
 - Gist IDs are validated before the browser makes an unauthenticated request to the CSP-allowlisted `api.github.com` origin.

@@ -53,6 +53,42 @@ func (h *Service) GetReadiness(ctx context.Context, _ GetReadinessRequestObject)
 	return GetReadiness200JSONResponse{Status: Ok}, nil
 }
 
+func (h *Service) ListShares(ctx context.Context, request ListSharesRequestObject) (ListSharesResponseObject, error) {
+	limit, offset := int32(50), int32(0)
+	if request.Params.Limit != nil {
+		limit = *request.Params.Limit
+	}
+	if request.Params.Offset != nil {
+		offset = *request.Params.Offset
+	}
+	if limit < 1 || limit > 100 || offset < 0 {
+		return ListShares400JSONResponse{BadRequestJSONResponse: BadRequestJSONResponse(errorResponse(ErrorCodeInvalidRequest, "limit must be between 1 and 100 and offset must be nonnegative"))}, nil
+	}
+
+	summaries, err := h.repository.List(ctx, limit+1, offset)
+	if err != nil {
+		h.logError(ctx, "list shares", err)
+		return ListShares500JSONResponse{InternalErrorJSONResponse: InternalErrorJSONResponse(errorResponse(ErrorCodeInternalError, "internal server error"))}, nil
+	}
+	body := ListSharesResponse{Items: make([]ShareSummary, 0, min(len(summaries), int(limit)))}
+	if len(summaries) > int(limit) {
+		nextOffset := int64(offset) + int64(limit)
+		body.NextOffset = &nextOffset
+		summaries = summaries[:limit]
+	}
+	for _, item := range summaries {
+		body.Items = append(body.Items, ShareSummary{
+			Id: item.ID, Title: item.Title, Excerpt: item.Excerpt, CreatedAt: item.CreatedAt,
+			ExpiresAt: item.ExpiresAt, MaxViews: item.MaxViews, ViewCount: item.ViewCount,
+			RevokedAt: item.RevokedAt, Status: ShareSummaryStatus(item.Status),
+		})
+	}
+	cacheControl := "no-store"
+	return ListShares200JSONResponse{
+		Body: body, Headers: ListShares200ResponseHeaders{CacheControl: &cacheControl},
+	}, nil
+}
+
 func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObject) (CreateShareResponseObject, error) {
 	if request.Body == nil {
 		return createBadRequest("request body is required"), nil

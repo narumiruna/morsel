@@ -1,5 +1,6 @@
 export type Route =
   | { kind: "home" }
+  | { kind: "manage" }
   | { kind: "share"; token: string }
   | { kind: "gist"; id: string }
   | { kind: "invalid-share" }
@@ -26,6 +27,7 @@ export function parseRoute(pathname: string, hash: string): Route {
 }
 
 export function parseHash(hash: string): Route {
+  if (hash === "#/manage") return { kind: "manage" }
   if (hash === "" || hash === "#" || hash === "#/") return { kind: "home" }
   if (hash.startsWith("#/s/")) {
     const token = hash.slice(4)

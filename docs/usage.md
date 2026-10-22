@@ -1,6 +1,6 @@
 # Using Morsel
 
-Start with the [Quick start](../README.md#quick-start). Create and revoke shares with an administrative API key; readers need only the capability URL. Never expose `MORSEL_API_KEY` in browser code.
+Start with the [Quick start](../README.md#quick-start). Create and revoke shares with an administrative API key; readers need only the capability URL. Never embed `MORSEL_API_KEY` in the viewer build or public application code.
 
 ## Create a share
 
@@ -43,6 +43,30 @@ curl --fail-with-body \
 Instant View requires `preview` and cannot be combined with `expires_in` or `max_views`. It places safe, server-rendered GFM in the initial `/s/<token>` HTML without consuming a view. Authored HTML remains disabled. The template uses the explicit preview image or falls back to the first Markdown image and marks right-to-left documents. Telegram cannot render Mermaid or Vega-Lite diagrams, so Instant View shows those fenced blocks as preformatted source instead. Install [`telegram-instant-view-template.txt`](telegram-instant-view-template.txt) for the deployment's domain in Telegram's Instant View Editor. Telegram template approval or publishing a deployment-specific `t.me/iv?...&rhash=...` link is an external step.
 
 **Enabling Instant View discloses the complete rendered article to Telegram and allows Telegram to cache it independently.** Revocation removes it from future Morsel responses but cannot guarantee deletion of an existing Telegram copy.
+
+## Manage shares in the Web UI
+
+Open `/#/manage`, or select **Manage morsels** on the home page. Enter an administrative API key. Use HTTPS outside local development.
+
+The page lists all shares on this server, including shares created before this page was added. All configured API keys have the same administrative access; shares do not belong to individual keys.
+
+- Review the preview title, the first 160 Unicode characters of Markdown, creation time, expiration, and view count.
+- Check whether a share is active, revoked, expired, or has reached its view limit.
+- Use **Previous**, **Next**, and **Refresh** to browse the list, newest first.
+- Select **Revoke** and confirm to permanently disable a share link. Revocation cannot remove copies already cached by readers or Telegram.
+- Select **Disconnect** to clear the key and list. Leaving the page or reloading also clears the key. Morsel does not save the key in browser storage.
+
+Listing shares does not consume views. The page does not edit content or recover original share URLs: Morsel stores only capability hashes.
+
+The same list is available through the authenticated API:
+
+```sh
+curl --fail-with-body \\
+  -H "Authorization: Bearer $MORSEL_API_KEY" \\
+  'http://127.0.0.1:12647/v1/shares?limit=50&offset=0'
+```
+
+The response contains `items` and an optional `next_offset`. Use that offset for the next page. The default limit is 50 and the maximum is 100. Responses use `Cache-Control: no-store` and contain summaries, not full documents or capability tokens. Refresh the list if concurrent creation changes page boundaries.
 
 ## Retrieve and revoke
 

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -70,6 +71,30 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for ShareSummaryStatus.
+const (
+	ShareSummaryStatusActive             ShareSummaryStatus = "active"
+	ShareSummaryStatusExpired            ShareSummaryStatus = "expired"
+	ShareSummaryStatusRevoked            ShareSummaryStatus = "revoked"
+	ShareSummaryStatusViewLimitExhausted ShareSummaryStatus = "view_limit_exhausted"
+)
+
+// Valid indicates whether the value is a known member of the ShareSummaryStatus enum.
+func (e ShareSummaryStatus) Valid() bool {
+	switch e {
+	case ShareSummaryStatusActive:
+		return true
+	case ShareSummaryStatusExpired:
+		return true
+	case ShareSummaryStatusRevoked:
+		return true
+	case ShareSummaryStatusViewLimitExhausted:
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateShareRequest defines model for CreateShareRequest.
 type CreateShareRequest struct {
 	// Content Markdown limited by MORSEL_MAX_DOCUMENT_BYTES, measured in UTF-8 bytes.
@@ -110,6 +135,12 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// ListSharesResponse defines model for ListSharesResponse.
+type ListSharesResponse struct {
+	Items      []ShareSummary `json:"items"`
+	NextOffset *int64         `json:"next_offset,omitempty"`
+}
+
 // PreviewMetadata defines model for PreviewMetadata.
 type PreviewMetadata struct {
 	// Description Plain-text Open Graph description; surrounding whitespace is trimmed and control or line-separator characters are rejected.
@@ -135,6 +166,28 @@ type Share struct {
 	ViewsRemaining *int64     `json:"views_remaining,omitempty"`
 }
 
+// ShareSummary defines model for ShareSummary.
+type ShareSummary struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Excerpt The first 160 Unicode characters of the Markdown content, without an added suffix.
+	Excerpt   string             `json:"excerpt"`
+	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	MaxViews  *int64             `json:"max_views,omitempty"`
+	RevokedAt *time.Time         `json:"revoked_at,omitempty"`
+
+	// Status Revoked takes priority over expired, then view_limit_exhausted, then active.
+	Status ShareSummaryStatus `json:"status"`
+
+	// Title Preview title, or an empty string when no preview exists.
+	Title     string `json:"title"`
+	ViewCount int64  `json:"view_count"`
+}
+
+// ShareSummaryStatus Revoked takes priority over expired, then view_limit_exhausted, then active.
+type ShareSummaryStatus string
+
 // ShareCapability defines model for ShareCapability.
 type ShareCapability = string
 
@@ -159,6 +212,12 @@ type ServiceUnavailable = Error
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
 
+// ListSharesParams defines parameters for ListShares.
+type ListSharesParams struct {
+	Limit  *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int32 `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // CreateShareJSONRequestBody defines body for CreateShare for application/json ContentType.
 type CreateShareJSONRequestBody = CreateShareRequest
 
@@ -170,6 +229,9 @@ type ServerInterface interface {
 	// GetReadiness Report PostgreSQL readiness
 	// (GET /readyz)
 	GetReadiness(w http.ResponseWriter, r *http.Request)
+	// ListShares List share summaries for management
+	// (GET /v1/shares)
+	ListShares(w http.ResponseWriter, r *http.Request, params ListSharesParams)
 	// CreateShare Create a Markdown share
 	// (POST /v1/shares)
 	CreateShare(w http.ResponseWriter, r *http.Request)
@@ -194,6 +256,12 @@ func (_ Unimplemented) GetHealth(w http.ResponseWriter, r *http.Request) {
 // GetReadiness Report PostgreSQL readiness
 // (GET /readyz)
 func (_ Unimplemented) GetReadiness(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListShares List share summaries for management
+// (GET /v1/shares)
+func (_ Unimplemented) ListShares(w http.ResponseWriter, r *http.Request, params ListSharesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -243,6 +311,52 @@ func (siw *ServerInterfaceWrapper) GetReadiness(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetReadiness(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListShares operation middleware
+func (siw *ServerInterfaceWrapper) ListShares(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSharesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListShares(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -438,6 +552,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/readyz", wrapper.GetReadiness)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/shares", wrapper.ListShares)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/shares", wrapper.CreateShare)
 	})
 	r.Group(func(r chi.Router) {
@@ -523,6 +640,83 @@ func (response GetReadiness503JSONResponse) VisitGetReadinessResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharesRequestObject struct {
+	Params ListSharesParams
+}
+
+type ListSharesResponseObject interface {
+	VisitListSharesResponse(w http.ResponseWriter) error
+}
+
+type ListShares200ResponseHeaders struct {
+	CacheControl *string
+}
+
+type ListShares200JSONResponse struct {
+	Body    ListSharesResponse
+	Headers ListShares200ResponseHeaders
+}
+
+func (response ListShares200JSONResponse) VisitListSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListShares400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListShares400JSONResponse) VisitListSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListShares401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListShares401JSONResponse) VisitListSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.WWWAuthenticate != nil {
+		w.Header().Set("WWW-Authenticate", fmt.Sprint(*response.Headers.WWWAuthenticate))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListShares500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListShares500JSONResponse) VisitListSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -779,6 +973,9 @@ type StrictServerInterface interface {
 	// GetReadiness Report PostgreSQL readiness
 	// (GET /readyz)
 	GetReadiness(ctx context.Context, request GetReadinessRequestObject) (GetReadinessResponseObject, error)
+	// ListShares List share summaries for management
+	// (GET /v1/shares)
+	ListShares(ctx context.Context, request ListSharesRequestObject) (ListSharesResponseObject, error)
 	// CreateShare Create a Markdown share
 	// (POST /v1/shares)
 	CreateShare(ctx context.Context, request CreateShareRequestObject) (CreateShareResponseObject, error)
@@ -870,6 +1067,32 @@ func (sh *strictHandler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetReadinessResponseObject); ok {
 		if err := validResponse.VisitGetReadinessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListShares operation middleware
+func (sh *strictHandler) ListShares(w http.ResponseWriter, r *http.Request, params ListSharesParams) {
+	var request ListSharesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListShares(ctx, request.(ListSharesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListShares")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSharesResponseObject); ok {
+		if err := validResponse.VisitListSharesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

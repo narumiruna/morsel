@@ -22,6 +22,12 @@ describe("parseHash", () => {
     expect(parseHash("#/")).toEqual({ kind: "home" })
   })
 
+  it("parses the management page only at its exact hash route", () => {
+    expect(parseRoute("/", "#/manage")).toEqual({ kind: "manage" })
+    expect(parseHash("#/manage/extra")).toEqual({ kind: "not-found" })
+    expect(parseRoute("/unknown", "#/manage")).toEqual({ kind: "not-found" })
+  })
+
   it("parses only canonical share routes", () => {
     expect(parseHash(`#/s/${token}`)).toEqual({ kind: "share", token })
     expect(parseHash("#/s/short")).toEqual({ kind: "invalid-share" })

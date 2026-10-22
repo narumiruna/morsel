@@ -36,7 +36,11 @@ func (a *Authenticator) Valid(header string) bool {
 func (a *Authenticator) Middleware(protected func(*http.Request) bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if protected(r) && !a.Valid(r.Header.Get("Authorization")) {
+			isProtected := protected(r)
+			if isProtected {
+				w.Header().Set("Cache-Control", "no-store")
+			}
+			if isProtected && !a.Valid(r.Header.Get("Authorization")) {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("WWW-Authenticate", `Bearer realm="morsel"`)
 				w.WriteHeader(http.StatusUnauthorized)

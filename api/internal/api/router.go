@@ -157,7 +157,7 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 }
 
 func isProtected(r *http.Request) bool {
-	return (r.Method == http.MethodPost && r.URL.Path == "/v1/shares") ||
+	return ((r.Method == http.MethodPost || r.Method == http.MethodGet) && r.URL.Path == "/v1/shares") ||
 		(r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/shares/"))
 }
 

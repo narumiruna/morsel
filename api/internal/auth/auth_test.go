@@ -49,5 +49,11 @@ func TestMiddleware(t *testing.T) {
 		if response.Code != test.status {
 			t.Fatalf("%s: status=%d body=%s", test.path, response.Code, response.Body.String())
 		}
+		if test.path == "/protected" && response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("protected response must not be cached: %v", response.Header())
+		}
+		if test.path == "/public" && response.Header().Get("Cache-Control") != "" {
+			t.Fatalf("public cache policy changed: %v", response.Header())
+		}
 	}
 }

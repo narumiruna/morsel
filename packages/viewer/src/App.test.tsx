@@ -48,6 +48,21 @@ describe("App", () => {
     rerender(<div />)
   })
 
+  it("opens management from the home page without fetching until authentication", () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    renderApp()
+    expect(screen.getByRole("link", { name: "Manage morsels" })).toHaveAttribute(
+      "href",
+      "/#/manage",
+    )
+    window.location.hash = "#/manage"
+    fireEvent(window, new HashChangeEvent("hashchange"))
+    expect(screen.getByRole("heading", { name: "Manage morsels" })).toBeInTheDocument()
+    expect(screen.getByLabelText("API key")).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it("loads a GitHub Gist route with the shared document controls", async () => {
     window.history.replaceState({}, "", `/gist/#${gist}`)
     const fetchMock = vi.fn().mockResolvedValue(

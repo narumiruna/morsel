@@ -1,6 +1,7 @@
 import * as Tooltip from "@radix-ui/react-tooltip"
 import { type ReactNode, useEffect, useState } from "react"
 import { GistPage } from "./pages/GistPage"
+import { ManagePage } from "./pages/ManagePage"
 import { SharePage } from "./pages/SharePage"
 import { ErrorPage, HomePage } from "./pages/StatusPage"
 import { parseRoute } from "./route"
@@ -26,6 +27,9 @@ export function App() {
   switch (route.kind) {
     case "home":
       page = <HomePage />
+      break
+    case "manage":
+      page = <ManagePage />
       break
     case "share":
       page = <SharePage key={route.token} token={route.token} />

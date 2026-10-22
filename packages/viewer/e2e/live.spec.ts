@@ -40,6 +40,29 @@ function tokenFrom(created: CreatedShare): string {
 
 test.skip(!live, "requires the live Compose stack")
 
+test("management lists existing shares without consuming views and revokes them", async ({
+  page,
+}) => {
+  const created = await createShare("# Management acceptance", {
+    max_views: 1,
+    preview: { title: "Management acceptance", description: "Existing share" },
+  })
+  await page.goto("/#/manage")
+  await page.getByLabel("API key").fill(apiKey)
+  await page.getByRole("button", { name: "Connect" }).click()
+  const item = page.getByRole("listitem").filter({ hasText: created.id })
+  await expect(item.getByRole("heading", { name: "Management acceptance" })).toBeVisible()
+  await expect(item.getByText("Views: 0 / 1")).toBeVisible()
+  await page.getByRole("button", { name: "Refresh" }).click()
+  await expect(item.getByText("Views: 0 / 1")).toBeVisible()
+  await item.getByRole("button", { name: "Revoke Management acceptance" }).click()
+  await page.getByRole("button", { name: "Confirm revoke" }).click()
+  await expect(item.getByText("Revoked", { exact: true })).toBeVisible()
+  const response = await fetch(`${apiBase}/v1/shares/${tokenFrom(created)}`)
+  expect(response.status).toBe(410)
+  await expect(response.json()).resolves.toMatchObject({ code: "revoked" })
+})
+
 test("production viewer and API complete the release acceptance flow", async ({ page }) => {
   const rendered = await createShare(`# Live acceptance
 

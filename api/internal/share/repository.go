@@ -40,6 +40,18 @@ type Share struct {
 	TelegramInstantView bool
 }
 
+type Summary struct {
+	ID        uuid.UUID
+	Title     string
+	Excerpt   string
+	CreatedAt time.Time
+	ExpiresAt *time.Time
+	MaxViews  *int64
+	ViewCount int64
+	RevokedAt *time.Time
+	Status    string
+}
+
 type CreateParams struct {
 	ID                  uuid.UUID
 	TokenHash           [32]byte
@@ -51,6 +63,7 @@ type CreateParams struct {
 }
 
 type Repository interface {
+	List(context.Context, int32, int32) ([]Summary, error)
 	Create(context.Context, CreateParams) (Share, error)
 	Consume(context.Context, [32]byte) (Share, error)
 	Preview(context.Context, [32]byte) (Share, error)
@@ -68,6 +81,42 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 
 func (r *PostgresRepository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
+}
+
+// List reads summaries without retrieving full content or changing view counts.
+// The caller can request one extra summary to detect the next page.
+func (r *PostgresRepository) List(ctx context.Context, limit, offset int32) ([]Summary, error) {
+	const query = `
+		SELECT id, COALESCE(preview_title, ''), left(content, 160),
+			created_at, expires_at, max_views, view_count, revoked_at,
+			CASE
+				WHEN revoked_at IS NOT NULL THEN 'revoked'
+				WHEN expires_at <= statement_timestamp() THEN 'expired'
+				WHEN view_count >= max_views THEN 'view_limit_exhausted'
+				ELSE 'active'
+			END
+		FROM shares
+		ORDER BY created_at DESC, id DESC
+		LIMIT $1 OFFSET $2`
+	rows, err := r.pool.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list shares: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]Summary, 0)
+	for rows.Next() {
+		var item Summary
+		if err := rows.Scan(&item.ID, &item.Title, &item.Excerpt, &item.CreatedAt,
+			&item.ExpiresAt, &item.MaxViews, &item.ViewCount, &item.RevokedAt, &item.Status); err != nil {
+			return nil, fmt.Errorf("scan share summary: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list shares: %w", err)
+	}
+	return items, nil
 }
 
 func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share, error) {

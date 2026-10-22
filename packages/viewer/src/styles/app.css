@@ -70,6 +70,27 @@ summary {
   padding: 2rem;
 }
 
+.management-page {
+  width: min(100%, 56rem);
+  margin-inline: auto;
+}
+
+.management-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.management-card {
+  overflow-wrap: anywhere;
+}
+
+.management-excerpt {
+  white-space: pre-wrap;
+}
+
 .share-view {
   overflow: hidden;
   border: 1px solid var(--gray-a5);

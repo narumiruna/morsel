@@ -25,6 +25,10 @@ type repositoryStub struct {
 	createResults []share.Share
 	createErrors  []error
 	created       []share.CreateParams
+	listResults   []share.Summary
+	listError     error
+	listCalls     [][2]int32
+	consumeCalls  int
 	consumeResult share.Share
 	consumeError  error
 	previewResult share.Share
@@ -54,7 +58,12 @@ func (r *repositoryStub) Create(_ context.Context, params share.CreateParams) (s
 	}
 	return result, nil
 }
+func (r *repositoryStub) List(_ context.Context, limit, offset int32) ([]share.Summary, error) {
+	r.listCalls = append(r.listCalls, [2]int32{limit, offset})
+	return r.listResults, r.listError
+}
 func (r *repositoryStub) Consume(context.Context, [32]byte) (share.Share, error) {
+	r.consumeCalls++
 	return r.consumeResult, r.consumeError
 }
 func (r *repositoryStub) Preview(context.Context, [32]byte) (share.Share, error) {

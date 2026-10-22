@@ -39,6 +39,47 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
   /v1/shares:
+    get:
+      operationId: listShares
+      summary: List share summaries for management
+      description: Returns summaries in created_at DESC, id DESC order without consuming views. All responses use Cache-Control no-store. No capability tokens, hashes, URLs, or full content are returned.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 2147483647
+            default: 0
+      responses:
+        "200":
+          description: Share summaries; next_offset is present only when more items exist
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Always no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListSharesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
     post:
       operationId: createShare
       summary: Create a Markdown share
@@ -232,6 +273,54 @@ components:
           type: [integer, "null"]
           format: int64
           minimum: 0
+    ListSharesResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShareSummary"
+        next_offset:
+          type: integer
+          format: int64
+          minimum: 0
+    ShareSummary:
+      type: object
+      additionalProperties: false
+      required: [id, title, excerpt, created_at, view_count, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          description: Preview title, or an empty string when no preview exists.
+        excerpt:
+          type: string
+          maxLength: 160
+          description: The first 160 Unicode characters of the Markdown content, without an added suffix.
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+        max_views:
+          type: [integer, "null"]
+          format: int64
+        view_count:
+          type: integer
+          format: int64
+          minimum: 0
+        revoked_at:
+          type: [string, "null"]
+          format: date-time
+        status:
+          type: string
+          enum: [active, revoked, expired, view_limit_exhausted]
+          description: Revoked takes priority over expired, then view_limit_exhausted, then active.
     Error:
       type: object
       additionalProperties: false
