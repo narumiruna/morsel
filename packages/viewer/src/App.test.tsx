@@ -1,4 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  browserSupportsWebAuthn,
+  startAuthentication,
+  WebAuthnAbortService,
+} from "@simplewebauthn/browser"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import axe from "axe-core"
 import { StrictMode } from "react"
@@ -12,6 +17,13 @@ vi.mock("mermaid", () => ({
     initialize: vi.fn(),
     render: vi.fn().mockResolvedValue({ svg: "<svg></svg>" }),
   },
+}))
+
+vi.mock("@simplewebauthn/browser", () => ({
+  browserSupportsWebAuthn: vi.fn(),
+  startAuthentication: vi.fn(),
+  startRegistration: vi.fn(),
+  WebAuthnAbortService: { cancelCeremony: vi.fn() },
 }))
 
 const token = "A".repeat(43)
@@ -28,17 +40,55 @@ function renderApp(strict = false) {
 }
 
 beforeEach(() => {
+  vi.mocked(browserSupportsWebAuthn).mockReturnValue(true)
+  vi.mocked(startAuthentication).mockResolvedValue({ id: "credential" } as never)
   clearRequestCacheForTests()
   window.history.replaceState({}, "", "/")
 })
+
+function managementFetch(initiallySignedIn = true) {
+  let authenticated = initiallySignedIn
+  const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+    const path = String(input).replace("/v1/", "")
+    let body: unknown
+    if (path === "account")
+      body = {
+        authenticated,
+        setup_required: false,
+        csrf_token: "csrf",
+        verification_required: false,
+      }
+    else if (path === "passkeys")
+      body = [{ id: "first", name: "Laptop", created_at: "2026-10-21T10:00:00Z" }]
+    else if (path === "api-keys")
+      body = init?.method === "POST" ? { id: "key", key: "raw-one-time-key" } : []
+    else if (path.startsWith("account/shares?")) body = { items: [], matching_count: 0 }
+    else if (path === "auth/login/begin") body = { publicKey: { challenge: "challenge" } }
+    else if (path === "auth/login/finish") {
+      authenticated = true
+      body = {}
+    } else throw new Error(`Unexpected request: ${path}`)
+    return new Response(JSON.stringify(body))
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  return fetchMock
+}
+
+async function newKey() {
+  const user = userEvent.setup()
+  await user.type(await screen.findByLabelText("API key name"), "CLI")
+  await user.click(screen.getByRole("button", { name: "Create API key" }))
+  await screen.findByLabelText("New API key")
+}
 
 describe("App", () => {
   it("renders home and route errors without fetching", () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
     const { rerender } = renderApp()
-    expect(screen.getByRole("heading", { name: "Morsel" })).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Manage account" })).toHaveAttribute("href", "/account")
+    expect(screen.getByRole("heading", { name: "Open a document" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Manage" })).toHaveAttribute("href", "/manage/shares")
+    expect(screen.getByRole("link", { name: "Morsel home" })).toHaveAttribute("href", "/")
     window.location.hash = "#/s/short"
     fireEvent(window, new HashChangeEvent("hashchange"))
     expect(screen.getByRole("heading", { name: "Invalid share link" })).toBeInTheDocument()
@@ -223,6 +273,181 @@ describe("App", () => {
     renderApp()
     expect(await screen.findByRole("heading", { name: title })).toBeInTheDocument()
   })
+
+  it.each([
+    ["/manage/shares", "Manage shares"],
+    ["/manage/api-keys", "API keys"],
+  ])(
+    "keeps the requested %s section through login and ignores free-form return URLs",
+    async (path, heading) => {
+      window.history.replaceState({}, "", `${path}?returnTo=https://example.invalid/`)
+      const fetchMock = managementFetch(false)
+      renderApp()
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole("button", { name: "Sign in with passkey" }))
+      await screen.findByRole("heading", { name: heading })
+      expect(window.location.pathname).toBe(path)
+      expect(startAuthentication).toHaveBeenCalledOnce()
+      const urls = fetchMock.mock.calls.map(([url]) => String(url))
+      expect(urls).not.toContain("/v1/passkeys")
+      if (path === "/manage/shares") expect(urls).not.toContain("/v1/api-keys")
+      else expect(urls.some((url) => url.startsWith("/v1/account/shares"))).toBe(false)
+    },
+  )
+
+  it("warns before section navigation discards a key, keeps it on cancellation, and never stores it", async () => {
+    window.history.replaceState({}, "", "/manage/api-keys")
+    managementFetch()
+    const storage = vi.spyOn(Storage.prototype, "setItem")
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    renderApp()
+    await newKey()
+    const user = userEvent.setup()
+    const unload = new Event("beforeunload", { cancelable: true })
+    expect(window.dispatchEvent(unload)).toBe(false)
+    await user.click(screen.getByRole("link", { name: "Security" }))
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(window.location.pathname).toBe("/manage/api-keys")
+    expect(screen.getByLabelText("New API key")).toHaveValue("raw-one-time-key")
+    confirm.mockReturnValue(true)
+    await user.click(screen.getByRole("link", { name: "Security" }))
+    await screen.findByRole("heading", { name: "Passkeys" })
+    expect(window.location.pathname).toBe("/account")
+    expect(screen.queryByLabelText("New API key")).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Security" })).toHaveAttribute("aria-current", "page")
+    await user.click(screen.getByRole("link", { name: "API keys" }))
+    await screen.findByRole("heading", { name: "API keys" })
+    expect(screen.queryByLabelText("New API key")).not.toBeInTheDocument()
+    expect(storage).not.toHaveBeenCalled()
+  })
+
+  it("safely cancels and accepts browser back with a one-time key, then supports forward", async () => {
+    window.history.replaceState({}, "", "/account")
+    managementFetch()
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    renderApp()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("link", { name: "API keys" }))
+    await newKey()
+    act(() => window.history.back())
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce())
+    await waitFor(() => expect(window.location.pathname).toBe("/manage/api-keys"))
+    expect(screen.getByLabelText("New API key")).toHaveValue("raw-one-time-key")
+    confirm.mockReturnValue(true)
+    act(() => window.history.back())
+    await screen.findByRole("heading", { name: "Passkeys" })
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(window.location.pathname).toBe("/account")
+    act(() => window.history.forward())
+    await screen.findByRole("heading", { name: "API keys" })
+    expect(window.location.pathname).toBe("/manage/api-keys")
+    expect(screen.queryByLabelText("New API key")).not.toBeInTheDocument()
+  })
+
+  it("aborts login on a navigation link and ignores late browser completion", async () => {
+    window.history.replaceState({}, "", "/manage/shares")
+    const fetchMock = managementFetch(false)
+    let complete: ((value: never) => void) | undefined
+    vi.mocked(startAuthentication).mockReturnValueOnce(
+      new Promise((resolve) => {
+        complete = resolve
+      }),
+    )
+    renderApp()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: "Sign in with passkey" }))
+    await waitFor(() => expect(startAuthentication).toHaveBeenCalledOnce())
+    await user.click(screen.getByRole("link", { name: "Security" }))
+    await screen.findByRole("heading", { name: "Morsel account" })
+    expect(WebAuthnAbortService.cancelCeremony).toHaveBeenCalledOnce()
+    await act(async () => {
+      complete?.({ id: "late" } as never)
+    })
+    expect(fetchMock.mock.calls.some(([url]) => url === "/v1/auth/login/finish")).toBe(false)
+  })
+
+  it("uses one public header with a theme control and an accessible account menu only in management", async () => {
+    window.history.replaceState({}, "", "/account")
+    managementFetch()
+    const { container } = renderApp()
+    const user = userEvent.setup()
+    await screen.findByRole("heading", { name: "Passkeys" })
+    expect(screen.getAllByRole("banner")).toHaveLength(1)
+    expect(
+      within(screen.getByRole("banner")).getByRole("combobox", { name: "Theme" }),
+    ).toBeInTheDocument()
+    const menu = screen.getByRole("button", { name: "Account" })
+    await user.click(menu)
+    expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    expect(menu).toHaveFocus()
+    expect(await axe.run(container).then((result) => result.violations)).toEqual([])
+    await user.click(screen.getByRole("link", { name: "Morsel home" }))
+    expect(screen.queryByRole("button", { name: "Account" })).not.toBeInTheDocument()
+  })
+
+  it("opens the bundled example through the header shell without requests", async () => {
+    window.history.replaceState({}, "", "/example")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    renderApp()
+    expect(screen.getByRole("banner")).toBeInTheDocument()
+    expect(screen.getByRole("article")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Account" })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each([`/s/${token}`, `/#/s/${token}`])(
+    "preserves document anchors and non-app links at %s while routing document links",
+    async (path) => {
+      window.history.replaceState({}, "", path)
+      const fetchMock = vi.fn<typeof fetch>(
+        async (input) =>
+          new Response(
+            JSON.stringify({
+              content:
+                input === `/v1/shares/${nextToken}`
+                  ? "# Second document"
+                  : `# First document\n\n[Section](#section)\n\n[API file](/v1/files/notes.md)\n\n[Asset](/logo.svg)\n\n[Next document](/s/${nextToken})`,
+              created_at: "2026-01-01T00:00:00Z",
+              view_count: 1,
+            }),
+          ),
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      renderApp()
+      await screen.findByRole("heading", { name: "First document" })
+      for (const name of ["Section", "API file", "Asset"]) {
+        let prevented: boolean | undefined
+        document.addEventListener(
+          "click",
+          (event) => {
+            prevented = event.defaultPrevented
+            // Stop jsdom's native navigation after checking the application handler.
+            event.preventDefault()
+          },
+          { once: true },
+        )
+        fireEvent.click(screen.getByRole("link", { name }))
+        // Fragment readers scroll locally so document anchors cannot replace the capability.
+        expect(prevented).toBe(path.startsWith("/#") && name === "Section")
+      }
+      if (path.startsWith("/#")) {
+        expect(window.location.hash).toBe(`#/s/${token}`)
+      } else {
+        window.history.pushState({}, "", `${window.location.pathname}#section`)
+        fireEvent(window, new HashChangeEvent("hashchange"))
+      }
+      expect(screen.getByRole("heading", { name: "First document" })).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledOnce()
+      await userEvent.setup().click(screen.getByRole("link", { name: "Next document" }))
+      await screen.findByRole("heading", { name: "Second document" })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock.mock.calls.every(([url]) => String(url).startsWith("/v1/shares/"))).toBe(
+        true,
+      )
+    },
+  )
 
   it("restores persisted light and dark themes", () => {
     vi.stubGlobal("fetch", vi.fn())

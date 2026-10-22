@@ -66,7 +66,7 @@ export function DocumentPage({
 
   return (
     <section className="share-view" aria-labelledby="document-title">
-      <header className="document-header">
+      <div className="document-header">
         <Flex justify="between" align="center" gap="4" wrap="wrap">
           <div>
             <Heading id="document-title" size="6">
@@ -127,7 +127,7 @@ export function DocumentPage({
             </>
           )}
         </Text>
-      </header>
+      </div>
       <Separator size="4" />
       {navigation}
       {raw ? (

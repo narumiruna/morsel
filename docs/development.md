@@ -99,7 +99,23 @@ MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction up
 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction down -steps 1
 ```
 
+For schema version 8 and later, the normal up command also derives missing administrative labels in loops of at most 16 documents, with per-document durable updates. Cancellation leaves completed work intact; rerun up to resume. Direct `migrations.Run` calls in tests apply schema only, so tests that insert legacy rows must explicitly use `share.BackfillLabels` before expecting complete management search. A pending label causes `503 label_backfill_required`, not an incomplete result.
+
 The runner rejects dirty, unknown, or gapped migration histories. Apply migrations before starting a newer API. An older runner can reject the new schema's migration version even when changes are additive. Never automatically downgrade production; test migrations and any downgrade on a restored database first. See [backup and rollback](deployment.md#backup-restore-and-rollback) for write-window and authentication cautions.
+
+## Task-oriented UI validation
+
+The focused component tests cover URL validation, exact-one public reads after submission, separate management sections, cancellation, one-time-key navigation warnings, confirmations, and search races. The browser suite adds:
+
+- 1280×800 list density with at least five visible ordinary rows, plus 375px overflow checks.
+- Light, dark, Sepia, Sage, Midnight, and system palette checks on homepage and share management.
+- Browser axe WCAG A/AA checks, native form-boundary contrast of at least 3:1, and visible keyboard focus rings of at least 3:1.
+- Keyboard preview/confirmation focus restoration, menu navigation, and native history back/forward handling for undismissed keys.
+- Fixture screenshots under ignored `packages/viewer/test-results/task-ui-*/`. No production content or real keys are used.
+
+Run the standard commands above and `npm run test:auth:browser` against test-only PostgreSQL. Required authentication browser tests use the Go-built viewer and verify real passkeys, route refresh, legacy labels, and session/recovery behavior. The separate opt-in production release scenario is not a required local gate and must not be run against production for this work. Native screen-reader and subjective usability acceptance remain external review items in [deployment handoff](deployment.md#external-review-and-release-handoff).
+
+For backend query/backfill measurements, run `go test -v ./internal/share -run 'Test(LabelDiscovery|AdminQueryDiscovery|BackfillDiscovery)'` from `api/` with `MORSEL_TEST_DATABASE_URL` set. These tests use generated fixtures and isolated schemas; their timings are not production guarantees.
 
 ## Repository layout
 

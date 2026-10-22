@@ -39,12 +39,12 @@ sequenceDiagram
     Viewer->>Viewer: Sanitize and render Markdown
 ```
 
-The service handles `/`, `/account`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell. Instant View shares additionally inject server-rendered GFM into the viewer root; the React viewer replaces it after loading in a browser. JavaScript and CSS remain static assets. Morsel has no Redis, object storage, queue, separate static host, or Node.js runtime server.
+The service handles `/`, `/example`, `/manage/shares`, `/manage/api-keys`, `/account`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell. Instant View shares additionally inject server-rendered GFM into the viewer root; the React viewer replaces it after loading in a browser. JavaScript and CSS remain static assets. Morsel has no Redis, object storage, queue, separate static host, or Node.js runtime server.
 
 ## Account and authentication boundaries
 
 - Only the first account can register, with a single-use operator setup token. Registration is serialized in PostgreSQL; later account creation is rejected by the API. Invitations are not implemented.
-- `/account` supports passkey setup, login, backup credentials, API key management, share history, administrative content inspection, share revocation, and logout. Registration and login require discoverable credentials and user verification. The last passkey cannot be removed.
+- `/account` supports passkey setup, login, recovery, and backup credentials. `/manage/shares` provides share search, administrative content inspection, and revocation; `/manage/api-keys` provides key management. The account menu provides logout. Registration and login require discoverable credentials and user verification. The last passkey cannot be removed.
 - The RP ID is the hostname from `MORSEL_URL`; the allowed origin includes its scheme and port. Production uses RP ID `morsel.narumi.dev` and origin `https://morsel.narumi.dev`, derived from configuration rather than request headers. Local Vite development uses RP ID `localhost` and exact origin `http://localhost:5173`.
 - Browser sessions alone can manage passkeys and API keys. Cookie-authenticated mutations require exact Origin checks and session-bound CSRF tokens. Existing `/v1/shares` writes remain Bearer-only; session cookies do not authorize them. Separate `/v1/account/shares` routes require an owner session and permit inspection and revocation of all shares, including rows created before account setup. API keys alone cannot access these routes. Public capability reads remain unchanged.
 - PostgreSQL stores credential records and hashes of opaque session tokens. Production cookies are host-only, `Secure`, `HttpOnly`, and `SameSite=Lax`. Non-Secure cookies are permitted only for supported localhost HTTP development.
@@ -64,8 +64,14 @@ The service handles `/`, `/account`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/h
 - Retrieval responses use `Cache-Control: no-store`; proxies must not cache them.
 - Unknown capabilities return `404`. Expired, revoked, and exhausted capabilities return `410` with distinct codes. This improves viewer messages but reveals the capability's state to anyone who already possesses it.
 - Owner-only administrative list and detail requests do not consume views. Administrative Markdown renders image placeholders and inert Mermaid source, because both Markdown images and Mermaid image nodes can request a consuming share endpoint before sanitation. Public rendering is unchanged. Detail requests expose stored content even after expiration, view exhaustion, or revocation; these states limit public access, not owner access. Management responses use `Cache-Control: no-store`, and the UI clears private state after logout or an authentication failure. Revocation requires Origin, CSRF, and passkey verification within twelve hours. Authorization locks remain held through the revocation commit, including account generation checks that serialize against recovery.
-- Management status uses database time with precedence revoked, expired, view-limit-exhausted, then active. Cursor pages use descending creation time and UUID; they are live queries, not a snapshot across requests.
+- Management status uses database time with precedence revoked, expired, view-limit-exhausted, then active. Cursor pages use creation time and UUID in newest-first or oldest-first order. Search is a literal case-insensitive substring of the displayed label; count and page use one database statement and snapshot. New cursors bind status, normalized search fingerprint, and sort. V1 cursors remain valid for an empty search with newest-first order. Pages are live queries, not a snapshot across requests.
 - A lost raw capability cannot be recovered. Revoke the share and create a replacement. The management UI does not store raw capabilities or offer public URL recovery.
+
+## Administrative labels
+
+Creation derives a bounded plain-text `admin_label` from the existing preview title or a Goldmark-parsed source line. Explicit preview titles remain plain text as authored. Source-derived labels retain code and link text but omit formatting, destinations, and authored HTML. Stored source, public preview metadata, capability hashes, limits, and counts are unchanged.
+
+Migration 8 adds nullable label metadata and a partial pending-label index. The migration executable fills pending labels in bounded loops of 16 documents, reading and committing each document separately, outside account/session locks. NULL labels form a resumable work list. Rerunning migration up completes unfinished work without rewriting completed labels. Reads do not parse all documents: list/count queries use stored labels and return `503 label_backfill_required` if any legacy labels remain pending. Detail reads return that error for a pending target. Public capability access does not depend on label readiness.
 
 ## Security model
 
@@ -75,6 +81,8 @@ The service handles `/`, `/account`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/h
 - Authentication attempts have rate and request-size limits. WebAuthn verification uses a maintained library; expiring flows are browser-bound, operation-bound, and single-use.
 - Request logs use route templates instead of token-bearing paths and omit bodies, authorization headers, cookies, operator tokens, WebAuthn payloads, and raw API keys.
 - Authored HTML is disabled. Markdown from both Morsel shares and GitHub Gists passes through the same reviewed sanitation schema; KaTeX output is sanitized as well.
+- Homepage URL validation accepts only known same-origin share/Gist viewer routes and exact HTTPS GitHub Gist routes. It performs no validation fetch, stores no pasted URL, and preserves fragment share routing. The bundled example needs no network API. The shared public header makes no account-state request.
+- Management navigation aborts obsolete reads and ceremonies. One-time keys remain in memory only; navigation warns before discarding an undismissed key. Section destinations are fixed internal routes, not arbitrary return URLs.
 - Gist IDs are validated before the browser makes an unauthenticated request to the CSP-allowlisted `api.github.com` origin.
 - KaTeX trust is disabled. Mermaid renders sequentially with strict security, source and count limits, and DOMPurify SVG sanitation.
 - Vega-Lite uses interpreted expressions, inline-only resources, rejected expansive generators and transforms, disabled embed options and tooltips, and source and count limits.

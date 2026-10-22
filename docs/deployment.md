@@ -73,7 +73,7 @@ HTTPS and reverse-proxy provisioning are already in place and are not changed he
 The reverse proxy must:
 
 - Preserve the browser `Origin` header unchanged and preserve `X-Request-ID` response headers.
-- Never cache `/v1/*` (including authentication and management), `/account`, `/account/*`, or `/s/*`; honor `Cache-Control: no-store`.
+- Never cache `/v1/*` (including authentication and management), `/manage/*`, `/account`, `/account/*`, or `/s/*`; honor `Cache-Control: no-store`.
 - Exclude authorization headers, cookies, setup/recovery tokens, WebAuthn payloads, raw keys, request bodies, and raw `/s/<token>` paths from logs. Do not enable shell tracing around secret operations.
 - Not replace the configured WebAuthn origin with forwarded request headers. Do not assume arbitrary forwarded client IP headers are trusted.
 
@@ -91,23 +91,43 @@ Production enrollment and client rotation are operator handoff steps, not action
 
 ## Share management rollout and review
 
-The share management release adds migration 7, an index on `shares (created_at DESC, id DESC)`. It does not change stored shares, capabilities, limits, or counts. No client key rotation or account re-enrollment is needed for this feature.
+Share history originally added migration 7, the `(created_at DESC, id DESC)` index. The task-oriented UI adds migration 8: nullable `admin_label` metadata and a partial index for pending labels. Source content, capability hashes, public preview metadata, limits, counts, and revocation state are not rewritten. No key rotation or account re-enrollment is needed.
+
+### Label migration and backfill
+
+1. Retain the previous immutable image and a tested backup. Test migration, backfill, interruption/resume, and rollback on a restored database. Confirm the write window before production.
+2. Pause old-version share creation before the final backfill and application cutover. Older writers can still insert NULL labels; public reads can continue while the service remains available.
+3. Run the **new release's** migration executable with `-direction up`, using the existing migration service or `go run ./cmd/migrate -direction up` from `api/`. The command applies schema changes, then processes up to 16 pending documents per loop. Each document is read and committed separately, outside account/session locks; only one source is parsed at a time.
+4. If interrupted or cancelled, rerun the same up command. Applied schema migrations stay recorded; completed labels are not rewritten. The command exits unsuccessfully when backfill fails or is cancelled, so do not treat schema version 8 alone as completion.
+5. Before opening management, verify `SELECT count(*) FROM shares WHERE admin_label IS NULL` returns zero, with old writers still paused. Deploy the new API and viewer together, then resume client writes.
+
+If management returns `503 label_backfill_required`, check for an incomplete backfill or an older writer and rerun the new migration up command after stopping that writer. The API refuses incomplete search results, including zero-match queries. Public capability reads and revocation are independent of label readiness.
+
+Generated local fixtures measured list/count queries at approximately 4–9 ms across 10,000 shares, and a backfill of 256 approximately 64 KB sources at 1.27 seconds. These are test measurements, not production capacity estimates. The additive schema/index operation can block writes; measure restored production data before choosing a window.
+
+### External review and release handoff
 
 - Deployment operator:
-  - Prerequisite: required checks pass; retain the previous immutable image and a tested backup. Test the migration and rollback against a restored database before production.
-  - Action: schedule the index migration and deploy the API and viewer together using the existing release procedure. The ordinary index build can block writes while it completes; select a maintenance window based on the restored database test.
-  - Expected result: the owner can inspect and revoke historical shares from `/account`; existing public URLs continue to work.
-  - Unverified behavior: production index duration, lock contention, and release integration. Do not deploy until backup and rollback procedures are confirmed. Local validation does not authorize production writes.
+  - Prerequisite: required checks pass; backup, restore, write window, and rollback procedures are confirmed on a restored database.
+  - Action: perform the label migration/backfill and API/viewer cutover above; verify direct navigation and refresh for `/manage/shares`, `/manage/api-keys`, `/account`, and `/example`.
+  - Expected result: global title search includes legacy shares and existing public URLs retain their behavior.
+  - Unverified behavior: production-scale parsing, lock duration, older-writer coordination, and release integration. Do not deploy this data change until backup, recovery, and write-impact procedures are confirmed. Local validation authorizes no production writes.
 - Product owner:
-  - Prerequisite: run `npm run test:browser` to prepare captures in the ignored `packages/viewer/test-results/account-shares-*/` directories. The files are named `share-management-desktop.png` and `share-management-mobile.png`; they contain test fixtures, not production content.
-  - Action: review labels, availability states, content inspection, and the revocation confirmation at desktop and mobile widths.
-  - Expected result: share management controls are understandable. Subjective visual and usability acceptance is not established by automated tests. No additional approval gate is imposed.
+  - Prerequisite: fixture captures are available. `npm run test:browser` generates after captures under ignored `packages/viewer/test-results/task-ui-*/`, named `task-ui-<width>-<theme>.png` and `home-<width>-<theme>.png`. The implementation session's before captures are retained under ignored `packages/viewer/test-results/ux-before/`.
+  - Action: compare homepage entry, section navigation, list density, preview, and confirmation consequences at desktop/mobile widths.
+  - Expected result: the main tasks are clear without the old long-page ordering. Subjective visual/usability acceptance remains unverified; no additional human approval gate is imposed.
+- Accessibility reviewer:
+  - Prerequisite: automated keyboard, axe, text contrast, control-boundary contrast, and focus-ring evidence is available from the browser suite.
+  - Action: review supported real browser/screen-reader combinations for navigation, announcements, focus, and destructive actions.
+  - Expected result: these operations are understandable with assistive technology. Unavailable native assistive-technology behavior remains unverified; automated checks do not establish complete WCAG conformance. No additional human-review gate is imposed.
 
 ### Share management rollback
 
-Rollback does not restore revoked shares. Do not restore the database merely to remove this UI feature.
+Reverting the UI does not restore revoked shares or API keys. Do not restore the database merely to remove navigation or search changes.
 
-The previous application server can run with the additive index present, but the previous migration runner rejects migration version 7. If the rollback starts that runner, first stop writes and use the **new release's** migration executable with `-direction down -steps 1`, after confirming that version 7 is the latest applied migration and no later migrations exist. This removes only the index and its migration record. Then restore the previous API and viewer image together. Never run an unqualified multi-step downgrade or remove account tables for this feature.
+The previous application server can run with additive label metadata present, but its migration runner rejects version 8. Prefer retaining the additive schema and using the newer runner when possible. If rollback must start the previous runner, stop writes and use the **new release's** migration executable with `-direction down -steps 1`, only after confirming that version 8 is the latest applied migration and no later migrations exist. This removes only `admin_label`, its pending index, and migration 8's record; keep migration 7 and account tables. Roll back API and viewer together.
+
+Older writers can create pending labels after an application rollback. Rerun the new migration up command before rolling forward again. New v2 cursors are not understood by older servers; reset management to its first page instead of reusing a stale cursor. Existing v1 cursors remain valid for empty search with newest-first order.
 
 ## Backup, restore, and rollback
 

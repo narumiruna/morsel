@@ -43,14 +43,33 @@ async function account(page: Page) {
   return response.json()
 }
 
-async function login(page: Page) {
-  await page.goto("/account")
+async function expectSignedIn(page: Page) {
+  await expect(page.getByRole("button", { name: "Account", exact: true })).toBeVisible()
+}
+
+async function logOut(page: Page) {
+  await page.getByRole("button", { name: "Account", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Log out", exact: true }).click()
+}
+
+async function openSection(page: Page, name: "Shares" | "API keys" | "Security") {
+  const dismiss = page.getByRole("button", { name: "Dismiss API key", exact: true })
+  if (await dismiss.isVisible()) await dismiss.click()
+  await page.getByRole("link", { name, exact: true }).click()
+  await expect(page.getByRole("link", { name, exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  )
+}
+
+async function login(page: Page, destination = "/account") {
+  await page.goto(destination)
   const completion = page.waitForResponse((response) =>
     response.url().endsWith("/v1/auth/login/finish"),
   )
   await page.getByRole("button", { name: "Sign in with passkey", exact: true }).click()
   expect((await completion).status()).toBe(200)
-  await expect(page.getByRole("button", { name: "Log out", exact: true })).toBeVisible()
+  await expectSignedIn(page)
   expect((await account(page)).authenticated).toBe(true)
 }
 
@@ -88,6 +107,7 @@ async function noBrowserSecret(page: Page, secret: string) {
 }
 
 async function createKey(page: Page, name: string) {
+  if (!page.url().endsWith("/manage/api-keys")) await openSection(page, "API keys")
   await page.getByLabel("API key name", { exact: true }).fill(name)
   const created = page.waitForResponse(
     (response) => response.url().endsWith("/v1/api-keys") && response.request().method() === "POST",
@@ -135,7 +155,7 @@ test("required real-backend account and API key lifecycle", async ({
     await page.getByLabel("Setup token", { exact: true }).fill(token)
     await page.getByLabel("Passkey name", { exact: true }).fill("Primary browser passkey")
     await page.getByRole("button", { name: "Set up account", exact: true }).click()
-    await expect(page.getByRole("button", { name: "Log out", exact: true })).toBeVisible()
+    await expectSignedIn(page)
     const state = await account(page)
     expect(state.authenticated).toBe(true)
     expect(state.setup_required).toBe(false)
@@ -152,7 +172,7 @@ test("required real-backend account and API key lifecycle", async ({
     })
     expect(rejected.status() >= 400 && rejected.status() < 500).toBe(true)
     await page.reload()
-    await expect(page.getByRole("button", { name: "Log out", exact: true })).toBeVisible()
+    await expectSignedIn(page)
   })
 
   await test.step("persistent login reuses verification without extra passkey prompts", async () => {
@@ -162,8 +182,8 @@ test("required real-backend account and API key lifecycle", async ({
     })
     const restored = await restoredContext.newPage()
     try {
-      await restored.goto("/account")
-      await expect(restored.getByRole("button", { name: "Log out", exact: true })).toBeVisible()
+      await restored.goto("/manage/api-keys")
+      await expectSignedIn(restored)
       let prompts = 0
       restored.on("request", (request) => {
         if (request.url().endsWith("/v1/auth/verify/begin")) prompts += 1
@@ -172,6 +192,7 @@ test("required real-backend account and API key lifecycle", async ({
       await restored
         .getByRole("button", { name: "Revoke API key Remembered browser", exact: true })
         .click()
+      await restored.getByRole("button", { name: "Confirm revoke API key", exact: true }).click()
       await expect(
         restored.getByRole("button", { name: "Revoke API key Remembered browser", exact: true }),
       ).toHaveCount(0)
@@ -183,6 +204,7 @@ test("required real-backend account and API key lifecycle", async ({
   })
 
   await test.step("backup passkey enrollment and last-passkey protection", async () => {
+    await openSection(page, "Security")
     const switchDevice = async (route: import("@playwright/test").Route) => {
       // Chromium permits only one internal authenticator per target. The primary
       // completes verification first, then the backup handles registration.
@@ -307,6 +329,7 @@ test("required real-backend account and API key lifecycle", async ({
     await page
       .getByRole("button", { name: "Revoke API key Browser integration", exact: true })
       .click()
+    await page.getByRole("button", { name: "Confirm revoke API key", exact: true }).click()
     expect((await revoked).status()).toBe(204)
     const result = await page.request.post("/v1/shares", {
       headers: { Authorization: `Bearer ${firstKey.key}` },
@@ -330,10 +353,10 @@ test("required real-backend account and API key lifecycle", async ({
   })
 
   await test.step("historical shares, non-consuming inspection, and UI revocation", async () => {
-    await page.getByRole("button", { name: "Dismiss API key", exact: true }).click()
+    await openSection(page, "Shares")
     await page.getByRole("button", { name: "Refresh shares", exact: true }).click()
     await page
-      .getByRole("button", { name: "View share # Legacy before account", exact: true })
+      .getByRole("button", { name: "Preview share Legacy before account", exact: true })
       .click()
     await expect(
       page.getByRole("heading", { name: "Legacy before account", exact: true }),
@@ -360,7 +383,7 @@ test("required real-backend account and API key lifecycle", async ({
     }
     page.on("request", observe)
     await page.getByRole("button", { name: "Refresh shares", exact: true }).click()
-    await page.getByRole("button", { name: "View share Managed history", exact: true }).click()
+    await page.getByRole("button", { name: "Preview share Managed history", exact: true }).click()
     await expect(
       page.getByRole("heading", { name: "Managed history content", exact: true }),
     ).toBeVisible()
@@ -412,20 +435,21 @@ test("required real-backend account and API key lifecycle", async ({
     page.off("request", observe)
     await page.getByLabel("Share status", { exact: true }).selectOption("revoked")
     await expect(
-      page.getByRole("button", { name: "View share Managed history", exact: true }),
+      page.getByRole("button", { name: "Preview share Managed history", exact: true }),
     ).toBeVisible()
     await page.getByLabel("Share status", { exact: true }).selectOption("all")
   })
 
   await test.step("logout, discoverable login, and database session expiry", async () => {
-    await page.getByRole("button", { name: "Log out", exact: true }).click()
+    await logOut(page)
     await expect(
       page.getByRole("button", { name: "Sign in with passkey", exact: true }),
     ).toBeVisible()
     expect((await account(page)).authenticated).toBe(false)
-    await login(page)
+    await login(page, "/manage/shares")
+    await expect(page).toHaveURL(/\/manage\/shares$/)
     await page
-      .getByRole("button", { name: "View share # Legacy before account", exact: true })
+      .getByRole("button", { name: "Preview share Legacy before account", exact: true })
       .click()
     await expect(
       page.getByRole("heading", { name: "Legacy before account", exact: true }),
@@ -444,6 +468,7 @@ test("required real-backend account and API key lifecycle", async ({
   })
 
   await test.step("cancelled browser authentication does not create an API key", async () => {
+    await openSection(page, "API keys")
     await command(helper, ["expire-verification"])
     await page.evaluate(() => {
       Object.defineProperty(navigator.credentials, "get", {
@@ -473,9 +498,7 @@ test("required real-backend account and API key lifecycle", async ({
         .getByLabel("Replacement passkey name", { exact: true })
         .fill("Replacement passkey")
       await replacementPage.getByRole("button", { name: "Recover account", exact: true }).click()
-      await expect(
-        replacementPage.getByRole("button", { name: "Log out", exact: true }),
-      ).toBeVisible()
+      await expectSignedIn(replacementPage)
       expect((await account(page)).authenticated).toBe(false)
       const remaining = await replacementPage.request.get("/v1/passkeys")
       const passkeys = await remaining.json()
@@ -495,12 +518,10 @@ test("required real-backend account and API key lifecycle", async ({
         content: "Recovery preserves API keys for operator review",
       })
       await client.revokeShare(share.id)
-      await replacementPage.getByRole("button", { name: "Log out", exact: true }).click()
+      await logOut(replacementPage)
       await login(replacementPage)
       await replacementPage.reload()
-      await expect(
-        replacementPage.getByRole("button", { name: "Log out", exact: true }),
-      ).toBeVisible()
+      await expectSignedIn(replacementPage)
     } finally {
       await replacementContext.close()
     }

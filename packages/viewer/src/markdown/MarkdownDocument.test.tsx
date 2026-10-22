@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { ThemeProvider } from "../theme"
+import { ThemeProvider as BaseThemeProvider, ThemeControl } from "../theme"
 import { MarkdownDocument } from "./MarkdownDocument"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { VegaLiteChart } from "./VegaLiteChart"
@@ -25,6 +26,15 @@ const exportMock = vi.hoisted(() => ({
   downloadDiagram: vi.fn(),
 }))
 vi.mock("./diagramExport", () => exportMock)
+function ThemeProvider({ children }: { children: ReactNode }) {
+  return (
+    <BaseThemeProvider>
+      <ThemeControl />
+      {children}
+    </BaseThemeProvider>
+  )
+}
+
 const renderDiagram = mermaidMock.render
 const finalizeChart = vi.fn()
 
@@ -150,6 +160,7 @@ alert("escaped")
       source.replace("\n", " "),
     )
     expect(container.querySelector("img, svg")).toBeNull()
+    expect(container.querySelector("pre")).toHaveAttribute("tabindex", "0")
     expect(renderDiagram).not.toHaveBeenCalled()
   })
 

@@ -118,7 +118,7 @@ paths:
     get:
       operationId: listAccountShares
       summary: List all owner shares without consuming views
-      description: Includes shares created before account setup and with any API key. Pages are live queries, not a snapshot across requests. Bearer-only access is rejected.
+      description: Includes shares created before account setup and with any API key. Pages are live queries, not a snapshot across requests. Bearer-only access is rejected. Returns 503 with label_backfill_required while any legacy labels are pending; never returns incomplete search results.
       security:
         - sessionCookie: []
       parameters:
@@ -135,16 +135,27 @@ paths:
             minimum: 1
             maximum: 100
             default: 25
+        - name: q
+          in: query
+          description: Case-insensitive literal substring of the displayed label. Unicode whitespace is trimmed before the 100 Unicode character limit. Empty input matches all labels. SQL wildcard and escape characters have no special meaning. Repeated parameters return 400.
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [newest, oldest]
+            default: newest
         - name: cursor
           in: query
-          description: Opaque continuation cursor from the previous page, bound to its status filter. Invalid, empty, or repeated parameters return 400.
+          description: Opaque v2 continuation cursor bound to status, trimmed q fingerprint, and sort. Existing v1 cursors are accepted only with empty trimmed q and newest sort. Invalid, empty, repeated, or query-mismatched cursors return 400.
           schema:
             type: string
             minLength: 1
             maxLength: 512
       responses:
         "200":
-          description: Metadata ordered by creation time and UUID descending; never contains full content or capability data
+          description: Metadata ordered by creation time and UUID in the selected direction (descending for newest, ascending for oldest); never contains full content or capability data
           headers:
             Cache-Control:
               schema:
@@ -751,7 +762,7 @@ components:
         label:
           type: string
           maxLength: 80
-          description: Preview title, first non-empty content line, or Untitled; displayed as plain text.
+          description: Explicit preview title as authored plain text, or the first meaningful Markdown line converted to plain text, or Untitled. Source labels retain inline code and link labels but exclude formatting syntax, link destinations, and authored HTML. Bounded to 80 Unicode characters without changing stored source or public preview metadata.
         created_at:
           type: string
           format: date-time
@@ -783,13 +794,18 @@ components:
     AccountSharePage:
       type: object
       additionalProperties: false
-      required: [items]
+      required: [items, matching_count]
       properties:
         items:
           type: array
           maxItems: 100
           items:
             $ref: "#/components/schemas/AccountShareMetadata"
+        matching_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Complete number of shares that match q and status before cursor filtering, including zero. Count and items use the same database snapshot and status evaluation time.
         next_cursor:
           type: string
           maxLength: 512

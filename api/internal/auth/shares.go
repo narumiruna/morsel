@@ -24,6 +24,9 @@ func (s *Service) listShares(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page, err := share.NewAdminRepository(tx).List(r.Context(), query)
+	if errors.Is(err, share.ErrLabelBackfillRequired) {
+		return failure(503, "label_backfill_required", "share labels are not ready")
+	}
 	if errors.Is(err, share.ErrInvalidAdminParams) {
 		return failure(400, "invalid_request", "invalid share list parameters")
 	}
@@ -44,7 +47,7 @@ func parseShareQuery(r *http.Request) (share.AdminListParams, error) {
 		return p, failure(400, "invalid_request", "invalid share list parameters")
 	}
 	for key, value := range values {
-		if len(value) != 1 || value[0] == "" {
+		if len(value) != 1 || (value[0] == "" && key != "q") {
 			return p, failure(400, "invalid_request", "invalid share list parameters")
 		}
 		switch key {
@@ -59,11 +62,19 @@ func parseShareQuery(r *http.Request) (share.AdminListParams, error) {
 				return p, failure(400, "invalid_request", "limit must be between 1 and 100")
 			}
 			p.Limit = limit
+		case "q":
+			p.Q = value[0]
+		case "sort":
+			p.Sort = value[0]
 		case "cursor":
 			p.Cursor = value[0]
 		default:
 			return p, failure(400, "invalid_request", "unknown share list parameter")
 		}
+	}
+	p, err = share.NormalizeAdminQuery(p)
+	if err != nil {
+		return p, failure(400, "invalid_request", "invalid share list parameters")
 	}
 	return p, nil
 }
@@ -98,6 +109,9 @@ func (s *Service) manageShare(w http.ResponseWriter, r *http.Request, value stri
 		return nil
 	}
 	detail, err := repository.Detail(r.Context(), id)
+	if errors.Is(err, share.ErrLabelBackfillRequired) {
+		return failure(503, "label_backfill_required", "share labels are not ready")
+	}
 	if errors.Is(err, share.ErrNotFound) {
 		return failure(404, "not_found", "share not found")
 	}

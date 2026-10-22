@@ -1,4 +1,4 @@
-import { Button, Card, Flex, Heading, Link, Text } from "@radix-ui/themes"
+import { Button, Card, Flex, Heading, Text } from "@radix-ui/themes"
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   type Account,
@@ -12,14 +12,30 @@ import {
   supportsPasskeys,
 } from "../account/accountApi"
 import { type AccountMutation, ShareManagement } from "../account/ShareManagement"
+import { AppHeader } from "../components/AppHeader"
+import { formatDate } from "../formatDate"
+import { useKeyDiscardWarning } from "../navigation"
 import { LoadingPage } from "./StatusPage"
 
-export function AccountPage() {
+export type AccountSection = "security" | "shares" | "api-keys"
+
+const sections = [
+  { section: "shares", href: "/manage/shares", label: "Shares" },
+  { section: "api-keys", href: "/manage/api-keys", label: "API keys" },
+  { section: "security", href: "/account", label: "Security" },
+] as const
+
+export function AccountPage({ section = "security" }: { section?: AccountSection }) {
   const [account, setAccount] = useState<Account | null>(null)
   const [passkeys, setPasskeys] = useState<Passkey[]>([])
   const [keys, setKeys] = useState<APIKey[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [busyAction, setBusyAction] = useState("")
+  const [revokeKey, setRevokeKey] = useState<APIKey | null>(null)
+  const revokeTrigger = useRef<HTMLButtonElement | null>(null)
+  const cancelRevoke = useRef<HTMLButtonElement | null>(null)
+  const keyHeading = useRef<HTMLHeadingElement | null>(null)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [token, setToken] = useState("")
@@ -29,6 +45,11 @@ export function AccountPage() {
   const [supported] = useState(supportsPasskeys)
   const controller = useRef<AbortController | null>(null)
   const locked = useRef(false)
+  useKeyDiscardWarning(rawKey)
+
+  useEffect(() => {
+    if (revokeKey) cancelRevoke.current?.focus()
+  }, [revokeKey])
 
   const forgetSession = useCallback(() => {
     controller.current?.abort()
@@ -37,9 +58,12 @@ export function AccountPage() {
     setBusy(false)
     setLoading(false)
     setRawKey(null)
+    setRevokeKey(null)
     setKeys([])
     setPasskeys([])
     setToken("")
+    setPasskeyName("")
+    setKeyName("")
     setAccount({ setup_required: false, authenticated: false })
   }, [])
 
@@ -48,15 +72,18 @@ export function AccountPage() {
     setError("Your session expired. Sign in again.")
   }, [forgetSession])
 
-  const refreshLists = useCallback(async (signal: AbortSignal) => {
-    const [nextPasskeys, nextKeys] = await Promise.all([
-      accountRequest<Passkey[]>("passkeys", { signal }),
-      accountRequest<APIKey[]>("api-keys", { signal }),
-    ])
-    if (signal.aborted) return
-    setPasskeys(nextPasskeys)
-    setKeys(nextKeys)
-  }, [])
+  const refreshLists = useCallback(
+    async (signal: AbortSignal) => {
+      if (section === "security") {
+        const next = await accountRequest<Passkey[]>("passkeys", { signal })
+        if (!signal.aborted) setPasskeys(next)
+      } else if (section === "api-keys") {
+        const next = await accountRequest<APIKey[]>("api-keys", { signal })
+        if (!signal.aborted) setKeys(next)
+      }
+    },
+    [section],
+  )
 
   const refreshAccount = useCallback(
     async (signal: AbortSignal) => {
@@ -65,8 +92,12 @@ export function AccountPage() {
       setAccount(next)
       if (!next.authenticated) {
         setRawKey(null)
+        setRevokeKey(null)
         setKeys([])
         setPasskeys([])
+        setToken("")
+        setPasskeyName("")
+        setKeyName("")
       }
       if (next.authenticated) await refreshLists(signal)
     },
@@ -76,6 +107,18 @@ export function AccountPage() {
   useEffect(() => {
     const abort = new AbortController()
     controller.current = abort
+    locked.current = false
+    setBusy(false)
+    setLoading(true)
+    setRawKey(null)
+    setRevokeKey(null)
+    setKeys([])
+    setPasskeys([])
+    setToken("")
+    setKeyName("")
+    setPasskeyName("")
+    setError("")
+    setNotice("")
     refreshAccount(abort.signal)
       .catch((failure: unknown) => {
         if (abort.signal.aborted) return
@@ -91,12 +134,16 @@ export function AccountPage() {
     }
   }, [forgetSession, refreshAccount])
 
-  const run = async (action: (signal: AbortSignal) => Promise<void>) => {
+  const run = async (
+    action: (signal: AbortSignal) => Promise<void>,
+    label = "Loading account…",
+  ) => {
     if (locked.current) return false
     const signal = controller.current?.signal
     if (!signal || signal.aborted) return false
     locked.current = true
     setBusy(true)
+    setBusyAction(label)
     setError("")
     setNotice("")
     try {
@@ -110,7 +157,11 @@ export function AccountPage() {
           try {
             await refreshAccount(signal)
           } catch (refreshFailure) {
-            if (refreshFailure instanceof AccountError && refreshFailure.status === 401) {
+            if (
+              !signal.aborted &&
+              refreshFailure instanceof AccountError &&
+              refreshFailure.status === 401
+            ) {
               forgetSession()
             }
           }
@@ -131,19 +182,28 @@ export function AccountPage() {
   const signIn = (operation: AuthOperation) => {
     const body = operation === "login" ? {} : { token, name: passkeyName.trim() }
     setToken("")
-    void run(async (signal) => {
-      await authenticate(operation, body, undefined, signal)
-      await refreshAccount(signal)
-      setPasskeyName("")
-      setNotice(
-        operation === "recover"
-          ? "Account recovered. Review your API keys and revoke any compromised keys."
-          : "Signed in.",
-      )
-    })
+    void run(
+      async (signal) => {
+        await authenticate(operation, body, undefined, signal)
+        if (signal.aborted) return
+        await refreshAccount(signal)
+        if (signal.aborted) return
+        setPasskeyName("")
+        setNotice(
+          operation === "recover"
+            ? "Account recovered. Review your API keys and revoke any compromised keys."
+            : "Signed in.",
+        )
+      },
+      operation === "login"
+        ? "Signing in… Complete the passkey prompt."
+        : operation === "recover"
+          ? "Recovering account… Complete the passkey prompt."
+          : "Setting up account… Complete the passkey prompt.",
+    )
   }
 
-  const mutate: AccountMutation = (action) => {
+  const mutateAction = (action: Parameters<AccountMutation>[0], label: string) => {
     return run(async (signal) => {
       const current = await accountRequest<Account>("account", { signal })
       if (signal.aborted) return
@@ -152,342 +212,452 @@ export function AccountPage() {
       if (!current.authenticated || !csrf)
         throw new AccountError(401, "session_expired", "Your session expired.")
       if (current.verification_required !== false) {
+        setBusyAction(
+          `Verify your passkey to continue: ${label} Complete the passkey prompt, or cancel to stop.`,
+        )
         await authenticate("verify", {}, csrf, signal)
       }
       if (signal.aborted) return
+      setBusyAction(label)
       await action(signal, csrf)
       if (!signal.aborted) await refreshLists(signal)
-    })
+    }, label)
   }
 
-  if (loading) return <LoadingPage subject="account" />
+  const mutate: AccountMutation = (action) => mutateAction(action, "Revoking share…")
+
+  const logout = () => {
+    controller.current?.abort()
+    controller.current = new AbortController()
+    locked.current = false
+    setRawKey(null)
+    setRevokeKey(null)
+    void run(async (signal) => {
+      await accountRequest("auth/logout", {
+        method: "POST",
+        body: {},
+        csrf: account?.csrf_token,
+        signal,
+      })
+      if (signal.aborted) return
+      forgetSession()
+      setNotice("Signed out.")
+    }, "Signing out…")
+  }
 
   return (
-    <div className="account-page">
-      <Flex align="center" justify="between" gap="3" wrap="wrap">
-        <Heading as="h1">Morsel account</Heading>
-        <Link href="/">Home</Link>
-      </Flex>
-      <div role="alert" className="account-error">
-        {error}
-      </div>
-      <div role="status" aria-live="polite">
-        {busy ? "Working… Complete the passkey prompt, or cancel it to stop." : notice}
-      </div>
-      {!account ? (
-        <Button disabled={busy} onClick={() => void run((signal) => refreshAccount(signal))}>
-          Retry account
-        </Button>
-      ) : (
-        <>
-          {!supported && (
-            <Text as="p" color="red">
-              This browser does not support passkeys. Use a browser with WebAuthn support on HTTPS
-              or localhost.
-            </Text>
-          )}
-          {account.authenticated ? (
-            <>
-              <Button
-                variant="soft"
-                disabled={busy}
-                onClick={() => {
-                  setRawKey(null)
-                  void run(async (signal) => {
-                    await accountRequest("auth/logout", {
-                      method: "POST",
-                      body: {},
-                      csrf: account.csrf_token,
-                      signal,
-                    })
-                    forgetSession()
-                    setNotice("Signed out.")
-                  })
-                }}
-              >
-                Log out
-              </Button>
-              {rawKey && (
-                <Card className="account-secret">
-                  <Heading as="h2" size="4">
-                    Save your new API key
-                  </Heading>
-                  <Text as="p">
-                    This key is shown only once. Copy it now. You cannot recover it after you
-                    dismiss it.
-                  </Text>
-                  <label htmlFor="new-api-key">New API key</label>
-                  <input
-                    id="new-api-key"
-                    readOnly
-                    value={rawKey}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <Flex gap="3" wrap="wrap">
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          await navigator.clipboard.writeText(rawKey)
-                          setNotice("API key copied.")
-                        })
-                      }
-                    >
-                      Copy API key
-                    </Button>
-                    <Button
-                      variant="soft"
-                      disabled={busy}
-                      onClick={() => {
-                        setRawKey(null)
-                        setNotice("")
-                      }}
-                    >
-                      Dismiss API key
-                    </Button>
-                  </Flex>
-                </Card>
-              )}
-              <ShareManagement
-                busy={busy}
-                canVerify={supported}
-                mutate={mutate}
-                onSessionExpired={expireShareSession}
-              />
-              <Card>
-                <Heading as="h2" size="5">
-                  API keys
-                </Heading>
-                <Text as="p">
-                  API keys can create and revoke shares. They cannot manage your account. Account
-                  changes require passkey verification within the last 12 hours.
-                </Text>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    mutate(async (signal, csrf) => {
-                      const result = await accountRequest<APIKey & { key: string }>("api-keys", {
-                        method: "POST",
-                        body: { name: keyName.trim() },
-                        csrf,
-                        signal,
-                      })
-                      if (signal.aborted) return
-                      setRawKey(result.key)
-                      setKeyName("")
-                    })
-                  }}
+    <>
+      <AppHeader
+        authenticated={account?.authenticated}
+        busy={busyAction === "Signing out…" && busy}
+        onLogout={logout}
+      />
+      <main className="app-shell">
+        {loading ? (
+          <LoadingPage subject="account" />
+        ) : (
+          <div className={`account-page${section === "shares" ? " management-shell" : ""}`}>
+            <Heading as="h1">
+              {section === "security"
+                ? "Morsel account"
+                : section === "shares"
+                  ? "Manage shares"
+                  : "Manage API keys"}
+            </Heading>
+            <nav className="management-navigation" aria-label="Management sections">
+              {sections.map((item) => (
+                <a
+                  key={item.section}
+                  href={item.href}
+                  aria-current={section === item.section ? "page" : undefined}
                 >
-                  <fieldset disabled={busy || !supported}>
-                    <label htmlFor="api-key-name">API key name</label>
-                    <input
-                      id="api-key-name"
-                      required
-                      maxLength={100}
-                      value={keyName}
-                      onChange={(event) => setKeyName(event.target.value)}
-                    />
-                    <Button type="submit" disabled={!keyName.trim()}>
-                      Create API key
-                    </Button>
-                  </fieldset>
-                </form>
-                {keys.length === 0 ? (
-                  <Text as="p">No API keys.</Text>
-                ) : (
-                  <ul className="account-list">
-                    {keys.map((key) => (
-                      <li key={key.id}>
-                        <div>
-                          <strong>{key.name}</strong> <code>{key.prefix}</code>
-                          <Text as="p" size="2">
-                            Created {formatDate(key.created_at)}
-                            {key.revoked_at ? ` · Revoked ${formatDate(key.revoked_at)}` : ""}
-                          </Text>
-                        </div>
-                        {!key.revoked_at && (
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+            <div role="alert" className="account-error">
+              {error}
+            </div>
+            <div role="status" aria-live="polite">
+              {busy ? busyAction : notice}
+            </div>
+            {!account ? (
+              <Button disabled={busy} onClick={() => void run((signal) => refreshAccount(signal))}>
+                Retry account
+              </Button>
+            ) : (
+              <>
+                {!supported && (
+                  <Text as="p" color="red">
+                    This browser does not support passkeys. Use a browser with WebAuthn support on
+                    HTTPS or localhost.
+                  </Text>
+                )}
+                {account.authenticated ? (
+                  <>
+                    {section === "api-keys" && rawKey && (
+                      <Card className="account-secret">
+                        <Heading as="h2" size="4">
+                          Save your new API key
+                        </Heading>
+                        <Text as="p">
+                          This key is shown only once. Copy it now. You cannot recover it after you
+                          dismiss it.
+                        </Text>
+                        <label htmlFor="new-api-key">New API key</label>
+                        <input
+                          id="new-api-key"
+                          readOnly
+                          value={rawKey}
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                        <Flex gap="3" wrap="wrap">
                           <Button
-                            color="red"
-                            variant="soft"
-                            disabled={busy || !supported}
-                            aria-label={`Revoke API key ${key.name}`}
+                            disabled={busy}
                             onClick={() =>
-                              mutate(async (signal, csrf) => {
-                                await accountRequest(`api-keys/${encodeURIComponent(key.id)}`, {
-                                  method: "DELETE",
-                                  csrf,
-                                  signal,
-                                })
-                                setNotice("API key revoked. Existing shares are unchanged.")
-                              })
+                              void run(async (signal) => {
+                                try {
+                                  await navigator.clipboard.writeText(rawKey)
+                                  if (!signal.aborted) setNotice("API key copied.")
+                                } catch {
+                                  if (!signal.aborted)
+                                    setError("Could not copy API key. Select and copy it manually.")
+                                }
+                              }, "Copying API key…")
                             }
                           >
-                            Revoke
+                            Copy API key
                           </Button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-              <Card>
-                <Heading as="h2" size="5">
-                  Passkeys
-                </Heading>
-                <Text as="p">Add a backup passkey. You must keep at least one passkey.</Text>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    mutate(async (signal, csrf) => {
-                      await authenticate("passkey", { name: passkeyName.trim() }, csrf, signal)
-                      setPasskeyName("")
-                      setNotice("Passkey added.")
-                    })
-                  }}
-                >
-                  <fieldset disabled={busy || !supported}>
-                    <label htmlFor="backup-passkey-name">Passkey name</label>
-                    <input
-                      id="backup-passkey-name"
-                      required
-                      maxLength={100}
-                      value={passkeyName}
-                      onChange={(event) => setPasskeyName(event.target.value)}
-                    />
-                    <Button type="submit" disabled={!passkeyName.trim()}>
-                      Add passkey
-                    </Button>
-                  </fieldset>
-                </form>
-                <ul className="account-list">
-                  {passkeys.map((passkey) => (
-                    <li key={passkey.id}>
-                      <div>
-                        <strong>{passkey.name}</strong>
-                        <Text as="p" size="2">
-                          Created {formatDate(passkey.created_at)}
+                          <Button
+                            variant="soft"
+                            disabled={busy}
+                            onClick={() => {
+                              setRawKey(null)
+                              setNotice("")
+                            }}
+                          >
+                            Dismiss API key
+                          </Button>
+                        </Flex>
+                      </Card>
+                    )}
+                    {section === "shares" && (
+                      <ShareManagement
+                        busy={busy}
+                        canVerify={supported}
+                        mutate={mutate}
+                        onSessionExpired={expireShareSession}
+                      />
+                    )}
+                    {section === "api-keys" && (
+                      <Card>
+                        <Heading as="h2" size="5" tabIndex={-1} ref={keyHeading}>
+                          API keys
+                        </Heading>
+                        <Text as="p">
+                          API keys can create and revoke shares. They cannot manage your account.
+                          Account changes require passkey verification within the last 12 hours.
                         </Text>
-                      </div>
-                      <Button
-                        color="red"
-                        variant="soft"
-                        disabled={busy || !supported || passkeys.length <= 1}
-                        aria-label={`Remove passkey ${passkey.name}`}
-                        onClick={() =>
-                          mutate(async (signal, csrf) => {
-                            await accountRequest(`passkeys/${encodeURIComponent(passkey.id)}`, {
-                              method: "DELETE",
-                              csrf,
-                              signal,
-                            })
-                            setNotice("Passkey removed.")
-                          })
-                        }
-                      >
-                        Remove
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            </>
-          ) : (
-            <>
-              <Card>
-                <Heading as="h2" size="5">
-                  {account.setup_required ? "Set up account" : "Sign in"}
-                </Heading>
-                {account.setup_required ? (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      signIn("setup")
-                    }}
-                  >
-                    <Text as="p">
-                      Use the one-time setup token from the operator command to register your first
-                      passkey.
-                    </Text>
-                    <fieldset disabled={busy || !supported}>
-                      <label htmlFor="setup-token">Setup token</label>
-                      <input
-                        id="setup-token"
-                        type="password"
-                        autoComplete="off"
-                        required
-                        value={token}
-                        onChange={(event) => setToken(event.target.value)}
-                      />
-                      <label htmlFor="setup-passkey-name">Passkey name</label>
-                      <input
-                        id="setup-passkey-name"
-                        required
-                        maxLength={100}
-                        value={passkeyName}
-                        onChange={(event) => setPasskeyName(event.target.value)}
-                      />
-                      <Button type="submit" disabled={!token.trim() || !passkeyName.trim()}>
-                        Set up account
-                      </Button>
-                    </fieldset>
-                  </form>
+                        <form
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            void mutateAction(async (signal, csrf) => {
+                              const result = await accountRequest<APIKey & { key: string }>(
+                                "api-keys",
+                                {
+                                  method: "POST",
+                                  body: { name: keyName.trim() },
+                                  csrf,
+                                  signal,
+                                },
+                              )
+                              if (signal.aborted) return
+                              setRawKey(result.key)
+                              setKeyName("")
+                            }, "Creating API key…")
+                          }}
+                        >
+                          <fieldset disabled={busy || !supported}>
+                            <label htmlFor="api-key-name">API key name</label>
+                            <input
+                              id="api-key-name"
+                              required
+                              maxLength={100}
+                              value={keyName}
+                              onChange={(event) => setKeyName(event.target.value)}
+                            />
+                            <Button type="submit" disabled={!keyName.trim()}>
+                              Create API key
+                            </Button>
+                          </fieldset>
+                        </form>
+                        {keys.length === 0 ? (
+                          <Text as="p">No API keys.</Text>
+                        ) : (
+                          <ul className="account-list">
+                            {keys.map((key) => (
+                              <li key={key.id}>
+                                <div>
+                                  <strong>{key.name}</strong> <code>{key.prefix}</code>
+                                  <Text as="p" size="2">
+                                    Created {formatDate(key.created_at)}
+                                    {key.revoked_at
+                                      ? ` · Revoked ${formatDate(key.revoked_at)}`
+                                      : ""}
+                                  </Text>
+                                </div>
+                                {!key.revoked_at && (
+                                  <Button
+                                    color="red"
+                                    variant="soft"
+                                    disabled={busy || !supported}
+                                    aria-label={`Revoke API key ${key.name}`}
+                                    onClick={(event) => {
+                                      revokeTrigger.current = event.currentTarget
+                                      setRevokeKey(key)
+                                    }}
+                                  >
+                                    Revoke
+                                  </Button>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {revokeKey && (
+                          <section
+                            aria-labelledby="revoke-key-title"
+                            className="share-confirmation"
+                          >
+                            <Heading as="h3" size="4" id="revoke-key-title">
+                              Revoke API key {revokeKey.name}?
+                            </Heading>
+                            <Text as="p">
+                              <strong>{revokeKey.name}</strong> <code>{revokeKey.prefix}</code>
+                            </Text>
+                            <Text as="p">
+                              Integrations using this key will lose access. This cannot be undone.
+                              Existing shares remain available and are not changed.
+                            </Text>
+                            <Text as="p">
+                              If required by the server, verify your passkey to continue.
+                            </Text>
+                            <Flex gap="3" wrap="wrap">
+                              <Button
+                                color="red"
+                                disabled={busy || !supported}
+                                onClick={() => {
+                                  const key = revokeKey
+                                  void mutateAction(async (signal, csrf) => {
+                                    await accountRequest(`api-keys/${encodeURIComponent(key.id)}`, {
+                                      method: "DELETE",
+                                      csrf,
+                                      signal,
+                                    })
+                                    if (signal.aborted) return
+                                    setRevokeKey(null)
+                                    setNotice("API key revoked. Existing shares are unchanged.")
+                                  }, "Revoking API key…").then((success) => {
+                                    if (success) keyHeading.current?.focus()
+                                  })
+                                }}
+                              >
+                                Confirm revoke API key
+                              </Button>
+                              <Button
+                                variant="soft"
+                                ref={cancelRevoke}
+                                disabled={busy}
+                                onClick={() => {
+                                  setRevokeKey(null)
+                                  revokeTrigger.current?.focus()
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            </Flex>
+                          </section>
+                        )}
+                      </Card>
+                    )}
+                    {section === "security" && (
+                      <Card>
+                        <Heading as="h2" size="5">
+                          Passkeys
+                        </Heading>
+                        <Text as="p">
+                          Add a backup passkey. You must keep at least one passkey.
+                        </Text>
+                        <form
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            void mutateAction(async (signal, csrf) => {
+                              setBusyAction("Registering passkey… Complete the passkey prompt.")
+                              await authenticate(
+                                "passkey",
+                                { name: passkeyName.trim() },
+                                csrf,
+                                signal,
+                              )
+                              if (signal.aborted) return
+                              setPasskeyName("")
+                              setNotice("Passkey added.")
+                            }, "Adding passkey…")
+                          }}
+                        >
+                          <fieldset disabled={busy || !supported}>
+                            <label htmlFor="backup-passkey-name">Passkey name</label>
+                            <input
+                              id="backup-passkey-name"
+                              required
+                              maxLength={100}
+                              value={passkeyName}
+                              onChange={(event) => setPasskeyName(event.target.value)}
+                            />
+                            <Button type="submit" disabled={!passkeyName.trim()}>
+                              Add passkey
+                            </Button>
+                          </fieldset>
+                        </form>
+                        <ul className="account-list">
+                          {passkeys.map((passkey) => (
+                            <li key={passkey.id}>
+                              <div>
+                                <strong>{passkey.name}</strong>
+                                <Text as="p" size="2">
+                                  Created {formatDate(passkey.created_at)}
+                                </Text>
+                              </div>
+                              <Button
+                                color="red"
+                                variant="soft"
+                                disabled={busy || !supported || passkeys.length <= 1}
+                                aria-label={`Remove passkey ${passkey.name}`}
+                                aria-describedby={
+                                  passkeys.length <= 1 ? "last-passkey-reason" : undefined
+                                }
+                                onClick={() =>
+                                  void mutateAction(async (signal, csrf) => {
+                                    await accountRequest(
+                                      `passkeys/${encodeURIComponent(passkey.id)}`,
+                                      {
+                                        method: "DELETE",
+                                        csrf,
+                                        signal,
+                                      },
+                                    )
+                                    if (!signal.aborted) setNotice("Passkey removed.")
+                                  }, "Removing passkey…")
+                                }
+                              >
+                                Remove
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                        {passkeys.length <= 1 && (
+                          <Text as="p" id="last-passkey-reason">
+                            You cannot remove your last passkey. Add a backup passkey first.
+                          </Text>
+                        )}
+                      </Card>
+                    )}
+                  </>
                 ) : (
-                  <Button disabled={busy || !supported} onClick={() => signIn("login")}>
-                    Sign in with passkey
-                  </Button>
+                  <>
+                    <Card>
+                      <Heading as="h2" size="5">
+                        {account.setup_required ? "Set up account" : "Sign in"}
+                      </Heading>
+                      {account.setup_required ? (
+                        <form
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            signIn("setup")
+                          }}
+                        >
+                          <Text as="p">
+                            Use the one-time setup token from the operator command to register your
+                            first passkey.
+                          </Text>
+                          <fieldset disabled={busy || !supported}>
+                            <label htmlFor="setup-token">Setup token</label>
+                            <input
+                              id="setup-token"
+                              type="password"
+                              autoComplete="off"
+                              required
+                              value={token}
+                              onChange={(event) => setToken(event.target.value)}
+                            />
+                            <label htmlFor="setup-passkey-name">Passkey name</label>
+                            <input
+                              id="setup-passkey-name"
+                              required
+                              maxLength={100}
+                              value={passkeyName}
+                              onChange={(event) => setPasskeyName(event.target.value)}
+                            />
+                            <Button type="submit" disabled={!token.trim() || !passkeyName.trim()}>
+                              Set up account
+                            </Button>
+                          </fieldset>
+                        </form>
+                      ) : (
+                        <Button disabled={busy || !supported} onClick={() => signIn("login")}>
+                          Sign in with passkey
+                        </Button>
+                      )}
+                    </Card>
+                    {!account.setup_required && (
+                      <Card>
+                        <Heading as="h2" size="5">
+                          Recover account
+                        </Heading>
+                        <Text as="p">
+                          Use a one-time operator recovery token. Recovery replaces all passkeys and
+                          signs out other sessions. Existing API keys stay active. Review and revoke
+                          keys after recovery if you suspect compromise.
+                        </Text>
+                        <form
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            signIn("recover")
+                          }}
+                        >
+                          <fieldset disabled={busy || !supported}>
+                            <label htmlFor="recovery-token">Recovery token</label>
+                            <input
+                              id="recovery-token"
+                              type="password"
+                              autoComplete="off"
+                              required
+                              value={token}
+                              onChange={(event) => setToken(event.target.value)}
+                            />
+                            <label htmlFor="recovery-passkey-name">Replacement passkey name</label>
+                            <input
+                              id="recovery-passkey-name"
+                              required
+                              maxLength={100}
+                              value={passkeyName}
+                              onChange={(event) => setPasskeyName(event.target.value)}
+                            />
+                            <Button type="submit" disabled={!token.trim() || !passkeyName.trim()}>
+                              Recover account
+                            </Button>
+                          </fieldset>
+                        </form>
+                      </Card>
+                    )}
+                  </>
                 )}
-              </Card>
-              {!account.setup_required && (
-                <Card>
-                  <Heading as="h2" size="5">
-                    Recover account
-                  </Heading>
-                  <Text as="p">
-                    Use a one-time operator recovery token. Recovery replaces all passkeys and signs
-                    out other sessions. Existing API keys stay active. Review and revoke keys after
-                    recovery if you suspect compromise.
-                  </Text>
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      signIn("recover")
-                    }}
-                  >
-                    <fieldset disabled={busy || !supported}>
-                      <label htmlFor="recovery-token">Recovery token</label>
-                      <input
-                        id="recovery-token"
-                        type="password"
-                        autoComplete="off"
-                        required
-                        value={token}
-                        onChange={(event) => setToken(event.target.value)}
-                      />
-                      <label htmlFor="recovery-passkey-name">Replacement passkey name</label>
-                      <input
-                        id="recovery-passkey-name"
-                        required
-                        maxLength={100}
-                        value={passkeyName}
-                        onChange={(event) => setPasskeyName(event.target.value)}
-                      />
-                      <Button type="submit" disabled={!token.trim() || !passkeyName.trim()}>
-                        Recover account
-                      </Button>
-                    </fieldset>
-                  </form>
-                </Card>
-              )}
-            </>
-          )}
-        </>
-      )}
-    </div>
+              </>
+            )}
+          </div>
+        )}
+      </main>
+    </>
   )
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }

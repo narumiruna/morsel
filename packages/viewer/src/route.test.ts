@@ -14,6 +14,22 @@ describe("parseRoute", () => {
     expect(parseRoute("/", "#/account")).toEqual({ kind: "not-found" })
   })
 
+  it("matches only explicit management and example routes", () => {
+    expect(parseRoute("/manage/shares", "")).toEqual({ kind: "management", section: "shares" })
+    expect(parseRoute("/manage/api-keys", "")).toEqual({ kind: "management", section: "api-keys" })
+    expect(parseRoute("/example", "")).toEqual({ kind: "example" })
+    for (const path of [
+      "/manage",
+      "/manage/",
+      "/manage/shares/",
+      "/manage/security",
+      "/example/",
+    ]) {
+      expect(parseRoute(path, "")).toEqual({ kind: "not-found" })
+    }
+    expect(parseRoute("/", "#/manage/shares")).toEqual({ kind: "not-found" })
+  })
+
   it("parses path-based preview routes before hash routes", () => {
     expect(parseRoute(`/s/${token}`, "")).toEqual({ kind: "share", token })
     expect(parseRoute("/s/short", "")).toEqual({ kind: "invalid-share" })

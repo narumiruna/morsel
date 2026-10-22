@@ -49,7 +49,7 @@ func TestAccountShareLifecycle(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Items) != 1 || page.Items[0].ID != id || page.Items[0].Label != "# Private Markdown" || page.Items[0].Status != "active" || page.NextCursor != "" || strings.Contains(w.Body.String(), `"content"`) {
+	if len(page.Items) != 1 || page.Items[0].ID != id || page.Items[0].Label != "Private Markdown" || page.Items[0].Status != "active" || page.NextCursor != "" || strings.Contains(w.Body.String(), `"content"`) {
 		t.Fatalf("metadata: %s", w.Body.String())
 	}
 	var fields map[string]json.RawMessage
@@ -164,6 +164,9 @@ func TestAccountShareParametersAndPagination(t *testing.T) {
 	b := enroll(t, s, pool)
 	if _, err := pool.Exec(t.Context(), `INSERT INTO shares(id,token_hash,content)
 		SELECT md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'row '||n FROM generate_series(1,26) n`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := share.BackfillLabels(t.Context(), pool, 100); err != nil {
 		t.Fatal(err)
 	}
 	w := b.request("GET", "/v1/account/shares", nil)

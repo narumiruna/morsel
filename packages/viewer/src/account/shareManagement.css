@@ -1,0 +1,205 @@
+.account-shares {
+  min-width: 0;
+}
+
+.account-shares .share-help {
+  margin-block: 0.5rem;
+  font-size: var(--font-size-2);
+}
+
+.account-shares .share-help summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--accent-12);
+}
+
+.account-shares .share-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-block: 0.75rem;
+}
+
+.account-shares .share-controls label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: var(--font-size-2);
+  font-weight: 500;
+}
+
+.account-shares .share-search {
+  flex: 1 1 17rem;
+  min-width: 0;
+}
+
+.account-shares .share-search > div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.account-shares .share-search input {
+  min-width: 0;
+}
+
+.account-shares .share-search button {
+  flex-shrink: 0;
+}
+
+.account-shares .share-select select {
+  max-width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid var(--gray-10);
+  border-radius: var(--radius-2);
+  padding: 0.5rem;
+  background: var(--color-background);
+  color: var(--gray-12);
+  font: inherit;
+}
+
+.account-shares .share-page-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  margin-block: 0.5rem;
+  color: var(--gray-11);
+  font-size: var(--font-size-1);
+}
+
+.account-shares .share-feedback {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.account-shares .share-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-2);
+  text-align: left;
+}
+
+.account-shares .share-table th,
+.account-shares .share-table td {
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid var(--gray-a5);
+  vertical-align: middle;
+}
+
+.account-shares .share-table th:first-child,
+.account-shares .share-table td:first-child {
+  padding-left: 0;
+}
+
+.account-shares .share-table th:last-child,
+.account-shares .share-table td:last-child {
+  padding-right: 0;
+}
+
+.account-shares .share-table thead th {
+  color: var(--gray-11);
+  font-weight: 500;
+}
+
+.account-shares .share-title {
+  width: 34%;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+
+.account-shares .share-title small {
+  display: block;
+  color: var(--gray-11);
+  font-weight: 400;
+}
+
+.account-shares .share-created {
+  font-size: var(--font-size-1);
+}
+
+.account-shares .share-actions {
+  white-space: nowrap;
+}
+
+.account-shares .share-actions button {
+  min-height: 2.25rem;
+  padding-inline: 0.5rem;
+}
+
+.account-shares .share-actions button + button {
+  margin-left: 0.375rem;
+}
+
+.account-shares :is(button, input, select, summary):focus-visible,
+.account-shares [tabindex="-1"]:focus {
+  outline: 2px solid var(--accent-12);
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .account-shares .share-controls {
+    align-items: stretch;
+  }
+
+  .account-shares .share-search {
+    flex-basis: 100%;
+  }
+
+  .account-shares .share-select {
+    flex: 1 1 8rem;
+    min-width: 0;
+  }
+
+  .account-shares .share-select select {
+    width: 100%;
+  }
+
+  .account-shares .share-table,
+  .account-shares .share-table tbody {
+    display: block;
+  }
+
+  .account-shares .share-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .account-shares .share-table tbody tr {
+    display: grid;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--gray-a6);
+    border-radius: var(--radius-2);
+  }
+
+  .account-shares .share-table tbody :is(th, td) {
+    display: block;
+    width: auto;
+    padding: 0;
+    border: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .account-shares .share-table [data-label]::before {
+    content: attr(data-label) ": ";
+    color: var(--gray-11);
+  }
+
+  .account-shares .share-actions {
+    white-space: normal;
+    margin-top: 0.25rem;
+  }
+
+  .account-shares .share-actions button {
+    min-height: 2.75rem;
+  }
+}

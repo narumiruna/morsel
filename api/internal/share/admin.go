@@ -3,18 +3,22 @@ package share
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
 var ErrInvalidAdminParams = errors.New("invalid share list parameters")
+var ErrLabelBackfillRequired = errors.New("share label backfill required")
 
 // AdminMetadata contains no capability data or full content.
 type AdminMetadata struct {
@@ -34,21 +38,26 @@ type AdminDetail struct {
 }
 
 type AdminPage struct {
-	Items      []AdminMetadata `json:"items"`
-	NextCursor string          `json:"next_cursor,omitempty"`
+	Items         []AdminMetadata `json:"items"`
+	NextCursor    string          `json:"next_cursor,omitempty"`
+	MatchingCount int64           `json:"matching_count"`
 }
 
 type AdminListParams struct {
 	Status string
 	Limit  int
 	Cursor string
+	Q      string
+	Sort   string
 }
 
 type adminCursor struct {
-	Version   int        `json:"v"`
-	Status    string     `json:"status"`
-	CreatedAt time.Time  `json:"created_at"`
-	ID        *uuid.UUID `json:"id"`
+	Version    int        `json:"v"`
+	Status     string     `json:"status"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ID         *uuid.UUID `json:"id"`
+	Sort       string     `json:"sort,omitempty"`
+	SearchHash string     `json:"search_hash,omitempty"`
 }
 
 func ValidAdminStatus(status string) bool {
@@ -59,7 +68,7 @@ func ValidAdminStatus(status string) bool {
 	return false
 }
 
-func decodeAdminCursor(value, status string) (*adminCursor, error) {
+func decodeAdminCursor(value string, p AdminListParams) (*adminCursor, error) {
 	if value == "" {
 		return nil, nil
 	}
@@ -79,7 +88,19 @@ func decodeAdminCursor(value, status string) (*adminCursor, error) {
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return nil, ErrInvalidAdminParams
 	}
-	if cursor.Version != 1 || cursor.Status != status || cursor.CreatedAt.IsZero() || cursor.ID == nil {
+	if cursor.Status != p.Status || cursor.CreatedAt.IsZero() || cursor.ID == nil {
+		return nil, ErrInvalidAdminParams
+	}
+	switch cursor.Version {
+	case 1:
+		if p.Q != "" || p.Sort != "newest" || cursor.Sort != "" || cursor.SearchHash != "" {
+			return nil, ErrInvalidAdminParams
+		}
+	case 2:
+		if cursor.Sort != p.Sort || cursor.SearchHash != searchHash(p.Q) {
+			return nil, ErrInvalidAdminParams
+		}
+	default:
 		return nil, ErrInvalidAdminParams
 	}
 	return &cursor, nil
@@ -100,28 +121,36 @@ const adminStatusSQL = `CASE
 	WHEN max_views IS NOT NULL AND view_count >= max_views THEN 'view_limit_exhausted'
 	ELSE 'active' END`
 
-// Use the Unicode White_Space set independently of the database locale.
-const adminWhitespaceSQL = `E' \t\n\v\f\r\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000'`
+const adminColumnsSQL = `id, COALESCE(admin_label, '') AS label, created_at, expires_at, max_views, view_count, revoked_at, ` + adminStatusSQL + ` AS status`
 
-// Labels are bounded in PostgreSQL so list results never load full Markdown.
-const adminLabelSQL = `left(COALESCE(preview_title,
-	(SELECT btrim(line, ` + adminWhitespaceSQL + `)
-	 FROM regexp_split_to_table(content, E'\n') WITH ORDINALITY AS lines(line, position)
-	 WHERE btrim(line, ` + adminWhitespaceSQL + `) <> '' ORDER BY position LIMIT 1), 'Untitled'), 80)`
+func searchHash(q string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(q)))
+}
 
-const adminColumnsSQL = `id, ` + adminLabelSQL + `, created_at, expires_at, max_views, view_count, revoked_at, ` + adminStatusSQL
-
-func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPage, error) {
+func NormalizeAdminQuery(p AdminListParams) (AdminListParams, error) {
 	if p.Status == "" {
 		p.Status = "all"
+	}
+	if p.Sort == "" {
+		p.Sort = "newest"
 	}
 	if p.Limit == 0 {
 		p.Limit = 25
 	}
-	if !ValidAdminStatus(p.Status) || p.Limit < 1 || p.Limit > 100 {
-		return AdminPage{}, ErrInvalidAdminParams
+	p.Q = strings.TrimSpace(p.Q)
+	if !ValidAdminStatus(p.Status) || (p.Sort != "newest" && p.Sort != "oldest") || p.Limit < 1 || p.Limit > 100 || !utf8.ValidString(p.Q) || utf8.RuneCountInString(p.Q) > 100 {
+		return p, ErrInvalidAdminParams
 	}
-	cursor, err := decodeAdminCursor(p.Cursor, p.Status)
+	return p, nil
+}
+
+func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPage, error) {
+	var err error
+	p, err = NormalizeAdminQuery(p)
+	if err != nil {
+		return AdminPage{}, err
+	}
+	cursor, err := decodeAdminCursor(p.Cursor, p)
 	if err != nil {
 		return AdminPage{}, err
 	}
@@ -130,10 +159,14 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 	if cursor != nil {
 		beforeTime, beforeID = &cursor.CreatedAt, cursor.ID
 	}
-	rows, err := r.tx.Query(ctx, `SELECT `+adminColumnsSQL+` FROM shares
-		WHERE ($1 = 'all' OR (`+adminStatusSQL+`) = $1)
-		AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3::uuid))
-		ORDER BY created_at DESC, id DESC LIMIT $4`, p.Status, beforeTime, beforeID, p.Limit+1)
+	// PostgreSQL text cannot contain NUL, so such a literal query cannot
+	// match any label. A NULL search value gives that result without sending
+	// an invalid text parameter; the pending-label check still applies.
+	var search any = p.Q
+	if strings.ContainsRune(p.Q, '\x00') {
+		search = nil
+	}
+	rows, err := r.tx.Query(ctx, adminListSQL(p.Sort), p.Status, beforeTime, beforeID, p.Limit+1, search)
 	if err != nil {
 		return AdminPage{}, fmt.Errorf("list shares: %w", err)
 	}
@@ -141,10 +174,16 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 	page := AdminPage{Items: []AdminMetadata{}}
 	for rows.Next() {
 		var item AdminMetadata
-		if err := scanAdmin(rows, &item); err != nil {
+		var pending bool
+		if err := rows.Scan(&page.MatchingCount, &pending, &item.ID, &item.Label, &item.CreatedAt, &item.ExpiresAt, &item.MaxViews, &item.ViewCount, &item.RevokedAt, &item.Status); err != nil {
 			return AdminPage{}, fmt.Errorf("scan share metadata: %w", err)
 		}
-		page.Items = append(page.Items, item)
+		if pending {
+			return AdminPage{}, ErrLabelBackfillRequired
+		}
+		if item.Label != "" {
+			page.Items = append(page.Items, item)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return AdminPage{}, fmt.Errorf("list shares: %w", err)
@@ -152,13 +191,38 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 	if len(page.Items) > p.Limit {
 		page.Items = page.Items[:p.Limit]
 		last := page.Items[len(page.Items)-1]
-		b, err := json.Marshal(adminCursor{Version: 1, Status: p.Status, CreatedAt: last.CreatedAt, ID: &last.ID})
+		b, err := json.Marshal(adminCursor{Version: 2, Status: p.Status, CreatedAt: last.CreatedAt, ID: &last.ID, Sort: p.Sort, SearchHash: searchHash(p.Q)})
 		if err != nil {
 			return AdminPage{}, err
 		}
 		page.NextCursor = base64.RawURLEncoding.EncodeToString(b)
 	}
 	return page, nil
+}
+
+// One statement supplies count and page from the same snapshot and database
+// time. strpos has no SQL wildcard/escape syntax. The pending-label check
+// prevents incomplete legacy results, including for zero-match queries.
+func adminListSQL(sort string) string {
+	direction, comparison := "DESC", "<"
+	if sort == "oldest" {
+		direction, comparison = "ASC", ">"
+	}
+	return `WITH matching AS NOT MATERIALIZED (
+  SELECT ` + adminColumnsSQL + ` FROM shares
+  WHERE ($1 = 'all' OR (` + adminStatusSQL + `) = $1)
+  AND strpos(lower(admin_label), lower($5)) > 0
+ ), totals AS (
+  SELECT count(*) AS matching_count,
+   EXISTS(SELECT 1 FROM shares WHERE admin_label IS NULL) AS pending FROM matching
+ ) SELECT totals.matching_count, totals.pending,
+  COALESCE(page.id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(page.label, ''), COALESCE(page.created_at, statement_timestamp()),
+  page.expires_at, page.max_views, COALESCE(page.view_count,0), page.revoked_at, COALESCE(page.status,'')
+ FROM totals LEFT JOIN LATERAL (
+  SELECT * FROM matching WHERE ($2::timestamptz IS NULL OR (created_at,id) ` + comparison + ` ($2,$3::uuid))
+  ORDER BY created_at ` + direction + `, id ` + direction + ` LIMIT $4
+ ) page ON true`
 }
 
 func scanAdmin(row pgx.Row, item *AdminMetadata, extra ...any) error {
@@ -174,6 +238,9 @@ func (r *AdminRepository) Detail(ctx context.Context, id uuid.UUID) (AdminDetail
 	}
 	if err != nil {
 		return AdminDetail{}, fmt.Errorf("get share detail: %w", err)
+	}
+	if detail.Label == "" {
+		return AdminDetail{}, ErrLabelBackfillRequired
 	}
 	return detail, nil
 }
