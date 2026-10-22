@@ -12,7 +12,7 @@ export function AppHeader({
   onLogout?: () => void
 }) {
   return (
-    <header className="app-header">
+    <header className={`app-header${authenticated ? " app-header--authenticated" : ""}`}>
       <a className="app-brand" href="/" aria-label="Morsel home">
         Morsel
       </a>

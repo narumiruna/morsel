@@ -105,13 +105,14 @@ The runner rejects dirty, unknown, or gapped migration histories. Apply migratio
 
 ## Task-oriented UI validation
 
-The focused component tests cover URL validation, exact-one public reads after submission, separate management sections, cancellation, one-time-key navigation warnings, confirmations, and search races. The browser suite adds:
+The focused component tests cover URL validation, exact-one public reads after submission, separate management sections, cancellation, one-time-key replacement protection and focus, confirmations, list-only retries, retained share controls, and search races. The browser suite adds:
 
-- 1280×800 list density with at least five visible ordinary rows, plus 375px overflow checks.
+- 1280×800 list density with at least five visible ordinary rows. At 375×800, the first share begins within the first 450px. Preview overflow checks also cover 320px.
 - Light, dark, Sepia, Sage, Midnight, and system palette checks on homepage and share management.
 - Browser axe WCAG A/AA checks, native form-boundary contrast of at least 3:1, and visible keyboard focus rings of at least 3:1.
-- Keyboard preview/confirmation focus restoration, menu navigation, and native history back/forward handling for undismissed keys.
-- Fixture screenshots under ignored `packages/viewer/test-results/task-ui-*/`. No production content or real keys are used.
+- Bounded preview dialogs with keyboard focus containment, list-position restoration, and Escape handling for nested expanded charts.
+- Key-creation focus, passkey confirmation/cancellation, list-only retries, retained share controls across section/history navigation, and native history warnings for undismissed keys.
+- Fixture screenshots under ignored `packages/viewer/test-results/task-ui-*/`: list/home captures, `manage-preview-<width>.png`, and `manage-api-key-mobile.png`. No production content or real keys are used.
 
 Run the standard commands above and `npm run test:auth:browser` against test-only PostgreSQL. Required authentication browser tests use the Go-built viewer and verify real passkeys, route refresh, legacy labels, and session/recovery behavior. The separate opt-in production release scenario is not a required local gate and must not be run against production for this work. Native screen-reader and subjective usability acceptance remain external review items in [deployment handoff](deployment.md#external-review-and-release-handoff).
 

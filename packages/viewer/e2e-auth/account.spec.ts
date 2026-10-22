@@ -219,12 +219,37 @@ test("required real-backend account and API key lifecycle", async ({
       page.getByRole("button", { name: "Remove passkey Backup browser passkey", exact: true }),
     ).toBeVisible()
     await page.unroute("**/v1/auth/passkey/begin", switchDevice)
-    await page
-      .getByRole("button", { name: "Remove passkey Primary browser passkey", exact: true })
-      .click()
+    const removePrimary = page.getByRole("button", {
+      name: "Remove passkey Primary browser passkey",
+      exact: true,
+    })
+    let removals = 0
+    const observeRemoval = (request: import("@playwright/test").Request) => {
+      if (
+        new URL(request.url()).pathname.startsWith("/v1/passkeys/") &&
+        request.method() === "DELETE"
+      )
+        removals += 1
+    }
+    page.on("request", observeRemoval)
+    await removePrimary.click()
     await expect(
-      page.getByRole("button", { name: "Remove passkey Primary browser passkey", exact: true }),
-    ).toHaveCount(0)
+      page.getByRole("heading", {
+        name: "Remove passkey Primary browser passkey?",
+        exact: true,
+      }),
+    ).toBeVisible()
+    await page.getByRole("button", { name: "Cancel", exact: true }).click()
+    await expect(removePrimary).toBeFocused()
+    expect(removals).toBe(0)
+    const afterCancel = await page.request.get("/v1/passkeys")
+    expect(await afterCancel.json()).toHaveLength(2)
+    await removePrimary.click()
+    await page.getByRole("button", { name: "Confirm remove passkey", exact: true }).click()
+    await expect(removePrimary).toHaveCount(0)
+    expect(removals).toBe(1)
+    page.off("request", observeRemoval)
+    await expect(page.getByRole("heading", { name: "Passkeys", exact: true })).toBeFocused()
     const list = await page.request.get("/v1/passkeys")
     const body = await list.json()
     const passkeys = Array.isArray(body) ? body : body.passkeys
@@ -417,6 +442,7 @@ test("required real-backend account and API key lifecycle", async ({
       contentType: "image/png",
     })
     await page.setViewportSize({ width: 1280, height: 800 })
+    await page.getByRole("button", { name: "Close share details", exact: true }).click()
     await page.getByRole("button", { name: "Revoke share Managed history", exact: true }).click()
     const removed = page.waitForResponse(
       (response) => response.url().endsWith(path) && response.request().method() === "DELETE",
@@ -455,7 +481,11 @@ test("required real-backend account and API key lifecycle", async ({
       page.getByRole("heading", { name: "Legacy before account", exact: true }),
     ).toBeVisible()
     await command(helper, ["expire-sessions"])
+    await page.getByRole("button", { name: "Close share details", exact: true }).click()
     await page.getByRole("button", { name: "Refresh shares", exact: true }).click()
+    await expect(
+      page.getByRole("button", { name: "Sign in with passkey", exact: true }),
+    ).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "Legacy before account", exact: true }),
     ).toHaveCount(0)

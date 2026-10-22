@@ -14,6 +14,7 @@
 }
 
 .account-shares .share-controls {
+  clear: both;
   display: flex;
   align-items: end;
   flex-wrap: wrap;
@@ -167,9 +168,71 @@
   outline-offset: 3px;
 }
 
+.rt-DialogContent.share-admin-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: calc(100vw - 2rem);
+  height: min(48rem, calc(100dvh - 6rem));
+  padding: 1rem;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.share-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.share-preview-close {
+  flex-shrink: 0;
+  min-height: 2.75rem;
+}
+
+.share-preview-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem;
+}
+
+.share-admin-detail [tabindex="-1"]:focus {
+  outline: 2px solid var(--accent-12);
+  outline-offset: 3px;
+}
+
 @media (max-width: 600px) {
+  .account-shares .share-toolbar {
+    float: right;
+    margin-left: 0.5rem;
+  }
+
+  .account-shares #shares-heading:not(:focus) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .account-shares .share-help {
+    min-height: 2.75rem;
+    margin-block: 0;
+  }
+
+  .account-shares .share-help summary {
+    padding-block: 0.625rem;
+  }
+
+  .account-shares .share-help p {
+    clear: both;
+  }
+
   .account-shares .share-controls {
     align-items: stretch;
+    margin-block: 0.5rem;
   }
 
   .account-shares .share-search {

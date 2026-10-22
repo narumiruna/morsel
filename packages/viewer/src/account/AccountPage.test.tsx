@@ -36,7 +36,9 @@ let account: Account
 let passkeys: Passkey[]
 let keys: APIKey[]
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>
-let fail: { path: string; status: number; code?: string; message?: string } | undefined
+let fail:
+  | { path: string; status: number; code?: string; message?: string; method?: string }
+  | undefined
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
@@ -65,13 +67,13 @@ beforeEach(() => {
   fail = undefined
   fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const path = String(input).replace("/v1/", "")
-    if (fail?.path === path)
+    if (fail?.path === path && (!fail.method || fail.method === init?.method))
       return json(
         { code: fail.code ?? "rejected", message: fail.message ?? "Request rejected." },
         fail.status,
       )
     if (path === "account") return json(account)
-    if (path.startsWith("account/shares?")) return json({ items: [] })
+    if (path.startsWith("account/shares?")) return json({ items: [], matching_count: 0 })
     if (path === "passkeys" && init?.method === "GET") return json(passkeys)
     if (path === "api-keys" && init?.method === "GET") return json(keys)
     if (path.endsWith("/begin"))
@@ -98,7 +100,7 @@ beforeEach(() => {
     }
     if (path === "api-keys" && init?.method === "POST") {
       const key = {
-        id: "key/id",
+        id: keys.length === 0 ? "key/id" : `key/id-${keys.length}`,
         name: JSON.parse(String(init.body)).name,
         prefix: "morsel_test",
         created_at: created,
@@ -212,6 +214,16 @@ describe("AccountPage", () => {
     await signedIn()
     const input = await createKey()
     expect(input).toHaveValue("raw-secret-only-once")
+    expect(screen.getByRole("heading", { name: "Save your new API key" })).toHaveFocus()
+    expect(screen.getByRole("heading", { name: "Save your new API key" })).toHaveAttribute(
+      "tabindex",
+      "-1",
+    )
+    expect(input).toHaveAccessibleDescription(
+      "This key is shown only once. Copy it now. You cannot recover it after you dismiss it.",
+    )
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("API key created."))
+    expect(screen.getByRole("status")).not.toHaveTextContent("raw-secret-only-once")
     expect(fetchMock.mock.calls.map(([url]) => url)).toContain("/v1/auth/verify/finish")
     const verifyIndex = fetchMock.mock.calls.findIndex(([url]) => url === "/v1/auth/verify/finish")
     const createIndex = fetchMock.mock.calls.findIndex(
@@ -225,13 +237,15 @@ describe("AccountPage", () => {
       "X-CSRF-Token",
       "csrf-secret",
     )
-    expect(screen.getByText(/shown only once/)).toBeInTheDocument()
+    expect(screen.getByText(/This key is shown only once/)).toBeInTheDocument()
     const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
     await user.click(screen.getByRole("button", { name: "Copy API key" }))
     await screen.findByText("API key copied.")
     expect(copy).toHaveBeenCalledWith("raw-secret-only-once")
     await user.click(screen.getByRole("button", { name: "Dismiss API key" }))
     expect(screen.queryByLabelText("New API key")).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "API keys" })).toHaveFocus()
+    expect(screen.getByLabelText("API key name")).toBeEnabled()
     expect(storage).not.toHaveBeenCalled()
     expect(logs).not.toHaveBeenCalled()
   })
@@ -264,11 +278,160 @@ describe("AccountPage", () => {
     })
     expect(callsTo("auth/passkey/finish")[0]?.[1]?.body).toBe(JSON.stringify(credential))
     await user.click(remove)
+    await user.click(screen.getByRole("button", { name: "Confirm remove passkey" }))
     await waitFor(() => expect(screen.queryByText("Phone")).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Passkeys" })).toHaveFocus())
     expect(callsTo("auth/verify/begin")).toHaveLength(2)
     expect(screen.getByRole("button", { name: "Remove passkey Laptop" })).toBeDisabled()
     expect(await axe.run(container).then((result) => result.violations)).toEqual([])
   })
+
+  it("confirms a named passkey removal and cancels without requests", async () => {
+    passkeys.push({ id: "phone/device", name: "Phone", created_at: created })
+    await signedIn("security")
+    const user = userEvent.setup()
+    const remove = screen.getByRole("button", { name: "Remove passkey Phone" })
+    const requests = fetchMock.mock.calls.length
+    await user.click(remove)
+    expect(screen.getByRole("heading", { name: "Remove passkey Phone?" })).toBeInTheDocument()
+    expect(
+      screen.getByText(/You will no longer be able to sign in with this passkey/),
+    ).toHaveTextContent("Keep another passkey that you can use to sign in. This cannot be undone.")
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(remove).toHaveFocus()
+    expect(fetchMock.mock.calls).toHaveLength(requests)
+    expect(screen.queryByRole("button", { name: "Confirm remove passkey" })).not.toBeInTheDocument()
+    await user.click(remove)
+    await user.click(screen.getByRole("button", { name: "Confirm remove passkey" }))
+    await waitFor(() => expect(remove).not.toBeInTheDocument())
+    expect(callsTo("passkeys/phone%2Fdevice")).toHaveLength(1)
+    expect(screen.getByRole("status")).toHaveTextContent("Passkey removed.")
+    expect(screen.getByRole("heading", { name: "Passkeys" })).toHaveFocus()
+  })
+
+  it("blocks passkey removal controls during verification and keeps confirmation after failure", async () => {
+    passkeys.push({ id: "backup", name: "Phone", created_at: created })
+    let reject: ((reason: unknown) => void) | undefined
+    vi.mocked(startAuthentication).mockReturnValueOnce(
+      new Promise((_, fail) => {
+        reject = fail
+      }),
+    )
+    await signedIn("security")
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "Remove passkey Phone" }))
+    const confirm = screen.getByRole("button", { name: "Confirm remove passkey" })
+    await user.click(confirm)
+    await waitFor(() => expect(startAuthentication).toHaveBeenCalledOnce())
+    expect(confirm).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Remove passkey Laptop" })).toBeDisabled()
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Verify your passkey to continue: Removing passkey",
+    )
+    await user.click(confirm)
+    await act(async () => {
+      reject?.(new DOMException("cancelled", "NotAllowedError"))
+    })
+    await screen.findByText(/cancelled or timed out/)
+    expect(confirm).toBeEnabled()
+    expect(callsTo("passkeys/backup")).toHaveLength(0)
+    expect(callsTo("auth/verify/finish")).toHaveLength(0)
+    await user.click(confirm)
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Remove passkey Phone" }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(callsTo("passkeys/backup")).toHaveLength(1)
+    expect(screen.getByRole("heading", { name: "Passkeys" })).toHaveFocus()
+  })
+
+  it.each([
+    ["api-keys", "API keys", "No API keys."],
+    ["security", "passkeys", "No passkeys."],
+  ] as const)(
+    "retries an initial %s list failure without mutations or authentication",
+    async (section, label, empty) => {
+      const path = section === "security" ? "passkeys" : "api-keys"
+      passkeys = []
+      fail = { path, status: 500, method: "GET" }
+      await signedIn(section)
+      expect(screen.getByText(`Could not load ${label}. Request rejected.`)).toBeInTheDocument()
+      expect(screen.queryByText(empty)).not.toBeInTheDocument()
+      expect(screen.queryByText(/You cannot remove your last passkey/)).not.toBeInTheDocument()
+      const requests = fetchMock.mock.calls.length
+      fail = undefined
+      await userEvent.setup().click(screen.getByRole("button", { name: `Retry ${label}` }))
+      await screen.findByText(empty)
+      expect(
+        fetchMock.mock.calls.slice(requests).map(([url, init]) => [url, init?.method]),
+      ).toEqual([[`/v1/${path}`, "GET"]])
+      expect(startAuthentication).not.toHaveBeenCalled()
+      expect(screen.queryByRole("button", { name: `Retry ${label}` })).not.toBeInTheDocument()
+    },
+  )
+
+  it.each(["create key", "revoke key", "add passkey", "remove passkey"] as const)(
+    "keeps %s success separate from a failed list refresh and retries only the GET",
+    async (operation) => {
+      const isKey = operation.endsWith("key") && !operation.endsWith("passkey")
+      const section = isKey ? "api-keys" : "security"
+      const path = isKey ? "api-keys" : "passkeys"
+      const label = isKey ? "API keys" : "passkeys"
+      if (operation === "revoke key") {
+        keys = [
+          { id: "key/id", name: "CLI", prefix: "prefix", created_at: created, revoked_at: null },
+        ]
+      }
+      if (operation === "remove passkey") {
+        passkeys.push({ id: "backup", name: "Phone", created_at: created })
+      }
+      await signedIn(section)
+      fail = { path, status: 500, method: "GET" }
+      const user = userEvent.setup()
+      if (operation === "create key") await createKey()
+      else if (operation === "revoke key") await confirmRevoke()
+      else if (operation === "add passkey") {
+        await user.type(screen.getByLabelText("Passkey name"), "Phone")
+        await user.click(screen.getByRole("button", { name: "Add passkey" }))
+      } else {
+        await user.click(screen.getByRole("button", { name: "Remove passkey Phone" }))
+        await user.click(screen.getByRole("button", { name: "Confirm remove passkey" }))
+      }
+      await screen.findByText(`Could not load ${label}. Request rejected.`)
+      const success = {
+        "create key": "API key created.",
+        "revoke key": "API key revoked.",
+        "add passkey": "Passkey added.",
+        "remove passkey": "Passkey removed.",
+      }[operation]
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(success))
+      expect(document.querySelector(".account-error")).toBeEmptyDOMElement()
+      if (operation === "create key") {
+        expect(screen.getByLabelText("New API key")).toHaveValue("raw-secret-only-once")
+        expect(screen.getByRole("button", { name: "Create API key" })).toBeDisabled()
+      }
+      if (operation === "remove passkey") {
+        expect(
+          screen.queryByRole("button", { name: "Confirm remove passkey" }),
+        ).not.toBeInTheDocument()
+        expect(screen.getByRole("heading", { name: "Passkeys" })).toHaveFocus()
+      }
+      const requests = fetchMock.mock.calls.length
+      fail = undefined
+      await user.click(screen.getByRole("button", { name: `Retry ${label}` }))
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: `Retry ${label}` })).not.toBeInTheDocument(),
+      )
+      expect(
+        fetchMock.mock.calls.slice(requests).map(([url, init]) => [url, init?.method]),
+      ).toEqual([[`/v1/${path}`, "GET"]])
+      if (operation === "create key")
+        expect(screen.getByLabelText("New API key")).toHaveValue("raw-secret-only-once")
+    },
+  )
 
   it("uses fresh server state to skip verification for multiple actions and keeps the raw key", async () => {
     await signedIn()
@@ -389,7 +552,7 @@ describe("AccountPage", () => {
   it("verifies on the next user retry after verification expires during a mutation", async () => {
     await signedIn()
     account = { ...account, verification_required: false }
-    fail = { path: "api-keys", status: 403, code: "verification_required" }
+    fail = { path: "api-keys", status: 403, code: "verification_required", method: "POST" }
     const user = userEvent.setup()
     await user.type(screen.getByLabelText("API key name"), "CLI")
     await user.click(screen.getByRole("button", { name: "Create API key" }))
@@ -403,16 +566,22 @@ describe("AccountPage", () => {
     expect(callsTo("api-keys").filter(([, init]) => init?.method === "POST")).toHaveLength(2)
   })
 
-  it("keeps a displayed raw key when a later creation preflight fails", async () => {
+  it("blocks a second key creation, including direct submission, until explicit dismissal", async () => {
     await signedIn()
     await createKey()
-    fail = { path: "account", status: 500 }
+    const requests = fetchMock.mock.calls.length
     const user = userEvent.setup()
-    await user.type(screen.getByLabelText("API key name"), "Another key")
-    await user.click(screen.getByRole("button", { name: "Create API key" }))
-    await screen.findByText("Request rejected.")
+    const button = screen.getByRole("button", { name: "Create API key" })
+    expect(button).toBeDisabled()
+    expect(screen.getByLabelText("API key name")).toBeDisabled()
+    expect(screen.getByText(/Save and dismiss your new API key/)).toBeInTheDocument()
+    await user.click(button)
+    fireEvent.submit(button.closest("form") as HTMLFormElement)
+    expect(fetchMock.mock.calls).toHaveLength(requests)
     expect(screen.getByLabelText("New API key")).toHaveValue("raw-secret-only-once")
-    expect(callsTo("api-keys").filter(([, init]) => init?.method === "POST")).toHaveLength(1)
+    await user.click(screen.getByRole("button", { name: "Dismiss API key" }))
+    await createKey()
+    expect(callsTo("api-keys").filter(([, init]) => init?.method === "POST")).toHaveLength(2)
   })
 
   it("clears the raw key on logout and uses CSRF", async () => {
@@ -513,8 +682,13 @@ describe("AccountPage", () => {
     await signedIn("security")
     passkeys = passkeys.slice(0, 1)
     fail = { path: "passkeys/first", status: 409, message: "Cannot remove the last passkey." }
-    await userEvent.setup().click(screen.getByRole("button", { name: "Remove passkey Laptop" }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "Remove passkey Laptop" }))
+    await user.click(screen.getByRole("button", { name: "Confirm remove passkey" }))
     await screen.findByText("Cannot remove the last passkey.")
+    expect(screen.getByRole("button", { name: "Confirm remove passkey" })).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.getByRole("heading", { name: "Passkeys" })).toHaveFocus()
     expect(screen.getByRole("button", { name: "Remove passkey Laptop" })).toBeDisabled()
     expect(screen.queryByText("Phone")).not.toBeInTheDocument()
   })
@@ -613,6 +787,64 @@ describe("AccountPage", () => {
     })
     await screen.findByLabelText("New API key")
   })
+
+  it.each(["logout", "unauthenticated refresh"] as const)(
+    "keeps share controls across sections and resets them after %s",
+    async (reset) => {
+      const page = await signedIn("shares")
+      const user = userEvent.setup()
+      const navigate = (section: AccountSection) =>
+        page.rerender(
+          <ThemeProvider>
+            <AccountPage section={section} />
+          </ThemeProvider>,
+        )
+      await user.type(screen.getByLabelText("Search shares"), "saved query")
+      await user.click(screen.getByRole("button", { name: "Search shares" }))
+      await user.type(screen.getByLabelText("Search shares"), " draft")
+      await user.selectOptions(screen.getByLabelText("Share status"), "revoked")
+      await user.selectOptions(screen.getByLabelText("Share order"), "least_views")
+      for (const section of ["api-keys", "security"] as const) {
+        navigate(section)
+        await screen.findByRole("heading", {
+          name: section === "security" ? "Passkeys" : "API keys",
+        })
+        navigate("shares")
+        expect(await screen.findByLabelText("Search shares")).toHaveValue("saved query draft")
+        expect(screen.getByLabelText("Share status")).toHaveValue("revoked")
+        expect(screen.getByLabelText("Share order")).toHaveValue("least_views")
+        await waitFor(() => {
+          const request = fetchMock.mock.calls
+            .filter(([url]) => String(url).startsWith("/v1/account/shares?"))
+            .at(-1)
+          const params = new URL(String(request?.[0]), "http://localhost").searchParams
+          expect(params.get("q")).toBe("saved query")
+          expect(params.get("status")).toBe("revoked")
+          expect(params.get("sort")).toBe("least_views")
+        })
+      }
+      if (reset === "logout") await logout()
+      else {
+        account = { setup_required: false, authenticated: false }
+        navigate("security")
+        await screen.findByRole("button", { name: "Sign in with passkey" })
+        navigate("shares")
+      }
+      await user.click(await screen.findByRole("button", { name: "Sign in with passkey" }))
+      expect(await screen.findByLabelText("Search shares")).toHaveValue("")
+      expect(screen.getByLabelText("Share status")).toHaveValue("all")
+      expect(screen.getByLabelText("Share order")).toHaveValue("newest")
+      await waitFor(() => {
+        const request = fetchMock.mock.calls
+          .filter(([url]) => String(url).startsWith("/v1/account/shares?"))
+          .at(-1)
+        const params = new URL(String(request?.[0]), "http://localhost").searchParams
+        expect(params.has("q")).toBe(false)
+        expect(params.get("status")).toBe("all")
+        expect(params.get("sort")).toBe("newest")
+      })
+    },
+  )
 
   it("loads only the active list and ignores an obsolete list response after section navigation", async () => {
     const original = fetchMock.getMockImplementation()

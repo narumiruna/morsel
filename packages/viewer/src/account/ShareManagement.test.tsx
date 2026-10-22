@@ -86,7 +86,7 @@ async function viewShare(label = "Historical share") {
   await userEvent
     .setup()
     .click(await screen.findByRole("button", { name: `Preview share ${label}` }))
-  return screen.findByRole("region", { name: `Share details: ${label}` })
+  return screen.findByRole("dialog", { name: `Share details: ${label}` })
 }
 
 beforeEach(() => {
@@ -516,12 +516,39 @@ describe("account share management", () => {
     preview.focus()
     await user.keyboard("{Enter}")
     expect(screen.getByRole("heading", { name: "Share details: Historical share" })).toHaveFocus()
-    const region = screen.getByRole("region", { name: "Share details: Historical share" })
-    await within(region).findByText(firstID)
-    expect(within(region).getByText("Never")).toBeInTheDocument()
-    expect(within(region).getByText("Unlimited")).toBeInTheDocument()
-    expect(within(region).getByText(/21 Oct 2026/)).toHaveTextContent("UTC")
+    const dialog = screen.getByRole("dialog", { name: "Share details: Historical share" })
+    expect(dialog).toHaveAccessibleDescription("Preview does not use a view.")
+    await within(dialog).findByText(firstID)
+    expect(within(dialog).getByText("Never")).toBeInTheDocument()
+    expect(within(dialog).getByText("Unlimited")).toBeInTheDocument()
+    expect(within(dialog).getByText(/21 Oct 2026/)).toHaveTextContent("UTC")
+    expect(within(dialog).getByText("Active", { selector: "dd" })).toBeInTheDocument()
+    expect(within(dialog).getByText("3", { selector: "dd" })).toBeInTheDocument()
+    const body = dialog.querySelector(".share-preview-body")
+    const markdown = within(dialog).getByRole("heading", { name: "Private Markdown" })
+    const metadata = dialog.querySelector<HTMLDListElement>(".share-facts")
+    expect(body).toContainElement(markdown)
+    expect(body).toContainElement(metadata)
+    expect(
+      markdown.compareDocumentPosition(metadata as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(screen.queryByRole("table", { name: "Share history" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Refresh shares" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "Share status" })).not.toBeInTheDocument()
+    const close = within(dialog).getByRole("button", { name: "Close share details" })
+    close.focus()
+    await user.tab({ shift: true })
+    expect(within(dialog).getByRole("button", { name: "Copy share ID" })).toHaveFocus()
+    await user.tab()
+    expect(close).toHaveFocus()
+    expect(await axe.run(document.body).then((result) => result.violations)).toEqual([])
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(preview).toHaveFocus()
+    await user.keyboard("{Enter}")
+    expect(screen.getByRole("heading", { name: "Share details: Historical share" })).toHaveFocus()
     await user.click(screen.getByRole("button", { name: "Close share details" }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(preview).toHaveFocus()
     const revoke = screen.getByRole("button", { name: "Revoke share Historical share" })
     await user.click(revoke)
@@ -632,6 +659,7 @@ describe("account share management", () => {
     const region = await viewShare()
     await within(region).findByRole("heading", { name: "Private Markdown" })
     const user = userEvent.setup()
+    await user.click(within(region).getByRole("button", { name: "Close share details" }))
     await user.click(screen.getByRole("button", { name: "Revoke share Historical share" }))
     expect(requests(`account/shares/${firstID}`, "DELETE")).toHaveLength(0)
     expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument()
@@ -641,13 +669,14 @@ describe("account share management", () => {
     account = { ...account, csrf_token: "fresh-csrf" }
     await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
     await screen.findByText(/Share revoked\. Copies/)
-    await waitFor(() => expect(requests(`account/shares/${firstID}`)).toHaveLength(2))
-    await within(region).findByText("Revoked", { selector: "dd" })
     expect(
       within(await screen.findByRole("table", { name: "Share history" })).getByText("Revoked", {
         selector: "td",
       }),
     ).toBeInTheDocument()
+    const reopened = await viewShare()
+    await within(reopened).findByText("Revoked", { selector: "dd" })
+    expect(requests(`account/shares/${firstID}`)).toHaveLength(2)
     const deletion = requests(`account/shares/${firstID}`, "DELETE")
     expect(deletion).toHaveLength(1)
     expect(deletion[0]?.[1]?.headers).toHaveProperty("X-CSRF-Token", "fresh-csrf")
@@ -783,8 +812,9 @@ describe("account share management", () => {
     }
     const user = userEvent.setup()
     await viewShare()
+    await user.click(screen.getByRole("button", { name: "Close share details" }))
     await user.click(screen.getByRole("button", { name: "Preview share Second" }))
-    const region = await screen.findByRole("region", { name: "Share details: Second" })
+    const region = await screen.findByRole("dialog", { name: "Share details: Second" })
     await within(region).findByRole("heading", { name: "Private Markdown" })
     expect(signals[0]?.aborted).toBe(true)
     await act(async () => pending.resolve(json({ ...shares[0], content: "# Obsolete secret" })))
@@ -799,22 +829,32 @@ describe("account share management", () => {
       await showPage()
       const region = await viewShare()
       await within(region).findByRole("heading", { name: "Private Markdown" })
+      const user = userEvent.setup()
+      await user.click(within(region).getByRole("button", { name: "Close share details" }))
+      const pendingDetail = deferred<Response>()
       intercept = (path, init) => {
         const matches =
           source === "list"
             ? path.startsWith("account/shares?")
             : path === `account/shares/${firstID}` &&
               init?.method === (source === "mutation" ? "DELETE" : "GET")
-        return matches ? Promise.resolve(json({ message: "Session expired." }, 401)) : undefined
+        if (!matches) return
+        return source === "detail"
+          ? pendingDetail.promise
+          : Promise.resolve(json({ message: "Session expired." }, 401))
       }
-      const user = userEvent.setup()
       if (source === "mutation") {
         await user.click(screen.getByRole("button", { name: "Revoke share Historical share" }))
         await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
+      } else if (source === "detail") {
+        const reopened = await viewShare()
+        expect(within(reopened).getByText("Loading share details…")).toBeInTheDocument()
+        await act(async () => pendingDetail.resolve(json({ message: "Session expired." }, 401)))
       } else await user.click(screen.getByRole("button", { name: "Refresh shares" }))
       await screen.findByRole("button", { name: "Sign in with passkey" })
       expect(screen.getByText("Your session expired. Sign in again.")).toBeInTheDocument()
       expect(screen.queryByRole("region", { name: "Shares" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
       expect(screen.queryByRole("heading", { name: "Private Markdown" })).not.toBeInTheDocument()
       expect(screen.queryByText(firstID)).not.toBeInTheDocument()
     },
@@ -834,6 +874,7 @@ describe("account share management", () => {
       await viewShare()
       if (action === "logout") {
         const user = userEvent.setup()
+        await user.click(screen.getByRole("button", { name: "Close share details" }))
         await user.click(screen.getByRole("button", { name: "Account" }))
         await user.click(screen.getByRole("menuitem", { name: "Log out" }))
         await screen.findByRole("button", { name: "Sign in with passkey" })
@@ -845,7 +886,7 @@ describe("account share management", () => {
   )
 
   it.each(["refresh", "close"])(
-    "aborts a pending detail on %s and ignores late content",
+    "aborts a pending detail on close and ignores late content after %s",
     async (action) => {
       await showPage()
       const pending = deferred<Response>()
@@ -857,13 +898,14 @@ describe("account share management", () => {
       }
       await viewShare()
       intercept = undefined
-      await userEvent.setup().click(
-        screen.getByRole("button", {
-          name: action === "refresh" ? "Refresh shares" : "Close share details",
-        }),
-      )
+      const user = userEvent.setup()
+      await user.click(screen.getByRole("button", { name: "Close share details" }))
       expect(signal?.aborted).toBe(true)
-      if (action === "refresh") await screen.findByRole("heading", { name: "Private Markdown" })
+      if (action === "refresh") {
+        await user.click(screen.getByRole("button", { name: "Refresh shares" }))
+        const reopened = await viewShare()
+        await within(reopened).findByRole("heading", { name: "Private Markdown" })
+      }
       await act(async () => pending.resolve(json({ ...shares[0], content: "# Obsolete secret" })))
       expect(screen.queryByRole("heading", { name: "Obsolete secret" })).not.toBeInTheDocument()
     },
