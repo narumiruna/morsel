@@ -157,11 +157,9 @@ describe("account share management", () => {
     const { container } = await showPage(true)
     const list = await screen.findByRole("table", { name: "Share history" })
     expect(within(list).getAllByRole("row")).toHaveLength(6)
-    expect(
-      within(list)
-        .getAllByRole("columnheader")
-        .map((header) => header.textContent),
-    ).toEqual(["Title", "Status", "Views", "Created", "Actions"])
+    expect(within(list).getAllByRole("columnheader")).toHaveLength(5)
+    for (const name of ["Title", "Status", "Views", "Created", "Actions"])
+      expect(within(list).getByRole("columnheader", { name })).toBeInTheDocument()
     for (const label of shares.map((share) => share.label))
       expect(within(list).getByRole("button", { name: `Preview share ${label}` })).toBeEnabled()
     expect(within(list).getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument()
@@ -315,6 +313,125 @@ describe("account share management", () => {
     expect(params.get("sort")).toBe("oldest")
     expect(params.has("cursor")).toBe(false)
   })
+
+  it("toggles Views and Created with the keyboard and keeps header focus while loading", async () => {
+    await showPage()
+    const table = await screen.findByRole("table", { name: "Share history" })
+    await screen.findByRole("button", { name: "Preview share Historical share" })
+    const views = within(table).getByRole("button", { name: "Views" })
+    const createdHeader = within(table).getByRole("columnheader", { name: "Created" })
+    expect(createdHeader).toHaveAttribute("aria-sort", "descending")
+    const pending = deferred<Response>()
+    intercept = (path) => (path.startsWith("account/shares?") ? pending.promise : undefined)
+    const user = userEvent.setup()
+    views.focus()
+    await user.keyboard("{Enter}")
+    expect(screen.getByText("Loading shares…")).toBeInTheDocument()
+    expect(views).toHaveFocus()
+    expect(table).toHaveAttribute("aria-busy", "true")
+    expect(within(table).getByRole("columnheader", { name: "Views" })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    )
+    expect(createdHeader).toHaveAttribute("aria-sort", "none")
+    expect(screen.getByRole("combobox", { name: "Share order" })).toHaveValue("most_views")
+    await act(async () => pending.resolve(json({ items: shares, matching_count: 1 })))
+    await screen.findByRole("button", { name: "Preview share Historical share" })
+    expect(views).toHaveFocus()
+    intercept = undefined
+    for (const [button, expected, direction] of [
+      [views, "least_views", "ascending"],
+      [within(table).getByRole("button", { name: "Created" }), "newest", "descending"],
+      [within(table).getByRole("button", { name: "Created" }), "oldest", "ascending"],
+    ] as const) {
+      button.focus()
+      await user.keyboard(" ")
+      await screen.findByRole("button", { name: "Preview share Historical share" })
+      const params = new URL(String(managementRequests().at(-1)?.[0]), "https://example.test")
+        .searchParams
+      expect(params.get("sort")).toBe(expected)
+      expect(button.closest("th")).toHaveAttribute("aria-sort", direction)
+      expect(button).toHaveFocus()
+      expect(screen.getByRole("combobox", { name: "Share order" })).toHaveValue(expected)
+    }
+  })
+
+  it.each([200, 401])(
+    "aborts a replaced view order and ignores its late %s response",
+    async (status) => {
+      await showPage()
+      await screen.findByRole("button", { name: "Preview share Historical share" })
+      const pending = deferred<Response>()
+      let signal: AbortSignal | null | undefined
+      intercept = (path, init) => {
+        if (
+          !path.startsWith("account/shares?") ||
+          new URLSearchParams(path.split("?")[1]).get("sort") !== "most_views"
+        )
+          return
+        signal = init?.signal
+        return pending.promise
+      }
+      const user = userEvent.setup()
+      await user.click(screen.getByRole("button", { name: "Views" }))
+      await screen.findByText("Loading shares…")
+      await user.click(screen.getByRole("button", { name: "Views" }))
+      await screen.findByRole("button", { name: "Preview share Historical share" })
+      expect(signal?.aborted).toBe(true)
+      await act(async () =>
+        pending.resolve(
+          status === 401
+            ? json({}, 401)
+            : json({ items: [makeShare("late", "Obsolete")], matching_count: 999 }),
+        ),
+      )
+      expect(screen.getByRole("combobox", { name: "Share order" })).toHaveValue("least_views")
+      expect(screen.getByText("1 matching shares · Page 1")).toBeInTheDocument()
+      expect(screen.queryByText("Obsolete")).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Sign in with passkey" })).not.toBeInTheDocument()
+    },
+  )
+
+  it.each(["most_views", "least_views"])(
+    "resets pagination for %s without losing the server search or status",
+    async (order) => {
+      intercept = (path) => {
+        if (!path.startsWith("account/shares?")) return
+        const params = new URLSearchParams(path.split("?")[1])
+        return Promise.resolve(
+          json({
+            items: shares,
+            matching_count: 30,
+            ...(params.has("cursor") ? {} : { next_cursor: "next" }),
+          }),
+        )
+      }
+      await showPage()
+      const user = userEvent.setup()
+      await user.selectOptions(screen.getByRole("combobox", { name: "Share status" }), "active")
+      await user.type(screen.getByRole("searchbox", { name: "Search shares" }), "Historical{Enter}")
+      await screen.findByText("30 matching shares · Page 1")
+      await user.click(screen.getByRole("button", { name: "Next shares" }))
+      await screen.findByText("30 matching shares · Page 2")
+      await user.selectOptions(screen.getByRole("combobox", { name: "Share order" }), order)
+      await screen.findByText("30 matching shares · Page 1")
+      let params = new URL(String(managementRequests().at(-1)?.[0]), "https://example.test")
+        .searchParams
+      expect(params.get("sort")).toBe(order)
+      expect(params.get("q")).toBe("Historical")
+      expect(params.get("status")).toBe("active")
+      expect(params.has("cursor")).toBe(false)
+      expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
+      await user.click(screen.getByRole("button", { name: "Next shares" }))
+      await screen.findByText("30 matching shares · Page 2")
+      params = new URL(String(managementRequests().at(-1)?.[0]), "https://example.test")
+        .searchParams
+      expect(params.get("sort")).toBe(order)
+      expect(params.get("cursor")).toBe("next")
+      expect(params.get("q")).toBe("Historical")
+      expect(params.get("status")).toBe("active")
+    },
+  )
 
   it("keeps pagination controls and keyboard focus stable while loading the next page", async () => {
     const pending = deferred<Response>()

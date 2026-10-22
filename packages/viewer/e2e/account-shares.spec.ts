@@ -9,6 +9,7 @@ async function mockAccount(page: Page) {
   let revoked = false
   let publicRequests = 0
   const deletions: string[] = []
+  const listQueries: URLSearchParams[] = []
   const first = () => ({
     id: firstID,
     label: "Historical share",
@@ -23,6 +24,7 @@ async function mockAccount(page: Page) {
     ...first(),
     id: secondID,
     label: "Expired share",
+    view_count: 9,
     expires_at: created,
     status: "expired",
   }
@@ -53,14 +55,17 @@ async function mockAccount(page: Page) {
     } else if (path === "/v1/api-keys") {
       await route.fulfill({ json: [] })
     } else if (path === "/v1/account/shares") {
+      listQueries.push(url.searchParams)
       const status = url.searchParams.get("status")
       const cursor = url.searchParams.get("cursor")
       expect(url.searchParams.get("limit")).toBe("25")
       if (status === "all") {
+        const items =
+          url.searchParams.get("sort") === "most_views" ? [second, first()] : [first(), second]
         await route.fulfill({
           json: cursor
-            ? { items: [second], matching_count: 2 }
-            : { items: [first()], next_cursor: "opaque/+=", matching_count: 2 },
+            ? { items: [items[1]], matching_count: 2 }
+            : { items: [items[0]], next_cursor: "opaque/+=", matching_count: 2 },
         })
       } else {
         expect(cursor).toBeNull()
@@ -90,6 +95,7 @@ async function mockAccount(page: Page) {
   })
   return {
     deletions,
+    listQueries,
     publicRequests: () => publicRequests,
     expireSession: () => {
       expiredSession = true
@@ -98,6 +104,57 @@ async function mockAccount(page: Page) {
 }
 
 for (const width of [1280, 375]) {
+  test(`sorts all shares by views and creation at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const api = await mockAccount(page)
+    await page.goto("/manage/shares")
+    await page.getByRole("button", { name: "Next shares" }).click()
+    await expect(page.getByText("2 matching shares · Page 2")).toBeVisible()
+    if (width > 600) {
+      const views = page.getByRole("button", { name: "Views", exact: true })
+      await views.focus()
+      await page.keyboard.press("Enter")
+      await expect(views).toBeFocused()
+    } else {
+      await page.getByLabel("Share order").selectOption("most_views")
+    }
+    await expect(page.getByText("2 matching shares · Page 1")).toBeVisible()
+    await expect(page.getByRole("button", { name: "Preview share Expired share" })).toBeVisible()
+    await expect(page.getByLabel("Share order")).toHaveValue("most_views")
+    expect(api.listQueries.at(-1)?.get("sort")).toBe("most_views")
+    expect(api.listQueries.at(-1)?.has("cursor")).toBe(false)
+    await expect(page.getByRole("button", { name: "Previous shares" })).toBeDisabled()
+    if (width > 600) {
+      await expect(page.getByRole("columnheader", { name: "Views", exact: true })).toHaveAttribute(
+        "aria-sort",
+        "descending",
+      )
+      await page.keyboard.press("Space")
+    } else {
+      await page.getByLabel("Share order").selectOption("least_views")
+    }
+    await expect(page.getByRole("button", { name: "Preview share Historical share" })).toBeVisible()
+    await expect(page.getByLabel("Share order")).toHaveValue("least_views")
+    expect(api.listQueries.at(-1)?.get("sort")).toBe("least_views")
+    if (width > 600) {
+      await expect(page.getByRole("columnheader", { name: "Views", exact: true })).toHaveAttribute(
+        "aria-sort",
+        "ascending",
+      )
+      await page.getByRole("button", { name: "Created", exact: true }).click()
+      await expect(page.getByLabel("Share order")).toHaveValue("newest")
+      await page.getByRole("button", { name: "Created", exact: true }).click()
+    } else {
+      await page.getByLabel("Share order").selectOption("oldest")
+    }
+    await expect(page.getByLabel("Share order")).toHaveValue("oldest")
+    expect(api.listQueries.at(-1)?.get("sort")).toBe("oldest")
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true)
+    expect(api.publicRequests()).toBe(0)
+  })
+
   test(`manages historical and unavailable shares without consuming views at ${width}px`, async ({
     page,
   }, testInfo) => {

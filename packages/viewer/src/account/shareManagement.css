@@ -106,6 +106,32 @@
   font-weight: 500;
 }
 
+.account-shares .share-sort-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.account-shares .share-sort-button span {
+  width: 1.25em;
+  text-align: center;
+}
+
+.account-shares .share-sort-button:hover {
+  color: var(--accent-12);
+}
+
+.account-shares .share-sort-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .account-shares .share-title {
   width: 34%;
   overflow-wrap: anywhere;
@@ -165,11 +191,7 @@
   }
 
   .account-shares .share-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
+    display: none;
   }
 
   .account-shares .share-table tbody tr {

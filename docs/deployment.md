@@ -93,6 +93,14 @@ Production enrollment and client rotation are operator handoff steps, not action
 
 Share history originally added migration 7, the `(created_at DESC, id DESC)` index. The task-oriented UI adds migration 8: nullable `admin_label` metadata and a partial index for pending labels. Source content, capability hashes, public preview metadata, limits, counts, and revocation state are not rewritten. No key rotation or account re-enrollment is needed.
 
+### View-count sorting rollout
+
+The `most_views` and `least_views` management sorts require no schema migration, backfill, or new configuration. Deploy the API and viewer together. Verify both orders, equal-count ties, search/status filters, and more than one page against a separate test database. Existing v1/v2 creation cursors remain supported. View-sort cursors include a nonnegative view count and bind status, search, and sort.
+
+Counts and status are live between requests. Public reads can move a view-sorted share across the cursor, causing skipped or repeated rows; restart from page one to refresh. No count-order index is added; measure list/count query cost on representative data before rollout.
+
+To roll back only this sorting change, restore the previous API and viewer together without changing the schema. Clear view-sort selections and cursors and restart with `newest` or `oldest`; the previous API does not accept the new sort values or their cursors. The label migration rollback below applies only when also reverting the earlier label release.
+
 ### Label migration and backfill
 
 1. Retain the previous immutable image and a tested backup. Test migration, backfill, interruption/resume, and rollback on a restored database. Confirm the write window before production.

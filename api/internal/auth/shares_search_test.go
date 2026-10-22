@@ -11,6 +11,24 @@ import (
 	"github.com/narumiruna/morsel/api/internal/share"
 )
 
+func TestParseShareSortQuery(t *testing.T) {
+	for _, sort := range []string{"newest", "oldest", "most_views", "least_views"} {
+		p, err := parseShareQuery(httptest.NewRequest("GET", "/v1/account/shares?sort="+sort+"&q=+target+&status=active", nil))
+		if err != nil || p.Sort != sort || p.Q != "target" || p.Status != "active" || p.Limit != 25 {
+			t.Fatalf("sort=%s: %+v %v", sort, p, err)
+		}
+	}
+	for _, query := range []string{"sort=", "sort=views", "sort=MOST_VIEWS", "sort=most_views&sort=least_views", "sort=least_views&sort=least_views"} {
+		if _, err := parseShareQuery(httptest.NewRequest("GET", "/v1/account/shares?"+query, nil)); err == nil {
+			t.Fatalf("accepted %s", query)
+		}
+	}
+	p, err := parseShareQuery(httptest.NewRequest("GET", "/v1/account/shares", nil))
+	if err != nil || p.Sort != "newest" {
+		t.Fatalf("default: %+v %v", p, err)
+	}
+}
+
 func TestAccountShareSearchValidationAndAuthorization(t *testing.T) {
 	s, pool := testService(t)
 	b := enroll(t, s, pool)
@@ -25,7 +43,7 @@ func TestAccountShareSearchValidationAndAuthorization(t *testing.T) {
 		w = newBrowser(s).request("GET", "/v1/account/shares?"+query, nil)
 		requireStatus(t, w, 401)
 	}
-	for _, query := range []string{"q=", "q=%E3%80%80", "q=" + url.QueryEscape(" \u3000"+strings.Repeat("界", 100)+"\u00a0 "), "q=%25_%5C", "q=%00", "sort=oldest", "sort=newest"} {
+	for _, query := range []string{"q=", "q=%E3%80%80", "q=" + url.QueryEscape(" \u3000"+strings.Repeat("界", 100)+"\u00a0 "), "q=%25_%5C", "q=%00", "sort=oldest", "sort=newest", "sort=most_views", "sort=least_views"} {
 		w := b.request("GET", "/v1/account/shares?"+query, nil)
 		requireStatus(t, w, 200)
 		assertShareNoStore(t, w)
