@@ -23,7 +23,7 @@ export type AccountMutation = (
 ) => Promise<boolean>
 
 type ShareFilter = "all" | ShareStatus
-type ShareOrder = "newest" | "oldest"
+type ShareOrder = "newest" | "oldest" | "most_views" | "least_views"
 const statuses: Record<ShareStatus, string> = {
   active: "Active",
   revoked: "Revoked",
@@ -167,6 +167,12 @@ export function ShareManagement({
     setRevision((value) => value + 1)
   }
 
+  const changeOrder = (value: ShareOrder) => {
+    setOrder(value)
+    setConfirmation(null)
+    resetPages()
+  }
+
   const refresh = () => {
     listRequest.current?.abort()
     detailRequest.current?.abort()
@@ -278,14 +284,12 @@ export function ShareManagement({
               id="share-order"
               value={order}
               disabled={busy || revoking}
-              onChange={(event) => {
-                setOrder(event.target.value as ShareOrder)
-                setConfirmation(null)
-                resetPages()
-              }}
+              onChange={(event) => changeOrder(event.target.value as ShareOrder)}
             >
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
+              <option value="most_views">Most views first</option>
+              <option value="least_views">Fewest views first</option>
             </select>
           </div>
           <div className="share-select">
@@ -337,80 +341,120 @@ export function ShareManagement({
             </Button>
           </div>
         )}
-        {page &&
-          (page.items.length === 0 ? (
-            <Text as="p">
-              {query || filter !== "all"
-                ? "No shares match this search or status."
-                : "No shares yet."}
-            </Text>
-          ) : (
-            <table className="share-table" aria-label="Share history">
-              <thead>
-                <tr>
-                  <th scope="col">Title</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Views</th>
-                  <th scope="col">Created</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.items.map((share) => (
-                  <tr key={share.id}>
-                    <th scope="row" className="share-title">
-                      <span>{share.label}</span>
-                      {share.expires_at && <small>Expires {compactDate(share.expires_at)}</small>}
-                    </th>
-                    <td data-label="Status">{statuses[share.status]}</td>
-                    <td data-label="Views">
-                      {share.view_count}
-                      {share.max_views !== null && ` / ${share.max_views}`}
-                    </td>
-                    <td data-label="Created" className="share-created">
-                      <time dateTime={share.created_at}>{compactDate(share.created_at)}</time>
-                    </td>
-                    <td className="share-actions">
+        {page && page.items.length === 0 && (
+          <Text as="p">
+            {query || filter !== "all"
+              ? "No shares match this search or status."
+              : "No shares yet."}
+          </Text>
+        )}
+        {(listLoading || (page && page.items.length > 0)) && (
+          <table className="share-table" aria-label="Share history" aria-busy={listLoading}>
+            <thead>
+              <tr>
+                <th scope="col">Title</th>
+                <th scope="col">Status</th>
+                <th
+                  scope="col"
+                  aria-sort={
+                    order === "most_views"
+                      ? "descending"
+                      : order === "least_views"
+                        ? "ascending"
+                        : "none"
+                  }
+                >
+                  <button
+                    type="button"
+                    className="share-sort-button"
+                    disabled={busy || revoking}
+                    onClick={() =>
+                      changeOrder(order === "most_views" ? "least_views" : "most_views")
+                    }
+                  >
+                    Views
+                    <span aria-hidden="true">
+                      {order === "most_views" ? " ↓" : order === "least_views" ? " ↑" : " ↕"}
+                    </span>
+                  </button>
+                </th>
+                <th
+                  scope="col"
+                  aria-sort={
+                    order === "newest" ? "descending" : order === "oldest" ? "ascending" : "none"
+                  }
+                >
+                  <button
+                    type="button"
+                    className="share-sort-button"
+                    disabled={busy || revoking}
+                    onClick={() => changeOrder(order === "newest" ? "oldest" : "newest")}
+                  >
+                    Created
+                    <span aria-hidden="true">
+                      {order === "newest" ? " ↓" : order === "oldest" ? " ↑" : " ↕"}
+                    </span>
+                  </button>
+                </th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {page?.items.map((share) => (
+                <tr key={share.id}>
+                  <th scope="row" className="share-title">
+                    <span>{share.label}</span>
+                    {share.expires_at && <small>Expires {compactDate(share.expires_at)}</small>}
+                  </th>
+                  <td data-label="Status">{statuses[share.status]}</td>
+                  <td data-label="Views">
+                    {share.view_count}
+                    {share.max_views !== null && ` / ${share.max_views}`}
+                  </td>
+                  <td data-label="Created" className="share-created">
+                    <time dateTime={share.created_at}>{compactDate(share.created_at)}</time>
+                  </td>
+                  <td className="share-actions">
+                    <Button
+                      variant="soft"
+                      aria-label={`Preview share ${share.label}`}
+                      disabled={busy || revoking}
+                      onClick={(event) => {
+                        previewTrigger.current = event.currentTarget
+                        detailRequest.current?.abort()
+                        copyGeneration.current += 1
+                        setCopyFeedback("")
+                        setDetail(null)
+                        setDetailError("")
+                        setDetailLoading(true)
+                        setSelected(share)
+                        previewHeading.current?.focus()
+                        setDetailRevision((value) => value + 1)
+                      }}
+                    >
+                      Preview
+                    </Button>
+                    {share.status !== "revoked" && (
                       <Button
                         variant="soft"
-                        aria-label={`Preview share ${share.label}`}
-                        disabled={busy || revoking}
+                        color="red"
+                        aria-label={`Revoke share ${share.label}`}
+                        disabled={busy || revoking || !canVerify}
                         onClick={(event) => {
-                          previewTrigger.current = event.currentTarget
-                          detailRequest.current?.abort()
-                          copyGeneration.current += 1
-                          setCopyFeedback("")
-                          setDetail(null)
-                          setDetailError("")
-                          setDetailLoading(true)
-                          setSelected(share)
-                          previewHeading.current?.focus()
-                          setDetailRevision((value) => value + 1)
+                          confirmationTrigger.current = event.currentTarget
+                          setNotice("")
+                          setConfirmation(share)
                         }}
                       >
-                        Preview
+                        Revoke
                       </Button>
-                      {share.status !== "revoked" && (
-                        <Button
-                          variant="soft"
-                          color="red"
-                          aria-label={`Revoke share ${share.label}`}
-                          disabled={busy || revoking || !canVerify}
-                          onClick={(event) => {
-                            confirmationTrigger.current = event.currentTarget
-                            setNotice("")
-                            setConfirmation(share)
-                          }}
-                        >
-                          Revoke
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ))}
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
         <Flex gap="3" wrap="wrap" mt="3" aria-label="Share pagination">
           <Button
             variant="soft"

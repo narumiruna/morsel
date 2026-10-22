@@ -118,7 +118,7 @@ paths:
     get:
       operationId: listAccountShares
       summary: List all owner shares without consuming views
-      description: Includes shares created before account setup and with any API key. Pages are live queries, not a snapshot across requests. Bearer-only access is rejected. Returns 503 with label_backfill_required while any legacy labels are pending; never returns incomplete search results.
+      description: Includes shares created before account setup and with any API key. Pages are live queries, not a snapshot across requests. View counts and status can change between pages; view-sorted shares can move across the cursor and be skipped or repeated. Restart from the first page to refresh the order. Bearer-only access is rejected. Returns 503 with label_backfill_required while any legacy labels are pending; never returns incomplete search results.
       security:
         - sessionCookie: []
       parameters:
@@ -142,20 +142,21 @@ paths:
             type: string
         - name: sort
           in: query
+          description: newest/oldest order by creation time; most_views/least_views order by view_count. Creation time and UUID break view-count ties in the same direction (descending for newest/most_views, ascending for oldest/least_views).
           schema:
             type: string
-            enum: [newest, oldest]
+            enum: [newest, oldest, most_views, least_views]
             default: newest
         - name: cursor
           in: query
-          description: Opaque v2 continuation cursor bound to status, trimmed q fingerprint, and sort. Existing v1 cursors are accepted only with empty trimmed q and newest sort. Invalid, empty, repeated, or query-mismatched cursors return 400.
+          description: Opaque v2 continuation cursor bound to status, trimmed q fingerprint, and sort. View sorts include a required nonnegative integer view_count key. Existing v2 creation cursors remain valid; v1 cursors are accepted only with empty trimmed q and newest sort. Invalid (including missing or invalid view-sort counts), empty, repeated, or query-mismatched cursors return 400.
           schema:
             type: string
             minLength: 1
             maxLength: 512
       responses:
         "200":
-          description: Metadata ordered by creation time and UUID in the selected direction (descending for newest, ascending for oldest); never contains full content or capability data
+          description: Metadata ordered by the selected creation time or view count order, with creation time and UUID ties in the same direction; never contains full content or capability data
           headers:
             Cache-Control:
               schema:

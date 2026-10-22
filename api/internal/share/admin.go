@@ -58,6 +58,7 @@ type adminCursor struct {
 	ID         *uuid.UUID `json:"id"`
 	Sort       string     `json:"sort,omitempty"`
 	SearchHash string     `json:"search_hash,omitempty"`
+	ViewCount  *int64     `json:"view_count,omitempty"`
 }
 
 func ValidAdminStatus(status string) bool {
@@ -93,11 +94,18 @@ func decodeAdminCursor(value string, p AdminListParams) (*adminCursor, error) {
 	}
 	switch cursor.Version {
 	case 1:
-		if p.Q != "" || p.Sort != "newest" || cursor.Sort != "" || cursor.SearchHash != "" {
+		if p.Q != "" || p.Sort != "newest" || cursor.Sort != "" || cursor.SearchHash != "" || cursor.ViewCount != nil {
 			return nil, ErrInvalidAdminParams
 		}
 	case 2:
 		if cursor.Sort != p.Sort || cursor.SearchHash != searchHash(p.Q) {
+			return nil, ErrInvalidAdminParams
+		}
+		if adminViewSort(p.Sort) {
+			if cursor.ViewCount == nil || *cursor.ViewCount < 0 {
+				return nil, ErrInvalidAdminParams
+			}
+		} else if cursor.ViewCount != nil {
 			return nil, ErrInvalidAdminParams
 		}
 	default:
@@ -127,6 +135,10 @@ func searchHash(q string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(q)))
 }
 
+func adminViewSort(sort string) bool {
+	return sort == "most_views" || sort == "least_views"
+}
+
 func NormalizeAdminQuery(p AdminListParams) (AdminListParams, error) {
 	if p.Status == "" {
 		p.Status = "all"
@@ -138,7 +150,7 @@ func NormalizeAdminQuery(p AdminListParams) (AdminListParams, error) {
 		p.Limit = 25
 	}
 	p.Q = strings.TrimSpace(p.Q)
-	if !ValidAdminStatus(p.Status) || (p.Sort != "newest" && p.Sort != "oldest") || p.Limit < 1 || p.Limit > 100 || !utf8.ValidString(p.Q) || utf8.RuneCountInString(p.Q) > 100 {
+	if !ValidAdminStatus(p.Status) || (p.Sort != "newest" && p.Sort != "oldest" && !adminViewSort(p.Sort)) || p.Limit < 1 || p.Limit > 100 || !utf8.ValidString(p.Q) || utf8.RuneCountInString(p.Q) > 100 {
 		return p, ErrInvalidAdminParams
 	}
 	return p, nil
@@ -166,7 +178,15 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 	if strings.ContainsRune(p.Q, '\x00') {
 		search = nil
 	}
-	rows, err := r.tx.Query(ctx, adminListSQL(p.Sort), p.Status, beforeTime, beforeID, p.Limit+1, search)
+	args := []any{p.Status, beforeTime, beforeID, p.Limit + 1, search}
+	if adminViewSort(p.Sort) {
+		var beforeCount *int64
+		if cursor != nil {
+			beforeCount = cursor.ViewCount
+		}
+		args = append(args, beforeCount)
+	}
+	rows, err := r.tx.Query(ctx, adminListSQL(p.Sort), args...)
 	if err != nil {
 		return AdminPage{}, fmt.Errorf("list shares: %w", err)
 	}
@@ -191,7 +211,11 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 	if len(page.Items) > p.Limit {
 		page.Items = page.Items[:p.Limit]
 		last := page.Items[len(page.Items)-1]
-		b, err := json.Marshal(adminCursor{Version: 2, Status: p.Status, CreatedAt: last.CreatedAt, ID: &last.ID, Sort: p.Sort, SearchHash: searchHash(p.Q)})
+		next := adminCursor{Version: 2, Status: p.Status, CreatedAt: last.CreatedAt, ID: &last.ID, Sort: p.Sort, SearchHash: searchHash(p.Q)}
+		if adminViewSort(p.Sort) {
+			next.ViewCount = &last.ViewCount
+		}
+		b, err := json.Marshal(next)
 		if err != nil {
 			return AdminPage{}, err
 		}
@@ -205,8 +229,14 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 // prevents incomplete legacy results, including for zero-match queries.
 func adminListSQL(sort string) string {
 	direction, comparison := "DESC", "<"
-	if sort == "oldest" {
+	if sort == "oldest" || sort == "least_views" {
 		direction, comparison = "ASC", ">"
+	}
+	keys, position := "(created_at,id)", "($2,$3::uuid)"
+	order := "created_at " + direction + ", id " + direction
+	if adminViewSort(sort) {
+		keys, position = "(view_count,created_at,id)", "($6::bigint,$2,$3::uuid)"
+		order = "view_count " + direction + ", " + order
 	}
 	return `WITH matching AS NOT MATERIALIZED (
   SELECT ` + adminColumnsSQL + ` FROM shares
@@ -220,8 +250,8 @@ func adminListSQL(sort string) string {
   COALESCE(page.label, ''), COALESCE(page.created_at, statement_timestamp()),
   page.expires_at, page.max_views, COALESCE(page.view_count,0), page.revoked_at, COALESCE(page.status,'')
  FROM totals LEFT JOIN LATERAL (
-  SELECT * FROM matching WHERE ($2::timestamptz IS NULL OR (created_at,id) ` + comparison + ` ($2,$3::uuid))
-  ORDER BY created_at ` + direction + `, id ` + direction + ` LIMIT $4
+  SELECT * FROM matching WHERE ($2::timestamptz IS NULL OR ` + keys + ` ` + comparison + ` ` + position + `)
+  ORDER BY ` + order + ` LIMIT $4
  ) page ON true`
 }
 
