@@ -96,7 +96,13 @@ function safeURL(url: string, key: string, node: { tagName: string }): string {
   return ""
 }
 
-export function MarkdownDocument({ content }: { content: string }) {
+export function MarkdownDocument({
+  content,
+  loadImages = true,
+}: {
+  content: string
+  loadImages?: boolean
+}) {
   let mermaidIndex = 0
   let vegaLiteIndex = 0
   return (
@@ -123,12 +129,17 @@ export function MarkdownDocument({ content }: { content: string }) {
               </a>
             )
           },
-          img: ({ alt, node: _node, ...props }) => (
-            <img alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" {...props} />
-          ),
+          img: ({ alt, node: _node, ...props }) =>
+            loadImages ? (
+              <img alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" {...props} />
+            ) : (
+              <span>Image not loaded{alt ? `: ${alt}` : ""}</span>
+            ),
           code: ({ className, children, node: _node, ...props }) => {
             const source = String(children).replace(/\n$/, "")
-            if (className === "language-mermaid") {
+            // Mermaid image nodes fetch resources before SVG sanitation.
+            // Keep their source inert when administrative inspection blocks images.
+            if (className === "language-mermaid" && loadImages) {
               return <MermaidDiagram source={source} index={mermaidIndex++} />
             }
             if (className === "language-vega-lite") {

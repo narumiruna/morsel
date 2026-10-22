@@ -52,7 +52,7 @@ docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -ki
 
 Enter the single-use token in the recovery form at `/account` within one hour and enroll a replacement passkey. Recovery completion replaces old credentials, advances the account authentication generation, and invalidates old sessions, pending authentication flows, verification grants, and recovery grants. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
 
-Sessions expire 30 days after login, without sliding renewal. Their persistent cookies survive browser restarts; logout and account recovery still revoke sessions immediately. Key creation, key revocation, and passkey changes reuse passkey verification for 12 hours, then require verification again. The UI checks the current server session before each change. Production session cookies remain `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
+Sessions expire 30 days after login, without sliding renewal. Their persistent cookies survive browser restarts; logout and account recovery still revoke sessions immediately. Key creation, key revocation, share revocation, and passkey changes reuse passkey verification for 12 hours, then require verification again. The UI checks the current server session before each change. Production session cookies remain `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
 
 Existing sessions keep their original database expiry and cookie lifetime. After deployment, log out and sign in again to receive a 30-day persistent session. Tokens already issued keep their stored expiry. Longer lifetimes increase the time that a stolen session or unused operator token can remain valid; revoke compromised sessions or issue a replacement operator token.
 
@@ -88,6 +88,26 @@ This release stops accepting all old environment-configured keys. There is no le
 5. Delete the obsolete GitHub `MORSEL_API_KEY` secret after successful validation. Keep client-side secrets that now contain UI-created keys.
 
 Production enrollment and client rotation are operator handoff steps, not actions performed by the coding agent.
+
+## Share management rollout and review
+
+The share management release adds migration 7, an index on `shares (created_at DESC, id DESC)`. It does not change stored shares, capabilities, limits, or counts. No client key rotation or account re-enrollment is needed for this feature.
+
+- Deployment operator:
+  - Prerequisite: required checks pass; retain the previous immutable image and a tested backup. Test the migration and rollback against a restored database before production.
+  - Action: schedule the index migration and deploy the API and viewer together using the existing release procedure. The ordinary index build can block writes while it completes; select a maintenance window based on the restored database test.
+  - Expected result: the owner can inspect and revoke historical shares from `/account`; existing public URLs continue to work.
+  - Unverified behavior: production index duration, lock contention, and release integration. Do not deploy until backup and rollback procedures are confirmed. Local validation does not authorize production writes.
+- Product owner:
+  - Prerequisite: run `npm run test:browser` to prepare captures in the ignored `packages/viewer/test-results/account-shares-*/` directories. The files are named `share-management-desktop.png` and `share-management-mobile.png`; they contain test fixtures, not production content.
+  - Action: review labels, availability states, content inspection, and the revocation confirmation at desktop and mobile widths.
+  - Expected result: share management controls are understandable. Subjective visual and usability acceptance is not established by automated tests. No additional approval gate is imposed.
+
+### Share management rollback
+
+Rollback does not restore revoked shares. Do not restore the database merely to remove this UI feature.
+
+The previous application server can run with the additive index present, but the previous migration runner rejects migration version 7. If the rollback starts that runner, first stop writes and use the **new release's** migration executable with `-direction down -steps 1`, after confirming that version 7 is the latest applied migration and no later migrations exist. This removes only the index and its migration record. Then restore the previous API and viewer image together. Never run an unqualified multi-step downgrade or remove account tables for this feature.
 
 ## Backup, restore, and rollback
 

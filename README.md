@@ -2,7 +2,7 @@
 
 Morsel is a small, self-hosted service for sharing Markdown through revocable capability URLs. One Go service exposes the API and serves the React viewer from the same origin; PostgreSQL is the only content store.
 
-- Sign in with a passkey and manage API keys in `/account`.
+- Sign in with a passkey to manage API keys and existing shares in `/account`.
 - Create and revoke shares through an API, with optional expiration and view limits.
 - Render GitHub Flavored Markdown with syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts.
 - View Markdown files from GitHub Gists without storing them in Morsel.

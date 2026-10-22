@@ -107,6 +107,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/v1/account" && r.Method == "GET":
 		err = s.accountState(w, r)
+	case path == "/v1/account/shares" && r.Method == "GET":
+		err = s.listShares(w, r)
+	case strings.HasPrefix(path, "/v1/account/shares/") && (r.Method == "GET" || r.Method == "DELETE"):
+		err = s.manageShare(w, r, strings.TrimPrefix(path, "/v1/account/shares/"))
 	case path == "/v1/auth/logout" && r.Method == "POST":
 		err = s.logout(w, r)
 	case strings.HasPrefix(path, "/v1/auth/") && r.Method == "POST":

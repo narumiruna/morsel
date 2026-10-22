@@ -125,6 +125,7 @@ test("required real-backend account and API key lifecycle", async ({
   let firstKey: { id: string; key: string; name: string }
   let recoveryKey: { id: string; key: string; name: string }
   let shareURL = ""
+  const legacyID = await command(helper, ["seed-legacy-share"])
 
   await test.step("operator setup, secure session, and closed registration", async () => {
     const token = await command(accountCLI, ["-kind", "setup"])
@@ -328,6 +329,94 @@ test("required real-backend account and API key lifecycle", async ({
     recoveryKey = await createKey(page, "Recovery review")
   })
 
+  await test.step("historical shares, non-consuming inspection, and UI revocation", async () => {
+    await page.getByRole("button", { name: "Dismiss API key", exact: true }).click()
+    await page.getByRole("button", { name: "Refresh shares", exact: true }).click()
+    await page
+      .getByRole("button", { name: "View share # Legacy before account", exact: true })
+      .click()
+    await expect(
+      page.getByRole("heading", { name: "Legacy before account", exact: true }),
+    ).toBeVisible()
+    const legacy = await page.request.get(`/v1/account/shares/${legacyID}`)
+    expect(legacy.status()).toBe(200)
+    expect((await legacy.json()).view_count).toBe(0)
+    await page.getByRole("button", { name: "Close share details", exact: true }).click()
+
+    const client = new MorselClient({ baseUrl: baseURL as string, apiKey: recoveryKey.key })
+    const imageTarget = await client.createShare({ content: "Image target", max_views: 1 })
+    const imageURL = new URL(imageTarget.share_url)
+    const imageToken = (imageURL.hash || imageURL.pathname).split("/").pop()
+    const managed = await client.createShare({
+      content: `# Managed history content\n\n![no consuming image](/v1/shares/${imageToken})\n\n\`\`\`mermaid\nflowchart TD\nA@{ img: "/v1/shares/${imageToken}", label: "test", h: 60 }\n\`\`\``,
+      max_views: 1,
+      preview: { title: "Managed history", description: "Administrative inspection fixture" },
+    })
+    const path = `/v1/account/shares/${managed.id}`
+    let consumingRequests = 0
+    const observe = (request: import("@playwright/test").Request) => {
+      if (new URL(request.url()).pathname.startsWith("/v1/shares/") && request.method() === "GET")
+        consumingRequests += 1
+    }
+    page.on("request", observe)
+    await page.getByRole("button", { name: "Refresh shares", exact: true }).click()
+    await page.getByRole("button", { name: "View share Managed history", exact: true }).click()
+    await expect(
+      page.getByRole("heading", { name: "Managed history content", exact: true }),
+    ).toBeVisible()
+    const before = await page.request.get(path)
+    expect(before.headers()["cache-control"]).toBe("no-store")
+    expect((await before.json()).view_count).toBe(0)
+    await expect(page.locator(".share-admin-detail img")).toHaveCount(0)
+    await expect(page.locator(".share-admin-detail pre > code.language-mermaid")).toBeVisible()
+    await expect(
+      page.getByText("Image not loaded: no consuming image", { exact: true }),
+    ).toBeVisible()
+    expect(consumingRequests).toBe(0)
+    const targetDetail = await page.request.get(`/v1/account/shares/${imageTarget.id}`)
+    expect((await targetDetail.json()).view_count).toBe(0)
+    const listed = await page.request.get("/v1/account/shares")
+    const metadata = JSON.stringify(await listed.json())
+    expect(metadata).not.toContain("token_hash")
+    expect(metadata).not.toContain("# Managed history content")
+    const bearerOnly = await page.request.get(path, {
+      headers: { Cookie: "", Authorization: `Bearer ${recoveryKey.key}` },
+    })
+    expect(bearerOnly.status()).toBe(401)
+    await test.info().attach("share-management-desktop", {
+      body: await page.screenshot({ animations: "disabled", fullPage: true }),
+      contentType: "image/png",
+    })
+    await page.setViewportSize({ width: 375, height: 800 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
+    await test.info().attach("share-management-mobile", {
+      body: await page.screenshot({ animations: "disabled", fullPage: true }),
+      contentType: "image/png",
+    })
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.getByRole("button", { name: "Revoke share Managed history", exact: true }).click()
+    const removed = page.waitForResponse(
+      (response) => response.url().endsWith(path) && response.request().method() === "DELETE",
+    )
+    await page.getByRole("button", { name: "Confirm revocation", exact: true }).click()
+    expect((await removed).status()).toBe(204)
+    await expect(
+      page.getByRole("button", { name: "Revoke share Managed history", exact: true }),
+    ).toHaveCount(0)
+    const after = await page.request.get(path)
+    expect((await after.json()).view_count).toBe(0)
+    const token = new URL(managed.share_url).pathname.split("/").pop()
+    const publicRead = await page.request.get(`/v1/shares/${token}`)
+    expect(publicRead.status()).toBe(410)
+    expect((await publicRead.json()).code).toBe("revoked")
+    page.off("request", observe)
+    await page.getByLabel("Share status", { exact: true }).selectOption("revoked")
+    await expect(
+      page.getByRole("button", { name: "View share Managed history", exact: true }),
+    ).toBeVisible()
+    await page.getByLabel("Share status", { exact: true }).selectOption("all")
+  })
+
   await test.step("logout, discoverable login, and database session expiry", async () => {
     await page.getByRole("button", { name: "Log out", exact: true }).click()
     await expect(
@@ -335,7 +424,17 @@ test("required real-backend account and API key lifecycle", async ({
     ).toBeVisible()
     expect((await account(page)).authenticated).toBe(false)
     await login(page)
+    await page
+      .getByRole("button", { name: "View share # Legacy before account", exact: true })
+      .click()
+    await expect(
+      page.getByRole("heading", { name: "Legacy before account", exact: true }),
+    ).toBeVisible()
     await command(helper, ["expire-sessions"])
+    await page.getByRole("button", { name: "Refresh shares", exact: true }).click()
+    await expect(
+      page.getByRole("heading", { name: "Legacy before account", exact: true }),
+    ).toHaveCount(0)
     await page.reload()
     await expect(
       page.getByRole("button", { name: "Sign in with passkey", exact: true }),

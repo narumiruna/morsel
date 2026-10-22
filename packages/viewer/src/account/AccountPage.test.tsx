@@ -71,6 +71,7 @@ beforeEach(() => {
         fail.status,
       )
     if (path === "account") return json(account)
+    if (path.startsWith("account/shares?")) return json({ items: [] })
     if (path === "passkeys" && init?.method === "GET") return json(passkeys)
     if (path === "api-keys" && init?.method === "GET") return json(keys)
     if (path.endsWith("/begin"))
@@ -225,7 +226,7 @@ describe("AccountPage", () => {
     await signedIn()
     await createKey()
     await userEvent.setup().click(screen.getByRole("button", { name: "Revoke API key CLI" }))
-    await screen.findByText(/Revoked/)
+    await screen.findByText(/Created .* · Revoked/)
     expect(callsTo("auth/verify/begin")).toHaveLength(2)
     expect(callsTo("api-keys/key%2Fid")[0]?.[1]).toMatchObject({
       method: "DELETE",
@@ -261,7 +262,7 @@ describe("AccountPage", () => {
     await createKey()
     const user = userEvent.setup()
     await user.click(screen.getByRole("button", { name: "Revoke API key CLI" }))
-    await screen.findByText(/Revoked/)
+    await screen.findByText(/Created .* · Revoked/)
     await user.type(screen.getByLabelText("Passkey name"), "Phone")
     await user.click(screen.getByRole("button", { name: "Add passkey" }))
     await user.click(await screen.findByRole("button", { name: "Remove passkey Phone" }))
@@ -279,7 +280,7 @@ describe("AccountPage", () => {
     await createKey()
     account = { ...account, verification_required: true }
     await userEvent.setup().click(screen.getByRole("button", { name: "Revoke API key CLI" }))
-    await screen.findByText(/Revoked/)
+    await screen.findByText(/Created .* · Revoked/)
     expect(callsTo("auth/verify/begin")).toHaveLength(1)
     expect(callsTo("auth/verify/finish")).toHaveLength(1)
     expect(callsTo("api-keys/key%2Fid")).toHaveLength(1)

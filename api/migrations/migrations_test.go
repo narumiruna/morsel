@@ -23,6 +23,9 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 	assertColumnCount(t, pool, "preview_image", 1)
 	assertColumnCount(t, pool, "preview_locale", 1)
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("down share history index migration: %v", err)
+	}
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatalf("down account authentication migration: %v", err)
 	}
 	assertAuthTables(t, pool, false)
@@ -116,6 +119,9 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 	}
 
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("second down share history index migration: %v", err)
+	}
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatalf("second down account authentication migration: %v", err)
 	}
 	assertAuthTables(t, pool, false)
@@ -157,7 +163,7 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 func TestAccountMigrationPreservesExistingShares(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
-	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Down, 2); err != nil {
 		t.Fatal(err)
 	}
 	assertAuthTables(t, pool, false)
@@ -180,7 +186,7 @@ func TestAccountMigrationPreservesExistingShares(t *testing.T) {
 			t.Fatal("account migration changed an existing share")
 		}
 		if cycle == 0 {
-			if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+			if err := migrations.Run(ctx, pool, migrations.Down, 2); err != nil {
 				t.Fatal(err)
 			}
 		}
