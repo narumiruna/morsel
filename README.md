@@ -2,7 +2,8 @@
 
 Morsel is a small, self-hosted service for sharing Markdown through revocable capability URLs. One Go service exposes the API and serves the React viewer from the same origin; PostgreSQL is the only content store.
 
-- Sign in with a passkey to manage API keys and existing shares in `/account`.
+- Open a share or GitHub Gist URL from the homepage, or try the bundled example.
+- Sign in with a passkey to search shares in `/manage/shares`, manage client keys in `/manage/api-keys`, and manage security in `/account`.
 - Create and revoke shares through an API, with optional expiration and view limits.
 - Render GitHub Flavored Markdown with syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts.
 - View Markdown files from GitHub Gists without storing them in Morsel.
@@ -35,7 +36,7 @@ Create a one-use operator token after the services and migrations are ready:
 docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind setup
 ```
 
-Open <http://localhost:12647/account>, enter the token in the setup form within one hour, and enroll the owner passkey. Only the first account can register. Add a backup passkey, then create an API key. Copy the key when shown; it cannot be recovered. Export it as the **client-only** secret `MORSEL_API_KEY` for the examples below. Privileged share operations are rejected until setup; public share reads are unchanged.
+Open <http://localhost:12647/account>, enter the token in the setup form within one hour, and enroll the owner passkey. Only the first account can register. Add a backup passkey, then open **API keys** and create a client key. Copy the key when shown; it cannot be recovered. Export it as the **client-only** secret `MORSEL_API_KEY` for the examples below. Privileged share operations are rejected until setup; public share reads are unchanged.
 
 The root [`compose.yaml`](compose.yaml) uses the explicitly built image, starts PostgreSQL, applies migrations, and binds Morsel to loopback. Keep `MORSEL_IMAGE=morsel:local` exported for later Compose commands. `.env` is ignored by Git; [`.env.example`](.env.example) contains no secrets. Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
 

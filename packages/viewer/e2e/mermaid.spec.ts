@@ -253,7 +253,7 @@ test.describe("touch fullscreen fallback", () => {
     const fullscreen = card.getByRole("button", { name: "Fullscreen" })
     await fullscreen.click()
     await expect(card).toHaveClass(/diagram-expanded/)
-    await expect(page.locator(".theme-control")).toHaveJSProperty("inert", true)
+    await expect(page.locator(".app-header")).toHaveJSProperty("inert", true)
 
     const beforePan = await stage.getAttribute("style")
     await viewport.evaluate((element) => {
@@ -297,7 +297,7 @@ test.describe("touch fullscreen fallback", () => {
 
     await viewport.press("Escape")
     await expect(card).not.toHaveClass(/diagram-expanded/)
-    await expect(page.locator(".theme-control")).toHaveJSProperty("inert", false)
+    await expect(page.locator(".app-header")).toHaveJSProperty("inert", false)
     await expect(fullscreen).toBeFocused()
     expect(
       await page.evaluate(

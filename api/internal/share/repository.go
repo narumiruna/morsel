@@ -73,10 +73,10 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share, error) {
 	const query = `
 		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_title, preview_description,
-			preview_image, preview_locale, telegram_instant_view)
+			preview_image, preview_locale, telegram_instant_view, admin_label)
 		VALUES ($1, $2, $3,
 			CASE WHEN $4::bigint IS NULL THEN NULL ELSE statement_timestamp() + make_interval(secs => $4::double precision) END,
-			$5, $6, $7, $8, $9, $10)
+			$5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at,
 			preview_title, preview_description, preview_image, preview_locale, telegram_instant_view`
 	var previewTitle, previewDescription, previewImage, previewLocale *string
@@ -92,7 +92,7 @@ func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share,
 	}
 	var result Share
 	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews,
-		previewTitle, previewDescription, previewImage, previewLocale, p.TelegramInstantView).Scan(
+		previewTitle, previewDescription, previewImage, previewLocale, p.TelegramInstantView, NormalizeLabel(p.Content, previewTitle)).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
 		&result.ViewCount, &result.RevokedAt, &previewTitle, &previewDescription, &previewImage, &previewLocale,
 		&result.TelegramInstantView,

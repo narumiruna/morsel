@@ -1,26 +1,16 @@
 import * as Tooltip from "@radix-ui/react-tooltip"
-import { type ReactNode, useEffect, useState } from "react"
+import type { ReactNode } from "react"
+import { AppHeader } from "./components/AppHeader"
+import { useAppLocation } from "./navigation"
 import { AccountPage } from "./pages/AccountPage"
+import { ExamplePage } from "./pages/ExamplePage"
 import { GistPage } from "./pages/GistPage"
 import { SharePage } from "./pages/SharePage"
 import { ErrorPage, HomePage } from "./pages/StatusPage"
 import { parseRoute } from "./route"
 
 export function App() {
-  const [location, setLocation] = useState(() => ({
-    pathname: window.location.pathname,
-    hash: window.location.hash,
-  }))
-  useEffect(() => {
-    const update = () =>
-      setLocation({ pathname: window.location.pathname, hash: window.location.hash })
-    window.addEventListener("hashchange", update)
-    window.addEventListener("popstate", update)
-    return () => {
-      window.removeEventListener("hashchange", update)
-      window.removeEventListener("popstate", update)
-    }
-  }, [])
+  const location = useAppLocation()
   const route = parseRoute(location.pathname, location.hash)
 
   let page: ReactNode
@@ -29,7 +19,11 @@ export function App() {
       page = <HomePage />
       break
     case "account":
-      page = <AccountPage />
+    case "management":
+      page = <AccountPage section={route.kind === "account" ? "security" : route.section} />
+      break
+    case "example":
+      page = <ExamplePage />
       break
     case "share":
       page = <SharePage key={route.token} token={route.token} />
@@ -49,7 +43,14 @@ export function App() {
 
   return (
     <Tooltip.Provider delayDuration={350}>
-      <main className="app-shell">{page}</main>
+      {route.kind === "account" || route.kind === "management" ? (
+        page
+      ) : (
+        <>
+          <AppHeader />
+          <main className="app-shell">{page}</main>
+        </>
+      )}
     </Tooltip.Provider>
   )
 }

@@ -1,10 +1,15 @@
 import { act, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
-import { ThemeProvider, useAppearance } from "./theme"
+import { ThemeControl, ThemeProvider, useAppearance } from "./theme"
 
 function AppearanceValue() {
-  return <output aria-label="Effective appearance">{useAppearance()}</output>
+  return (
+    <>
+      <ThemeControl />
+      <output aria-label="Effective appearance">{useAppearance()}</output>
+    </>
+  )
 }
 
 describe("ThemeProvider appearance context", () => {

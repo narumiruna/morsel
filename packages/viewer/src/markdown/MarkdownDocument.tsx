@@ -156,7 +156,12 @@ export function MarkdownDocument({
             (children.type === MermaidDiagram || children.type === VegaLiteChart) ? (
               children
             ) : (
-              <pre>{children}</pre>
+              <pre
+                // biome-ignore lint/a11y/noNoninteractiveTabindex: Code blocks support horizontal keyboard scrolling.
+                tabIndex={0}
+              >
+                {children}
+              </pre>
             ),
         }}
       >

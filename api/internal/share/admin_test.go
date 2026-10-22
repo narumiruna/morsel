@@ -27,6 +27,11 @@ func TestAdminPaginationAndNonConsumingDetails(t *testing.T) {
 		('ffffffff-ffff-ffff-ffff-ffffffffffff',sha256('new'::bytea),'newest','2030-01-01Z')`); err != nil {
 		t.Fatal(err)
 	}
+	for range 2 {
+		if _, err := BackfillLabels(ctx, pool, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +94,7 @@ func TestAdminStatusesLabelsAndUnavailableDetails(t *testing.T) {
 		{status: "active", content: "\n \t\r\n  First line  \nsecond", label: "First line"},
 		{status: "active", content: "\n\t\r\n", label: "Untitled"},
 		{status: "active", content: "\u00a0\n\u3000 Unicode line\u00a0\nsecond", label: "Unicode line"},
-		{status: "active", content: "<b>" + strings.Repeat("界", 100), label: "<b>" + strings.Repeat("界", 77)},
+		{status: "active", content: "<b>" + strings.Repeat("界", 100), label: strings.Repeat("界", 80)},
 		{status: "active", content: "not the title", title: "Preview title", label: "Preview title"},
 		{status: "view_limit_exhausted", content: "exhausted", label: "exhausted", exhausted: true},
 		{status: "expired", content: "expired", label: "expired", expired: true, exhausted: true},
@@ -106,6 +111,9 @@ func TestAdminStatusesLabelsAndUnavailableDetails(t *testing.T) {
 			CASE WHEN $7 THEN statement_timestamp() ELSE NULL END)`, ids[i], []byte(fmt.Sprintf("%032d", i)), f.content, f.title, f.expired, f.exhausted, f.revoked); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := BackfillLabels(ctx, pool, 100); err != nil {
+		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -194,7 +202,7 @@ func TestAdminCursorValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := json.Marshal(page)
-	if string(data) != `{"items":[]}` {
+	if string(data) != `{"items":[],"matching_count":0}` {
 		t.Fatalf("empty page: %s", data)
 	}
 }
@@ -208,7 +216,7 @@ func TestAdminStatusUsesStatementTime(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	id := uuid.New()
-	if _, err := tx.Exec(ctx, `INSERT INTO shares(id,token_hash,content,expires_at) VALUES($1,$2,'timed',statement_timestamp()+interval '50 milliseconds')`, id, []byte(strings.Repeat("a", 32))); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO shares(id,token_hash,content,admin_label,expires_at) VALUES($1,$2,'timed','timed',statement_timestamp()+interval '50 milliseconds')`, id, []byte(strings.Repeat("a", 32))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `SELECT pg_sleep(0.06)`); err != nil {

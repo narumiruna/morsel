@@ -1,0 +1,73 @@
+.home-page {
+  width: min(100%, 42rem);
+  margin: clamp(1rem, 7vh, 4rem) auto 0;
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+.home-icon {
+  margin-bottom: 1rem;
+  color: var(--accent-11);
+}
+
+.home-page p {
+  margin-block: 0.75rem;
+}
+
+.document-entry {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-block: 1.75rem;
+}
+
+.document-entry label {
+  font-weight: 600;
+}
+
+.document-entry input {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--gray-10);
+  border-radius: var(--radius-2);
+  background: var(--color-background);
+  color: var(--gray-12);
+  font: inherit;
+}
+
+.document-entry input:focus-visible {
+  outline: 3px solid var(--accent-12);
+  outline-offset: 3px;
+}
+
+.document-entry input[aria-invalid="true"] {
+  border-color: var(--red-9);
+}
+
+.document-entry p {
+  margin-block: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.document-entry-error {
+  color: var(--red-11);
+}
+
+.document-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.document-entry-actions button,
+.document-entry-actions a {
+  min-height: 2.75rem;
+}
+
+.document-entry-actions a {
+  display: inline-flex;
+  align-items: center;
+}

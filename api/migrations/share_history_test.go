@@ -13,7 +13,7 @@ import (
 func TestShareHistoryIndexPreservesLegacyRows(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := t.Context()
-	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Down, 2); err != nil {
 		t.Fatal(err)
 	}
 	assertAuthTables(t, pool, true)
@@ -33,7 +33,7 @@ func TestShareHistoryIndexPreservesLegacyRows(t *testing.T) {
 	}
 	before := snapshot()
 	for cycle := 0; cycle < 2; cycle++ {
-		if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+		if err := migrations.Run(ctx, pool, migrations.Up, 1); err != nil {
 			t.Fatal(err)
 		}
 		var definition string

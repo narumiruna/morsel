@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/narumiruna/morsel/api/internal/share"
 )
 
 var databaseName = regexp.MustCompile(`^morsel_auth_e2e_[0-9a-f]{24}$`)
@@ -105,6 +107,20 @@ func run(ctx context.Context, args []string) error {
 			VALUES ($1, decode(repeat('ab', 32), 'hex'), '# Legacy before account', '2020-01-01T00:00:00Z')`, id)
 		if err != nil {
 			return err
+		}
+		pool, err := pgxpool.New(ctx, os.Getenv("MORSEL_DATABASE_URL"))
+		if err != nil {
+			return err
+		}
+		defer pool.Close()
+		for {
+			count, err := share.BackfillLabels(ctx, pool, 16)
+			if err != nil {
+				return err
+			}
+			if count == 0 {
+				break
+			}
 		}
 		fmt.Println(id)
 		return nil

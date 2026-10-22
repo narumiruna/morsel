@@ -35,6 +35,10 @@ const themePresets = {
 
 const storageKey = "morsel-theme"
 const AppearanceContext = createContext<Appearance>("light")
+const ThemeControlContext = createContext({
+  mode: "system" as ThemeMode,
+  updateMode: (_next: string) => {},
+})
 
 export function useAppearance(): Appearance {
   return useContext(AppearanceContext)
@@ -51,6 +55,25 @@ function initialMode(): ThemeMode {
   } catch {
     return "system"
   }
+}
+
+export function ThemeControl() {
+  const { mode, updateMode } = useContext(ThemeControlContext)
+  return (
+    <div className="header-theme-control">
+      <span>Theme</span>
+      <Select.Root value={mode} onValueChange={updateMode}>
+        <Select.Trigger aria-label="Theme" />
+        <Select.Content>
+          {themeOptions.map((option) => (
+            <Select.Item key={option.value} value={option.value}>
+              {option.label}
+            </Select.Item>
+          ))}
+        </Select.Content>
+      </Select.Root>
+    </div>
+  )
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -88,20 +111,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         data-theme-mode={mode}
         data-appearance={appearance}
       >
-        <div className="theme-control">
-          <span>Theme</span>
-          <Select.Root value={mode} onValueChange={updateMode}>
-            <Select.Trigger aria-label="Theme" />
-            <Select.Content>
-              {themeOptions.map((option) => (
-                <Select.Item key={option.value} value={option.value}>
-                  {option.label}
-                </Select.Item>
-              ))}
-            </Select.Content>
-          </Select.Root>
-        </div>
-        {children}
+        <ThemeControlContext.Provider value={{ mode, updateMode }}>
+          {children}
+        </ThemeControlContext.Provider>
       </Theme>
     </AppearanceContext.Provider>
   )

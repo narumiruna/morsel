@@ -132,12 +132,16 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT content FROM shares WHERE id='00000000-0000-4000-8000-000000000001'`).Scan(&content); err != nil || content != "# Legacy before account" {
 		t.Fatal("legacy fixture missing")
 	}
+	var label string
+	if err := pool.QueryRow(ctx, `SELECT admin_label FROM shares WHERE id='00000000-0000-4000-8000-000000000001'`).Scan(&label); err != nil || label != "Legacy before account" {
+		t.Fatal("legacy fixture backfill missing")
+	}
 	var accountCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM accounts`).Scan(&accountCount); err != nil || accountCount != 0 {
 		t.Fatal("legacy fixture requires an account")
 	}
 	var targetMigrations int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 7 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 8 {
 		t.Fatal("target database was not fully migrated")
 	}
 }

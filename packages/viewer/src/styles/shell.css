@@ -1,0 +1,89 @@
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  width: min(100% - 2rem, 76rem);
+  margin-inline: auto;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--gray-a5);
+}
+
+.app-header a {
+  color: var(--accent-12);
+  text-decoration: none;
+}
+
+.app-header a:hover,
+.management-navigation a:hover {
+  text-decoration: underline;
+}
+
+.app-brand {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.app-header-controls,
+.header-theme-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.app-header-controls {
+  margin-left: auto;
+}
+
+.header-theme-control {
+  color: var(--gray-11);
+  font-size: var(--font-size-2);
+}
+
+.account-menu-trigger {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--gray-10);
+  border-radius: var(--radius-2);
+  background: var(--color-background);
+  color: var(--gray-12);
+  font: inherit;
+  cursor: pointer;
+}
+
+.app-header + .app-shell {
+  min-height: calc(100vh - 5rem);
+  padding-top: 1.5rem;
+}
+
+.management-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  padding-block: 0.5rem;
+}
+
+.management-navigation a {
+  color: var(--accent-12);
+}
+
+.management-navigation [aria-current="page"] {
+  font-weight: 700;
+  text-decoration-thickness: 0.15em;
+  text-underline-offset: 0.3em;
+}
+
+.management-shell.account-page {
+  width: min(100%, 76rem);
+}
+
+@media (max-width: 420px) {
+  .app-header {
+    gap: 0.75rem;
+  }
+
+  .app-header-controls {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+}

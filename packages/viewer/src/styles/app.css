@@ -36,7 +36,7 @@ summary {
 }
 
 :focus-visible {
-  outline: 3px solid var(--accent-8);
+  outline: 3px solid var(--accent-12);
   outline-offset: 3px;
 }
 
@@ -89,7 +89,7 @@ summary {
   width: 100%;
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--gray-a7);
+  border: 1px solid var(--gray-10);
   border-radius: var(--radius-2);
   background: var(--color-background);
   color: var(--gray-12);

@@ -58,12 +58,17 @@ async function mockAccount(page: Page) {
       expect(url.searchParams.get("limit")).toBe("25")
       if (status === "all") {
         await route.fulfill({
-          json: cursor ? { items: [second] } : { items: [first()], next_cursor: "opaque/+=" },
+          json: cursor
+            ? { items: [second], matching_count: 2 }
+            : { items: [first()], next_cursor: "opaque/+=", matching_count: 2 },
         })
       } else {
         expect(cursor).toBeNull()
         await route.fulfill({
-          json: { items: [first(), second].filter((share) => share.status === status) },
+          json: {
+            items: [first(), second].filter((share) => share.status === status),
+            matching_count: [first(), second].filter((share) => share.status === status).length,
+          },
         })
       }
     } else if (path === `/v1/account/shares/${firstID}` && request.method() === "DELETE") {
@@ -92,22 +97,26 @@ async function mockAccount(page: Page) {
   }
 }
 
-for (const width of [1280, 390]) {
+for (const width of [1280, 375]) {
   test(`manages historical and unavailable shares without consuming views at ${width}px`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
     const api = await mockAccount(page)
-    await page.goto("/account")
+    await page.goto("/manage/shares")
     const shares = page.getByRole("region", { name: "Shares", exact: true })
-    await expect(shares.getByRole("button", { name: "View share Historical share" })).toBeVisible()
-    await expect(shares.getByText(firstID, { exact: true })).toBeVisible()
+    await expect(
+      shares.getByRole("button", { name: "Preview share Historical share" }),
+    ).toBeVisible()
+    await expect(shares.getByText(firstID, { exact: true })).toHaveCount(0)
+    await shares.getByText("About share management", { exact: true }).click()
     await expect(shares.getByText(/before account setup/)).toBeVisible()
+    await shares.getByText("About share management", { exact: true }).click()
     await shares.getByRole("button", { name: "Next shares" }).click()
-    await expect(shares.getByRole("button", { name: "View share Expired share" })).toBeVisible()
+    await expect(shares.getByRole("button", { name: "Preview share Expired share" })).toBeVisible()
     await shares.getByLabel("Share status").selectOption("expired")
     await expect(shares.getByRole("button", { name: "Previous shares" })).toBeDisabled()
-    await shares.getByRole("button", { name: "View share Expired share" }).click()
+    await shares.getByRole("button", { name: "Preview share Expired share" }).click()
     const expiredDetail = shares.getByRole("region", { name: "Share details: Expired share" })
     await expect(expiredDetail.getByRole("heading", { name: "Private content" })).toBeVisible()
     await expect(expiredDetail.getByText("Expired", { exact: true })).toBeVisible()
@@ -125,7 +134,7 @@ for (const width of [1280, 390]) {
     await expect(shares.getByRole("button", { name: /copy.*(url|link)/i })).toHaveCount(0)
     await shares.getByRole("button", { name: "Close share details" }).click()
     await shares.getByLabel("Share status").selectOption("all")
-    await shares.getByRole("button", { name: "View share Historical share" }).click()
+    await shares.getByRole("button", { name: "Preview share Historical share" }).click()
     const detail = shares.getByRole("region", { name: "Share details: Historical share" })
     await expect(detail.getByRole("heading", { name: "Private content" })).toBeVisible()
     await shares.getByRole("button", { name: "Revoke share Historical share" }).click()
@@ -156,8 +165,8 @@ for (const width of [1280, 390]) {
 
 test("session expiry removes administrative content and metadata", async ({ page }) => {
   const api = await mockAccount(page)
-  await page.goto("/account")
-  await page.getByRole("button", { name: "View share Historical share" }).click()
+  await page.goto("/manage/shares")
+  await page.getByRole("button", { name: "Preview share Historical share" }).click()
   await expect(page.getByRole("heading", { name: "Private content" })).toBeVisible()
   api.expireSession()
   await page.getByRole("button", { name: "Refresh shares" }).click()

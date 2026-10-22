@@ -1,20 +1,7 @@
-import { ExclamationTriangleIcon, FileTextIcon } from "@radix-ui/react-icons"
-import { Callout, Card, Flex, Heading, Link, Spinner, Text } from "@radix-ui/themes"
+import { ExclamationTriangleIcon } from "@radix-ui/react-icons"
+import { Callout, Heading, Spinner, Text } from "@radix-ui/themes"
 
-export function HomePage() {
-  return (
-    <Card className="status-card">
-      <Flex direction="column" align="center" gap="3">
-        <FileTextIcon width="32" height="32" aria-hidden="true" />
-        <Heading>Morsel</Heading>
-        <Text align="center" color="gray">
-          Open a Morsel share or GitHub Gist URL to read a Markdown document.
-        </Text>
-        <Link href="/account">Manage account</Link>
-      </Flex>
-    </Card>
-  )
-}
+export { HomePage } from "./HomePage"
 
 export function LoadingPage({ subject = "share" }: { subject?: string }) {
   return (
