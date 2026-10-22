@@ -129,6 +129,30 @@ alert("escaped")
     expect(container.innerHTML).not.toMatch(/onerror|onload|<svg/i)
   })
 
+  it("does not load images when administrative inspection disables them", () => {
+    const { container } = render(
+      <MarkdownDocument
+        content={`![capability](/v1/shares/${"A".repeat(43)})\n\n![](https://images.example/image.png)`}
+        loadImages={false}
+      />,
+    )
+    expect(container.querySelector("img")).toBeNull()
+    expect(screen.getByText("Image not loaded: capability")).toBeInTheDocument()
+    expect(screen.getByText("Image not loaded", { exact: true })).toBeInTheDocument()
+  })
+
+  it("keeps Mermaid source inert when images are disabled", () => {
+    const source = `flowchart TD\nA@{ img: "/v1/shares/${"A".repeat(43)}", label: "test", h: 60 }`
+    const { container } = render(
+      <MarkdownDocument content={`\`\`\`mermaid\n${source}\n\`\`\``} loadImages={false} />,
+    )
+    expect(container.querySelector("pre > code.language-mermaid")).toHaveTextContent(
+      source.replace("\n", " "),
+    )
+    expect(container.querySelector("img, svg")).toBeNull()
+    expect(renderDiagram).not.toHaveBeenCalled()
+  })
+
   it("renders Vega-Lite blocks locally with locked embed options", async () => {
     const source = JSON.stringify({
       usermeta: { embedOptions: { actions: true, loader: { baseURL: "https://evil.example" } } },

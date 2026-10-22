@@ -197,10 +197,16 @@ func (r *PostgresRepository) diagnose(ctx context.Context, tokenHash [32]byte) e
 }
 
 func (r *PostgresRepository) Revoke(ctx context.Context, id uuid.UUID) (bool, error) {
+	return revoke(ctx, r.pool, id)
+}
+
+func revoke(ctx context.Context, db interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, id uuid.UUID) (bool, error) {
 	const query = `UPDATE shares SET revoked_at = COALESCE(revoked_at, statement_timestamp())
 		WHERE id = $1 RETURNING revoked_at`
 	var revokedAt time.Time
-	if err := r.pool.QueryRow(ctx, query, id).Scan(&revokedAt); err != nil {
+	if err := db.QueryRow(ctx, query, id).Scan(&revokedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}

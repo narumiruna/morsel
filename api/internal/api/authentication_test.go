@@ -51,18 +51,22 @@ func TestRouterMountsAccountRoutesWithoutRequiringBearer(t *testing.T) {
 	calls := 0
 	handler := NewRouter(NewService(&repositoryStub{}, share.TokenGenerator{}, origin, 100, slog.Default()), RouterConfig{
 		Account: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			deadline, ok := r.Context().Deadline()
+			if !ok || time.Until(deadline) > time.Second {
+				t.Error("account route lost request timeout")
+			}
 			calls++
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusNoContent)
 		}), Logger: slog.Default(), MaxRequestBody: 1024, RequestTimeout: time.Second,
 	})
-	for _, path := range []string{"/v1/account", "/v1/auth/login/begin", "/v1/passkeys", "/v1/passkeys/credential", "/v1/api-keys", "/v1/api-keys/id"} {
+	for _, path := range []string{"/v1/account", "/v1/account/shares", "/v1/account/shares/id", "/v1/auth/login/begin", "/v1/passkeys", "/v1/passkeys/credential", "/v1/api-keys", "/v1/api-keys/id"} {
 		response := request(t, handler, http.MethodPost, path, `{}`, "")
 		if response.Code != http.StatusNoContent || response.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("%s: %d %s", path, response.Code, response.Body.String())
 		}
 	}
-	if calls != 6 {
+	if calls != 8 {
 		t.Fatalf("account calls=%d", calls)
 	}
 	if got := request(t, handler, http.MethodGet, "/v1/unknown", "", "").Code; got != http.StatusNotFound {

@@ -9,9 +9,20 @@ Start with the [Quick start](../README.md#quick-start). Create and revoke shares
 3. Complete fresh passkey verification and create a named API key. Copy it once into your client secret store. Only its SHA-256 hash and metadata are stored; the raw value cannot be recovered or listed later.
 4. Export the UI-created value as `MORSEL_API_KEY` for existing scripts, curl examples, and the TypeScript client. Do not pass it to the Morsel server.
 
-All owner-issued keys have administrator access and can revoke any share, including older shares. Use `/account` to list key metadata and revoke keys after fresh verification. Key revocation stops subsequent requests, but does not cancel an already-authorized request or revoke shares. Revoke exposed shares separately. API keys cannot manage account credentials, sessions, or other keys; browser sessions cannot authorize share writes.
+All owner-issued keys have administrator access and can revoke any share, including older shares. Use `/account` to list key metadata and revoke keys after fresh verification. Key revocation stops subsequent requests, but does not cancel an already-authorized request or revoke shares. Revoke exposed shares separately. API keys cannot manage account credentials, sessions, other keys, or browser-only share management. Browser sessions cannot authorize the existing Bearer share-write routes; the separate account routes allow share inspection and revocation.
 
 Sessions last 30 days from login and survive browser restarts; activity does not extend them. Sensitive changes reuse passkey verification for 12 hours. After deployment, log out and sign in again to use the longer session lifetime. Logout invalidates the server session. If passkeys are lost, request operator recovery. Recovery invalidates old credentials, sessions, and pending authentication grants, but **does not revoke API keys**. Review and revoke suspect keys separately. Existing public share URLs do not require login.
+
+## Manage existing shares in the WebUI
+
+1. Sign in at `/account` and open the Shares section. It includes shares created before account setup and shares created with any API key.
+2. Select a status filter or use the pagination controls. Labels use the preview title, the first non-empty Markdown line, or Untitled. Counts and availability are snapshots; select **Refresh shares** for current data.
+3. Select **View share** to inspect the stored Markdown. Administrative inspection does not consume a view and works for revoked, expired, and exhausted shares. Images are shown as text placeholders, and Mermaid diagrams are shown as fenced source. Neither is loaded or executed during inspection: their image URLs can point to consuming share endpoints.
+4. Select **Revoke share**, then confirm. Complete passkey verification if the previous verification is more than twelve hours old. Revocation cannot be undone. It does not delete stored content or remove external copies, including Telegram caches.
+
+Morsel stores only the capability hash. The WebUI cannot recover or copy an original public URL. An administrative UUID is not a reader capability. Keep the original URL in your own records if you need it later.
+
+The browser-only routes are `GET /v1/account/shares`, `GET /v1/account/shares/{id}`, and `DELETE /v1/account/shares/{id}`. They require an owner session; API keys alone do not grant access. Mutations also require exact Origin, CSRF, and fresh verification. These routes never return capability hashes or raw tokens. The list omits full Markdown. See the [OpenAPI contract](../api/openapi.yaml) for pagination and filters.
 
 ## Create a share
 

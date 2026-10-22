@@ -11,6 +11,7 @@ import {
   type Passkey,
   supportsPasskeys,
 } from "../account/accountApi"
+import { type AccountMutation, ShareManagement } from "../account/ShareManagement"
 import { LoadingPage } from "./StatusPage"
 
 export function AccountPage() {
@@ -30,12 +31,22 @@ export function AccountPage() {
   const locked = useRef(false)
 
   const forgetSession = useCallback(() => {
+    controller.current?.abort()
+    controller.current = new AbortController()
+    locked.current = false
+    setBusy(false)
+    setLoading(false)
     setRawKey(null)
     setKeys([])
     setPasskeys([])
     setToken("")
     setAccount({ setup_required: false, authenticated: false })
   }, [])
+
+  const expireShareSession = useCallback(() => {
+    forgetSession()
+    setError("Your session expired. Sign in again.")
+  }, [forgetSession])
 
   const refreshLists = useCallback(async (signal: AbortSignal) => {
     const [nextPasskeys, nextKeys] = await Promise.all([
@@ -74,21 +85,25 @@ export function AccountPage() {
       .finally(() => {
         if (!abort.signal.aborted) setLoading(false)
       })
-    return () => abort.abort()
+    return () => {
+      abort.abort()
+      controller.current?.abort()
+    }
   }, [forgetSession, refreshAccount])
 
   const run = async (action: (signal: AbortSignal) => Promise<void>) => {
-    if (locked.current) return
+    if (locked.current) return false
     const signal = controller.current?.signal
-    if (!signal || signal.aborted) return
+    if (!signal || signal.aborted) return false
     locked.current = true
     setBusy(true)
     setError("")
     setNotice("")
     try {
       await action(signal)
+      return !signal.aborted
     } catch (failure) {
-      if (signal.aborted) return
+      if (signal.aborted) return false
       if (failure instanceof AccountError) {
         if (failure.status === 401) forgetSession()
         if (failure.status === 403 || failure.status === 409) {
@@ -101,10 +116,15 @@ export function AccountPage() {
           }
         }
       }
-      if (!signal.aborted) setError(accountErrorMessage(failure))
+      if (!signal.aborted || (failure instanceof AccountError && failure.status === 401)) {
+        setError(accountErrorMessage(failure))
+      }
+      return false
     } finally {
-      locked.current = false
-      if (!signal.aborted) setBusy(false)
+      if (controller.current?.signal === signal) {
+        locked.current = false
+        if (!signal.aborted) setBusy(false)
+      }
     }
   }
 
@@ -123,8 +143,8 @@ export function AccountPage() {
     })
   }
 
-  const mutate = (action: (signal: AbortSignal, csrf: string) => Promise<void>) => {
-    void run(async (signal) => {
+  const mutate: AccountMutation = (action) => {
+    return run(async (signal) => {
       const current = await accountRequest<Account>("account", { signal })
       if (signal.aborted) return
       setAccount(current)
@@ -134,8 +154,9 @@ export function AccountPage() {
       if (current.verification_required !== false) {
         await authenticate("verify", {}, csrf, signal)
       }
+      if (signal.aborted) return
       await action(signal, csrf)
-      await refreshLists(signal)
+      if (!signal.aborted) await refreshLists(signal)
     })
   }
 
@@ -228,6 +249,12 @@ export function AccountPage() {
                   </Flex>
                 </Card>
               )}
+              <ShareManagement
+                busy={busy}
+                canVerify={supported}
+                mutate={mutate}
+                onSessionExpired={expireShareSession}
+              />
               <Card>
                 <Heading as="h2" size="5">
                   API keys

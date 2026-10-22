@@ -87,7 +87,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Println(derived)
 		return nil
 	}
-	if len(args) != 1 || (args[0] != "expire-sessions" && args[0] != "expire-verification" && args[0] != "assert-no-secret") {
+	if len(args) != 1 || (args[0] != "expire-sessions" && args[0] != "expire-verification" && args[0] != "assert-no-secret" && args[0] != "seed-legacy-share") {
 		return errors.New("unknown command")
 	}
 	cfg, err := pgx.ParseConfig(os.Getenv("MORSEL_DATABASE_URL"))
@@ -99,6 +99,16 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	defer conn.Close(ctx)
+	if args[0] == "seed-legacy-share" {
+		const id = "00000000-0000-4000-8000-000000000001"
+		_, err := conn.Exec(ctx, `INSERT INTO shares (id, token_hash, content, created_at)
+			VALUES ($1, decode(repeat('ab', 32), 'hex'), '# Legacy before account', '2020-01-01T00:00:00Z')`, id)
+		if err != nil {
+			return err
+		}
+		fmt.Println(id)
+		return nil
+	}
 	if args[0] == "expire-sessions" {
 		_, err := conn.Exec(ctx, `UPDATE auth_sessions SET expires_at=clock_timestamp()-interval '1 second'`)
 		return err

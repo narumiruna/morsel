@@ -124,8 +124,20 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename='schema_migrations'`).Scan(&migrationCount); err != nil || migrationCount != 0 {
 		t.Fatal("target migrations touched administrator database")
 	}
+	t.Setenv("MORSEL_DATABASE_URL", targetURL)
+	if err := run(ctx, []string{"seed-legacy-share"}); err != nil {
+		t.Fatal("seed legacy fixture in disposable target")
+	}
+	var content string
+	if err := pool.QueryRow(ctx, `SELECT content FROM shares WHERE id='00000000-0000-4000-8000-000000000001'`).Scan(&content); err != nil || content != "# Legacy before account" {
+		t.Fatal("legacy fixture missing")
+	}
+	var accountCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM accounts`).Scan(&accountCount); err != nil || accountCount != 0 {
+		t.Fatal("legacy fixture requires an account")
+	}
 	var targetMigrations int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 6 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 7 {
 		t.Fatal("target database was not fully migrated")
 	}
 }
@@ -153,7 +165,7 @@ func TestRejectUnsafeDatabaseNames(t *testing.T) {
 }
 
 func TestMutationRequiresDisposableDatabase(t *testing.T) {
-	for _, command := range []string{"expire-sessions", "expire-verification", "assert-no-secret"} {
+	for _, command := range []string{"expire-sessions", "expire-verification", "assert-no-secret", "seed-legacy-share"} {
 		for _, database := range []string{"production", "postgres", "morsel_test", "morsel_auth_e2e_invalid"} {
 			t.Run(command+"/"+database, func(t *testing.T) {
 				t.Setenv("MORSEL_DATABASE_URL", "postgres://operator:secret@127.0.0.1:1/"+database+"?connect_timeout=1")
@@ -167,7 +179,7 @@ func TestMutationRequiresDisposableDatabase(t *testing.T) {
 }
 
 func TestRejectUnknownCommandsAndArguments(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}, {"seed-legacy-share", "extra"}} {
 		if err := run(context.Background(), args); err == nil {
 			t.Fatal("invalid command accepted")
 		}
