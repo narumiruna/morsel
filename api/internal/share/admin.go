@@ -17,19 +17,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+var ErrLinkUnavailable = errors.New("original share link was not saved")
 var ErrInvalidAdminParams = errors.New("invalid share list parameters")
 var ErrLabelBackfillRequired = errors.New("share label backfill required")
 
 // AdminMetadata contains no capability data or full content.
 type AdminMetadata struct {
-	ID        uuid.UUID  `json:"id"`
-	Label     string     `json:"label"`
-	CreatedAt time.Time  `json:"created_at"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	MaxViews  *int64     `json:"max_views"`
-	ViewCount int64      `json:"view_count"`
-	RevokedAt *time.Time `json:"revoked_at"`
-	Status    string     `json:"status"`
+	ID            uuid.UUID  `json:"id"`
+	Label         string     `json:"label"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ExpiresAt     *time.Time `json:"expires_at"`
+	MaxViews      *int64     `json:"max_views"`
+	ViewCount     int64      `json:"view_count"`
+	RevokedAt     *time.Time `json:"revoked_at"`
+	Status        string     `json:"status"`
+	LinkAvailable bool       `json:"link_available"`
 }
 
 type AdminDetail struct {
@@ -129,7 +131,7 @@ const adminStatusSQL = `CASE
 	WHEN max_views IS NOT NULL AND view_count >= max_views THEN 'view_limit_exhausted'
 	ELSE 'active' END`
 
-const adminColumnsSQL = `id, COALESCE(admin_label, '') AS label, created_at, expires_at, max_views, view_count, revoked_at, ` + adminStatusSQL + ` AS status`
+const adminColumnsSQL = `id, COALESCE(admin_label, '') AS label, created_at, expires_at, max_views, view_count, revoked_at, ` + adminStatusSQL + ` AS status, link_ciphertext IS NOT NULL AS link_available`
 
 func searchHash(q string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(q)))
@@ -195,7 +197,7 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 	for rows.Next() {
 		var item AdminMetadata
 		var pending bool
-		if err := rows.Scan(&page.MatchingCount, &pending, &item.ID, &item.Label, &item.CreatedAt, &item.ExpiresAt, &item.MaxViews, &item.ViewCount, &item.RevokedAt, &item.Status); err != nil {
+		if err := rows.Scan(&page.MatchingCount, &pending, &item.ID, &item.Label, &item.CreatedAt, &item.ExpiresAt, &item.MaxViews, &item.ViewCount, &item.RevokedAt, &item.Status, &item.LinkAvailable); err != nil {
 			return AdminPage{}, fmt.Errorf("scan share metadata: %w", err)
 		}
 		if pending {
@@ -248,7 +250,7 @@ func adminListSQL(sort string) string {
  ) SELECT totals.matching_count, totals.pending,
   COALESCE(page.id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(page.label, ''), COALESCE(page.created_at, statement_timestamp()),
-  page.expires_at, page.max_views, COALESCE(page.view_count,0), page.revoked_at, COALESCE(page.status,'')
+  page.expires_at, page.max_views, COALESCE(page.view_count,0), page.revoked_at, COALESCE(page.status,''), COALESCE(page.link_available,false)
  FROM totals LEFT JOIN LATERAL (
   SELECT * FROM matching WHERE ($2::timestamptz IS NULL OR ` + keys + ` ` + comparison + ` ` + position + `)
   ORDER BY ` + order + ` LIMIT $4
@@ -256,7 +258,7 @@ func adminListSQL(sort string) string {
 }
 
 func scanAdmin(row pgx.Row, item *AdminMetadata, extra ...any) error {
-	args := []any{&item.ID, &item.Label, &item.CreatedAt, &item.ExpiresAt, &item.MaxViews, &item.ViewCount, &item.RevokedAt, &item.Status}
+	args := []any{&item.ID, &item.Label, &item.CreatedAt, &item.ExpiresAt, &item.MaxViews, &item.ViewCount, &item.RevokedAt, &item.Status, &item.LinkAvailable}
 	return row.Scan(append(args, extra...)...)
 }
 
@@ -273,6 +275,27 @@ func (r *AdminRepository) Detail(ctx context.Context, id uuid.UUID) (AdminDetail
 		return AdminDetail{}, ErrLabelBackfillRequired
 	}
 	return detail, nil
+}
+
+// Link returns retained capability data only inside the owner's authorization transaction.
+func (r *AdminRepository) Link(ctx context.Context, id uuid.UUID, cipher *LinkCipher) (string, bool, error) {
+	var encrypted, storedHash []byte
+	var preview bool
+	err := r.tx.QueryRow(ctx, `SELECT link_ciphertext, token_hash, preview_title IS NOT NULL FROM shares WHERE id=$1`, id).Scan(&encrypted, &storedHash, &preview)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, ErrNotFound
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get share link: %w", err)
+	}
+	if encrypted == nil {
+		return "", false, ErrLinkUnavailable
+	}
+	if len(storedHash) != 32 {
+		return "", false, errors.New("invalid stored capability hash")
+	}
+	token, err := cipher.Decrypt(id, encrypted, [32]byte(storedHash))
+	return token, preview, err
 }
 
 // VerifyToken matches an owner-supplied capability without consuming or changing a share.

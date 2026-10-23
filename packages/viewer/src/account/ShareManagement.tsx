@@ -26,6 +26,7 @@ export type ShareMetadata = {
   view_count: number
   revoked_at: string | null
   status: ShareStatus
+  link_available: boolean
 }
 export type ShareDetail = ShareMetadata & { content: string }
 type SharePage = { items: ShareMetadata[]; next_cursor?: string; matching_count: number }
@@ -57,7 +58,6 @@ const statuses: Record<ShareStatus, string> = {
 export function ShareManagement({
   busy,
   canVerify,
-  csrf,
   mutate,
   onSessionExpired,
   controls,
@@ -65,7 +65,6 @@ export function ShareManagement({
 }: {
   busy: boolean
   canVerify: boolean
-  csrf?: string
   mutate: AccountMutation
   onSessionExpired: () => void
   controls: ShareListState
@@ -218,7 +217,7 @@ export function ShareManagement({
     else sharesHeading.current?.focus()
   }
 
-  const links = useShareLinks({ csrf, onSessionExpired, restoreFocus })
+  const links = useShareLinks({ onSessionExpired, restoreFocus })
 
   const closePreview = () => {
     detailRequest.current?.abort()
@@ -302,8 +301,9 @@ export function ShareManagement({
             Refresh to check again.
           </p>
           <p>
-            Copy link needs the original public URL once per visit. Morsel stores only a token hash
-            and cannot recover a lost URL. A share ID is not a public link.
+            Copy link copies the saved public URL. Show link displays it below the row actions.
+            Older shares may show Link unavailable because their original URLs were not saved.
+            Existing public URLs are unchanged. A share ID is not a public link.
           </p>
         </details>
         <form
@@ -493,14 +493,29 @@ export function ShareManagement({
                   </td>
                   <td className="share-actions">
                     <Flex gap="2" align="center">
-                      <Button
-                        highContrast
-                        aria-label={`Copy link for ${share.label}`}
-                        disabled={busy || revoking}
-                        onClick={(event) => void links.copyLink(share, event.currentTarget)}
-                      >
-                        Copy link
-                      </Button>
+                      {links.available(share) ? (
+                        <Button
+                          highContrast
+                          aria-label={`Copy link for ${share.label}`}
+                          disabled={busy || revoking}
+                          aria-disabled={links.loadingID === share.id}
+                          aria-busy={links.loadingID === share.id}
+                          onClick={(event) => {
+                            if (links.loadingID !== share.id)
+                              void links.copyLink(share, event.currentTarget)
+                          }}
+                        >
+                          {links.loadingID === share.id ? "Getting link…" : "Copy link"}
+                        </Button>
+                      ) : (
+                        <Text
+                          size="1"
+                          color="gray"
+                          title="The original URL was not saved. Existing public URLs are unchanged."
+                        >
+                          Link unavailable
+                        </Text>
+                      )}
                       <DropdownMenu.Root>
                         <DropdownMenu.Trigger>
                           <IconButton
@@ -525,9 +540,10 @@ export function ShareManagement({
                           }}
                         >
                           <DropdownMenu.Item
+                            disabled={!links.available(share)}
                             onSelect={() => {
                               menuAction.current = () =>
-                                links.showLink(
+                                void links.showLink(
                                   share,
                                   document.getElementById(`share-actions-${share.id}`),
                                 )
@@ -559,6 +575,7 @@ export function ShareManagement({
                         </DropdownMenu.Content>
                       </DropdownMenu.Root>
                     </Flex>
+                    {links.panel(share)}
                     {links.copiedID === share.id && (
                       <span className="share-link-result" aria-hidden="true">
                         Link copied
@@ -571,7 +588,6 @@ export function ShareManagement({
           </table>
         )}
         <div role="status">{links.feedback}</div>
-        {links.dialog}
         <Flex gap="3" wrap="wrap" mt="3" aria-label="Share pagination">
           <Button
             variant="soft"
@@ -712,8 +728,11 @@ export function ShareManagement({
                   <MarkdownDocument content={detail.content} loadImages={false} />
                   <ShareFacts share={detail} />
                   <Text as="p" size="2">
-                    The original public URL cannot be recovered. The share ID is not a public link.
-                    Images are not loaded in previews. Mermaid diagrams are shown as source.
+                    {detail.link_available
+                      ? "Use the row actions to copy or show the public URL."
+                      : "The original public URL was not saved. Existing public URLs are unchanged."}{" "}
+                    The share ID is not a public link. Images are not loaded in previews. Mermaid
+                    diagrams are shown as source.
                   </Text>
                   <Button variant="soft" highContrast onClick={() => void copyID()}>
                     Copy share ID

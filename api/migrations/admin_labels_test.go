@@ -13,7 +13,7 @@ import (
 func TestAdminLabelsAdditiveRollbackAndRecovery(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := t.Context()
-	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Down, 2); err != nil {
 		t.Fatal(err)
 	}
 	id := uuid.New()
@@ -23,7 +23,7 @@ func TestAdminLabelsAdditiveRollbackAndRecovery(t *testing.T) {
 	}
 	snapshot := func() string {
 		var data string
-		if err := pool.QueryRow(ctx, `SELECT (to_jsonb(shares)-'admin_label')::text FROM shares WHERE id=$1`, id).Scan(&data); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT (to_jsonb(shares)-'admin_label'-'link_ciphertext')::text FROM shares WHERE id=$1`, id).Scan(&data); err != nil {
 			t.Fatal(err)
 		}
 		return data
@@ -53,7 +53,7 @@ func TestAdminLabelsAdditiveRollbackAndRecovery(t *testing.T) {
 				t.Fatalf("accepted invalid label %q", label)
 			}
 		}
-		if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		if err := migrations.Run(ctx, pool, migrations.Down, 2); err != nil {
 			t.Fatal(err)
 		}
 		assertColumnCount(t, pool, "admin_label", 0)

@@ -27,12 +27,15 @@ Start PostgreSQL and apply [migrations](#migrations). In one terminal, run the A
 
 ```sh
 cd api
+export MORSEL_SHARE_LINK_KEY='YOUR_SAVED_64_HEX_CHARACTER_KEY'
 export MORSEL_DATABASE_URL='postgres://morsel:LOCAL_PASSWORD@127.0.0.1:5432/morsel?sslmode=disable'
 export MORSEL_ENVIRONMENT=development
 export MORSEL_URL=http://localhost:5173
 export MORSEL_ADDRESS=:12647
 go run ./cmd/server
 ```
+
+Generate the share link key once with `openssl rand -hex 32` and save it outside the repository. Reuse the same key on each start; do not generate it in a startup script.
 
 In another terminal, start Vite with the command above. Open only <http://localhost:5173/account>. The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The existing Vite `/v1` proxy still targets `http://127.0.0.1:12647`; relative API paths keep cookies and Origin checks at the browser origin. CORS stays disabled.
 
@@ -55,7 +58,7 @@ npx playwright install chromium
 npm run test:auth:browser
 ```
 
-Use a test-only PostgreSQL role with permission to create databases. The harness creates an isolated database, applies migrations, builds the viewer and backend, starts Go on an available dynamic port, and stops Go and removes the database on success or failure. It does not use the interactive service on port 12647. The browser origin is `http://localhost:<selected-port>` and the RP ID is `localhost`; the harness sets a matching `MORSEL_URL`. Direct navigation and refresh use Go's built viewer, not Vite preview. Never point this command at production.
+Use a test-only PostgreSQL role with permission to create databases. The harness creates an isolated database and an ephemeral share link key, applies migrations, builds the viewer and backend, starts Go on an available dynamic port, and stops Go and removes the database on success or failure. It does not use the interactive service on port 12647. The browser origin is `http://localhost:<selected-port>` and the RP ID is `localhost`; the harness sets a matching `MORSEL_URL`. Direct navigation and refresh use Go's built viewer, not Vite preview. Never point this command at production.
 
 The separate required authentication CI job provisions PostgreSQL, Go, Node.js, and Chromium. Missing infrastructure, zero executed tests, or skipped required tests must fail the job. This suite does not use `MORSEL_E2E_LIVE`.
 

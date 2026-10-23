@@ -52,6 +52,7 @@ function makeShare(
     id,
     label,
     status,
+    link_available: true,
     created_at: created,
     expires_at: null,
     max_views: null,
@@ -98,6 +99,7 @@ async function viewShare(label = "Historical share") {
 beforeEach(() => {
   shares = [makeShare()]
   publicLinks = new Map()
+  vi.stubGlobal("ClipboardItem", undefined)
   account = {
     setup_required: false,
     authenticated: true,
@@ -133,9 +135,8 @@ beforeEach(() => {
     if (path.startsWith("account/shares/") && path.endsWith("/link")) {
       const id = path.slice("account/shares/".length, -"/link".length)
       const canonical = publicLinks.get(id)
-      const body = JSON.parse(String(init?.body)) as { token: string }
-      if (!canonical?.endsWith(`/s/${body.token}`))
-        return json({ message: "This public link does not belong to this share." }, 404)
+      if (!canonical)
+        return json({ code: "link_unavailable", message: "The original link was not saved." }, 404)
       return json({ share_url: canonical })
     }
     if (path.startsWith("account/shares/")) {
@@ -227,9 +228,7 @@ describe("account share management", () => {
         "href",
         expect.stringContaining("javascript:"),
       )
-      expect(
-        within(region).getByText(/original public URL cannot be recovered/),
-      ).toBeInTheDocument()
+      expect(within(region).getByText(/share ID is not a public link/)).toBeInTheDocument()
       expect(
         within(region).queryByRole("button", { name: /copy.*(url|link)/i }),
       ).not.toBeInTheDocument()
@@ -985,120 +984,104 @@ describe("account share management", () => {
 })
 
 describe("public share links", () => {
-  const token = "A".repeat(43)
-  const secondToken = `${"B".repeat(42)}A`
-  const publicURL = () => `${window.location.origin}/#/s/${token}`
+  const publicURL = () => `${window.location.origin}/#/s/${"A".repeat(43)}`
 
-  async function supplyLink(
-    user: ReturnType<typeof userEvent.setup>,
-    label: string,
-    original: string,
-  ) {
-    await user.click(await screen.findByRole("button", { name: `Copy link for ${label}` }))
-    const dialog = await screen.findByRole("dialog", { name: `Public link: ${label}` })
-    await user.type(within(dialog).getByRole("textbox", { name: "Original public URL" }), original)
-    await user.click(within(dialog).getByRole("button", { name: "Use original link" }))
-    await within(dialog).findByRole("textbox", { name: "Public share URL" })
-    return dialog
+  async function showLink(user: ReturnType<typeof userEvent.setup>, label = "Historical share") {
+    await user.click(await screen.findByRole("button", { name: `More actions for ${label}` }))
+    await user.click(await screen.findByRole("menuitem", { name: "Show link" }))
+    return screen.findByRole("region", { name: `Public link: ${label}` })
   }
 
-  it("explains unavailable links and rejects internal, external, and mismatched URLs without guessing", async () => {
+  it("marks legacy URLs unavailable without input or misleading actions", async () => {
+    shares = [{ ...makeShare(), link_available: false }]
     await showPage()
     const user = userEvent.setup()
-    const write = vi.spyOn(navigator.clipboard, "writeText")
-    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
-    const dialog = await screen.findByRole("dialog", { name: "Public link: Historical share" })
-    expect(within(dialog).getByText(/cannot recover the original public URL/)).toBeVisible()
-    const input = within(dialog).getByRole("textbox", { name: "Original public URL" })
-    for (const invalid of [
-      `${window.location.origin}/manage/shares`,
-      `https://other.test/s/${token}`,
-      firstID,
-    ]) {
-      await user.clear(input)
-      await user.type(input, invalid)
-      await user.click(within(dialog).getByRole("button", { name: "Use original link" }))
-      expect(within(dialog).getByRole("alert")).toHaveTextContent(
-        "Enter an original public share URL",
-      )
-    }
-    expect(requests(`account/shares/${firstID}/link`, "POST")).toHaveLength(0)
-    await user.clear(input)
-    await user.type(input, publicURL())
-    await user.click(within(dialog).getByRole("button", { name: "Use original link" }))
-    await within(dialog).findByText("This public link does not belong to this share.")
-    expect(write).not.toHaveBeenCalled()
-    expect(screen.queryByText(/Link copied/)).not.toBeInTheDocument()
-    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/v1/shares"))).toBe(false)
+    const row = await screen.findByRole("row", { name: /Preview share Historical share/ })
+    expect(within(row).getByText("Link unavailable")).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Copy link for Historical share" })).toBeNull()
+    await user.click(screen.getByRole("button", { name: "More actions for Historical share" }))
+    expect(await screen.findByRole("menuitem", { name: "Show link" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(screen.queryByRole("textbox", { name: "Original public URL" })).toBeNull()
+    expect(requests(`account/shares/${firstID}/link`)).toHaveLength(0)
+    await user.keyboard("{Escape}")
     expect(await axe.run(document.body).then((result) => result.violations)).toEqual([])
   })
 
-  it("copies each row's server-verified canonical URL and announces success only after the clipboard resolves", async () => {
+  it("copies each canonical URL on the first click and reports success only after completion", async () => {
     shares = [makeShare(), makeShare("second", "Preview-enabled share")]
-    const previewURL = `${window.location.origin}/s/${secondToken}`
+    const previewURL = `${window.location.origin}/s/${"B".repeat(42)}A`
     publicLinks.set(firstID, publicURL())
     publicLinks.set("second", previewURL)
     await showPage()
     const user = userEvent.setup()
     const pending = deferred<void>()
     const write = vi.spyOn(navigator.clipboard, "writeText").mockReturnValueOnce(pending.promise)
-    const first = await supplyLink(user, "Historical share", `${window.location.origin}/s/${token}`)
-    expect(within(first).getByRole("textbox", { name: "Public share URL" })).toHaveValue(
-      publicURL(),
-    )
-    expect(write).not.toHaveBeenCalled()
-    await user.click(within(first).getByRole("button", { name: "Copy link" }))
-    expect(screen.queryByText(/Link copied/)).not.toBeInTheDocument()
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
+    await waitFor(() => expect(write).toHaveBeenCalledWith(publicURL()))
+    expect(screen.queryByText(/Link copied/)).toBeNull()
+    expect(screen.queryByRole("region", { name: /Public link:/ })).toBeNull()
+    expect(screen.queryByRole("dialog")).toBeNull()
     await act(async () => pending.resolve())
-    expect(within(first).getByRole("status")).toHaveTextContent("Link copied. Historical share")
-    await user.click(within(first).getByRole("button", { name: "Close link" }))
-    const second = await supplyLink(
-      user,
-      "Preview-enabled share",
-      `${window.location.origin}/#/s/${secondToken}`,
-    )
-    await user.click(within(second).getByRole("button", { name: "Copy link" }))
-    expect(write.mock.calls.map(([value]) => value)).toEqual([publicURL(), previewURL])
-    await user.click(within(second).getByRole("button", { name: "Close link" }))
+    expect(screen.getByText("Link copied. Historical share")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Copy link for Preview-enabled share" }))
+    await waitFor(() => expect(write).toHaveBeenLastCalledWith(previewURL))
     await user.click(screen.getByRole("button", { name: "Copy link for Historical share" }))
     expect(write).toHaveBeenLastCalledWith(publicURL())
-    expect(
-      within(screen.getByRole("row", { name: /Preview share Historical share/ })).getByText(
-        "Link copied",
-      ),
-    ).toBeVisible()
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    const call = requests(`account/shares/${firstID}/link`, "POST")[0]?.[1]
-    expect(call?.headers).toHaveProperty("X-CSRF-Token", "csrf")
-    expect(JSON.parse(String(call?.body))).toEqual({ token })
+    expect(requests(`account/shares/${firstID}/link`)).toHaveLength(1)
+    expect(requests(`account/shares/${firstID}/link`, "POST")).toHaveLength(0)
     expect(startAuthentication).not.toHaveBeenCalled()
     expect(shares.map((share) => share.view_count)).toEqual([3, 3])
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/v1/shares"))).toBe(false)
+  })
+
+  it("starts a promised clipboard write before retrieval completes to preserve user activation", async () => {
+    const response = deferred<Response>()
+    const clipboard = deferred<void>()
+    intercept = (path) => (path.endsWith("/link") ? response.promise : undefined)
+    await showPage()
+    const user = userEvent.setup()
+    class PromisedItem {
+      constructor(public data: Record<string, Promise<Blob>>) {}
+    }
+    vi.stubGlobal("ClipboardItem", PromisedItem)
+    const write = vi.spyOn(navigator.clipboard, "write").mockReturnValue(clipboard.promise)
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Link copied/)).toBeNull()
+    await act(async () => response.resolve(json({ share_url: publicURL() })))
+    const item = write.mock.calls[0]?.[0][0] as unknown as PromisedItem
+    expect(await item.data["text/plain"]).toHaveProperty("type", "text/plain")
+    await act(async () => clipboard.resolve())
+    expect(screen.getByText("Link copied. Historical share")).toBeVisible()
   })
 
   it.each(["denied", "unavailable"])(
-    "reveals the complete selectable URL when clipboard access is %s",
+    "shows selectable text inline when clipboard access is %s",
     async (failure) => {
       publicLinks.set(firstID, publicURL())
       await showPage()
       const user = userEvent.setup()
-      const dialog = await supplyLink(user, "Historical share", publicURL())
-      await user.click(within(dialog).getByRole("button", { name: "Close link" }))
       const clipboard = navigator.clipboard
       if (failure === "denied")
         vi.spyOn(clipboard, "writeText").mockRejectedValue(new Error("denied"))
       else Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true })
       try {
-        await user.click(screen.getByRole("button", { name: "Copy link for Historical share" }))
-        const fallback = await screen.findByRole("dialog", {
-          name: "Public link: Historical share",
-        })
-        expect(within(fallback).getByRole("status")).toHaveTextContent("Could not copy link")
-        expect(screen.queryByText(/Link copied/)).not.toBeInTheDocument()
-        const input = within(fallback).getByRole("textbox", {
+        await user.click(
+          await screen.findByRole("button", { name: "Copy link for Historical share" }),
+        )
+        const panel = await screen.findByRole("region", { name: "Public link: Historical share" })
+        expect(screen.getByText(/Could not copy link/)).toBeVisible()
+        expect(screen.queryByText(/Link copied/)).toBeNull()
+        expect(screen.queryByRole("dialog")).toBeNull()
+        const input = within(panel).getByRole("textbox", {
           name: "Public share URL",
         }) as HTMLTextAreaElement
         expect(input).toHaveValue(publicURL())
-        await user.click(within(fallback).getByRole("button", { name: "Select link" }))
+        await user.click(within(panel).getByRole("button", { name: "Select link" }))
         expect(input).toHaveFocus()
         expect(input.selectionStart).toBe(0)
         expect(input.selectionEnd).toBe(publicURL().length)
@@ -1110,43 +1093,42 @@ describe("public share links", () => {
   )
 
   it.each(["revoked", "expired", "view_limit_exhausted"] as const)(
-    "keeps %s availability clear and unchanged when copying",
+    "does not reactivate a %s share",
     async (status) => {
       shares = [makeShare(firstID, "Unavailable", status)]
       publicLinks.set(firstID, publicURL())
       await showPage()
       const user = userEvent.setup()
       const before = JSON.stringify(shares)
-      const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
-      const dialog = await supplyLink(user, "Unavailable", publicURL())
-      expect(within(dialog).getByText(/Copying does not reactivate it/)).toBeVisible()
-      await user.click(within(dialog).getByRole("button", { name: "Copy link" }))
-      expect(write).toHaveBeenCalledWith(publicURL())
+      const panel = await showLink(user, "Unavailable")
+      expect(await within(panel).findByText(/Copying does not reactivate it/)).toBeVisible()
+      await user.click(screen.getByRole("button", { name: "Copy link for Unavailable" }))
       expect(JSON.stringify(shares)).toBe(before)
       expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false)
       expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/v1/shares"))).toBe(false)
     },
   )
 
-  it("shows links through the overflow menu and restores keyboard focus on Escape", async () => {
+  it("shows the URL directly and restores keyboard focus on Escape", async () => {
     publicLinks.set(firstID, publicURL())
     await showPage()
     const user = userEvent.setup()
-    const dialog = await supplyLink(user, "Historical share", publicURL())
-    await user.click(within(dialog).getByRole("button", { name: "Close link" }))
-    const more = screen.getByRole("button", { name: "More actions for Historical share" })
+    const more = await screen.findByRole("button", { name: "More actions for Historical share" })
     more.focus()
     await user.keyboard("{ArrowDown}")
     const show = await screen.findByRole("menuitem", { name: "Show link" })
     await waitFor(() => expect(show).toHaveFocus())
     await user.keyboard("{Enter}")
     const input = await screen.findByRole("textbox", { name: "Public share URL" })
+    expect(input).toHaveValue(publicURL())
     await waitFor(() => expect(input).toHaveFocus())
+    expect(screen.queryByRole("dialog")).toBeNull()
     await user.keyboard("{Escape}")
-    await waitFor(() => expect(more).toHaveFocus())
+    expect(more).toHaveFocus()
+    expect(screen.queryByDisplayValue(publicURL())).toBeNull()
   })
 
-  it("aborts verification on close and removes supplied links after leaving Shares", async () => {
+  it("aborts retrieval on hide, ignores late results, and retrieves again after remount", async () => {
     publicLinks.set(firstID, publicURL())
     const page = await showPage()
     const user = userEvent.setup()
@@ -1157,40 +1139,101 @@ describe("public share links", () => {
       signal = init?.signal as AbortSignal
       return pending.promise
     }
-    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
-    await user.type(screen.getByRole("textbox", { name: "Original public URL" }), publicURL())
-    await user.click(screen.getByRole("button", { name: "Use original link" }))
-    await user.click(screen.getByRole("button", { name: "Close link" }))
+    const panel = await showLink(user)
+    await user.click(within(panel).getByRole("button", { name: "Hide link" }))
     expect(signal?.aborted).toBe(true)
     await act(async () => pending.resolve(json({ share_url: publicURL() })))
+    expect(screen.queryByDisplayValue(publicURL())).toBeNull()
     intercept = undefined
-    const dialog = await supplyLink(user, "Historical share", publicURL())
-    await user.click(within(dialog).getByRole("button", { name: "Close link" }))
+    await showLink(user)
+    await screen.findByDisplayValue(publicURL())
     page.unmount()
     await showPage()
+    expect(screen.queryByDisplayValue(publicURL())).toBeNull()
     await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
-    expect(screen.getByRole("textbox", { name: "Original public URL" })).toHaveValue("")
-    expect(screen.queryByDisplayValue(publicURL())).not.toBeInTheDocument()
+    await waitFor(() => expect(requests(`account/shares/${firstID}/link`)).toHaveLength(3))
+    await screen.findByText("Link copied. Historical share")
   })
 
-  it("clears link state on a verification 401 and ignores late clipboard results after unmount", async () => {
+  it("reports retrieval errors inline with retry and handles missing retained links", async () => {
+    publicLinks.set(firstID, publicURL())
+    intercept = (path) =>
+      path.endsWith("/link") ? Promise.reject(new Error("offline")) : undefined
+    await showPage()
+    const user = userEvent.setup()
+    const write = vi.spyOn(navigator.clipboard, "writeText")
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
+    expect(await screen.findByText(/Check your connection/)).toBeVisible()
+    expect(write).not.toHaveBeenCalled()
+    intercept = undefined
+    await user.click(screen.getByRole("button", { name: "Retry link" }))
+    await screen.findByDisplayValue(publicURL())
+    await user.click(screen.getByRole("button", { name: "Hide link" }))
+    shares.push(makeShare("missing", "Missing link"))
+    await user.click(screen.getByRole("button", { name: "Refresh shares" }))
+    await user.click(await screen.findByRole("button", { name: "Copy link for Missing link" }))
+    expect(await screen.findByText("The original link was not saved.")).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Copy link for Missing link" })).toBeNull()
+    expect(screen.queryByRole("textbox", { name: "Original public URL" })).toBeNull()
+  })
+
+  it("ignores a delayed link response after switching rows", async () => {
+    shares = [makeShare(), makeShare("second", "Second share")]
+    const secondURL = `${window.location.origin}/s/${"B".repeat(42)}A`
+    publicLinks.set("second", secondURL)
+    const pending = deferred<Response>()
+    let signal: AbortSignal | undefined
+    intercept = (path, init) => {
+      if (path !== `account/shares/${firstID}/link`) return
+      signal = init?.signal as AbortSignal
+      return pending.promise
+    }
+    await showPage()
+    const user = userEvent.setup()
+    await showLink(user)
+    await showLink(user, "Second share")
+    await screen.findByDisplayValue(secondURL)
+    expect(signal?.aborted).toBe(true)
+    await act(async () => pending.resolve(json({ share_url: publicURL() })))
+    expect(screen.queryByDisplayValue(publicURL())).toBeNull()
+    expect(screen.getByRole("textbox", { name: "Public share URL" })).toHaveValue(secondURL)
+  })
+
+  it("handles immediate clipboard rejection followed by a retrieval failure", async () => {
+    const pending = deferred<Response>()
+    intercept = (path) => (path.endsWith("/link") ? pending.promise : undefined)
+    await showPage()
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "ClipboardItem",
+      class {
+        constructor(public data: Record<string, Promise<Blob>>) {}
+      },
+    )
+    vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("denied"))
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
+    await act(async () => pending.reject(new Error("offline")))
+    expect(await screen.findByText(/Check your connection/)).toBeVisible()
+    expect(screen.queryByText(/Link copied/)).toBeNull()
+    expect(screen.queryByRole("textbox", { name: "Public share URL" })).toBeNull()
+    expect(screen.queryByRole("dialog")).toBeNull()
+  })
+
+  it("clears private state on a retrieval 401 and ignores late clipboard results after unmount", async () => {
     publicLinks.set(firstID, publicURL())
     const page = await showPage()
     const user = userEvent.setup()
-    const dialog = await supplyLink(user, "Historical share", publicURL())
     const pending = deferred<void>()
     vi.spyOn(navigator.clipboard, "writeText").mockReturnValueOnce(pending.promise)
-    await user.click(within(dialog).getByRole("button", { name: "Copy link" }))
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
     page.unmount()
     await act(async () => pending.resolve())
-    expect(screen.queryByText(/Link copied/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Link copied/)).toBeNull()
     await showPage()
     intercept = (path) => (path.endsWith("/link") ? Promise.resolve(json({}, 401)) : undefined)
     await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
-    await user.type(screen.getByRole("textbox", { name: "Original public URL" }), publicURL())
-    await user.click(screen.getByRole("button", { name: "Use original link" }))
     await screen.findByRole("button", { name: "Sign in with passkey" })
-    expect(screen.queryByDisplayValue(publicURL())).not.toBeInTheDocument()
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue(publicURL())).toBeNull()
+    expect(screen.queryByRole("dialog")).toBeNull()
   })
 })

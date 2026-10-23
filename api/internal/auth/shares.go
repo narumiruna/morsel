@@ -40,6 +40,36 @@ func (s *Service) listShares(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (s *Service) getShareLink(w http.ResponseWriter, r *http.Request, value string) error {
+	tx, err := s.pool.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	if _, _, err = s.requestAuth(r, tx, false, false); err != nil {
+		return err
+	}
+	id, err := uuid.Parse(value)
+	if err != nil || len(value) != 36 {
+		return failure(400, "invalid_id", "invalid share ID")
+	}
+	token, preview, err := share.NewAdminRepository(tx).Link(r.Context(), id, s.linkCipher)
+	if errors.Is(err, share.ErrLinkUnavailable) {
+		return failure(404, "link_unavailable", "The original link was not saved. Existing public URLs are unchanged.")
+	}
+	if errors.Is(err, share.ErrNotFound) {
+		return failure(404, "not_found", "share not found")
+	}
+	if err != nil {
+		return err
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	respond(w, 200, map[string]string{"share_url": share.PublicURL(s.publicURL, token, preview)})
+	return nil
+}
+
 // verifyShareLink returns only a URL whose capability the owner already supplied.
 // It does not retain the capability or change public availability.
 func (s *Service) verifyShareLink(w http.ResponseWriter, r *http.Request, value string) error {

@@ -21,7 +21,7 @@ func TestAccountShareRoutesPreserveAuthenticationBoundaries(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := t.Context()
 	origin, _ := url.Parse("http://localhost:5173")
-	account, err := auth.NewService(pool, origin)
+	account, err := auth.NewService(pool, origin, testLinkCipher(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestAccountShareRoutesPreserveAuthenticationBoundaries(t *testing.T) {
 	}
 	logs := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
-	handler := NewRouter(NewService(repository, share.TokenGenerator{}, origin, 100, logger), RouterConfig{
+	handler := NewRouter(NewService(repository, share.TokenGenerator{}, origin, 100, logger, testLinkCipher(t)), RouterConfig{
 		Authenticator: account, Account: account, MaxRequestBody: 1024, RequestTimeout: time.Second, Logger: logger,
 	})
 	perform := func(method, path string, session, bearer bool) *httptest.ResponseRecorder {

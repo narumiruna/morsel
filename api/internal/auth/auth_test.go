@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/narumiruna/morsel/api/internal/share"
 	"github.com/narumiruna/morsel/api/internal/testdb"
 )
 
@@ -20,7 +21,11 @@ func testService(t *testing.T) (*Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := testdb.Open(t)
 	u, _ := url.Parse("http://localhost:5173")
-	s, err := NewService(pool, u)
+	cipher, err := share.NewLinkCipher(bytes.Repeat([]byte{1}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewService(pool, u, cipher)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +48,7 @@ func TestConfiguration(t *testing.T) {
 	} {
 		t.Run(test.raw, func(t *testing.T) {
 			u, _ := url.Parse(test.raw)
-			s, err := NewService(&pgxpool.Pool{}, u)
+			s, err := NewService(&pgxpool.Pool{}, u, nil)
 			if (err == nil) != test.valid {
 				t.Fatalf("NewService error=%v", err)
 			}
@@ -61,7 +66,7 @@ func TestConfiguration(t *testing.T) {
 			}
 		})
 	}
-	if _, err := NewService(nil, nil); err == nil {
+	if _, err := NewService(nil, nil, nil); err == nil {
 		t.Fatal("accepted nil config")
 	}
 }

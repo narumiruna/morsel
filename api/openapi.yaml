@@ -184,7 +184,7 @@ paths:
     get:
       operationId: getAccountShare
       summary: Inspect share content without consuming views
-      description: Includes revoked, expired, and exhausted shares. Public capability URLs cannot be recovered.
+      description: Includes revoked, expired, and exhausted shares. link_available indicates whether the original capability was retained for owner-only retrieval.
       security:
         - sessionCookie: []
       responses:
@@ -252,6 +252,37 @@ paths:
         schema:
           type: string
           format: uuid
+    get:
+      operationId: getAccountShareLink
+      summary: Retrieve the stored public URL without consuming a view
+      description: Requires an owner browser session. Returns the canonical URL for active, revoked, expired, and exhausted shares without changing availability. Legacy shares without a retained capability return 404 link_unavailable; missing shares return 404 not_found. Decryption failures return a generic 503. Does not require fresh passkey verification.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Stored canonical public URL
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [share_url]
+                properties:
+                  share_url:
+                    type: string
+                    format: uri
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "404":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
     post:
       operationId: verifyAccountShareLink
       summary: Verify an owner-supplied capability and return its canonical public URL
@@ -823,8 +854,11 @@ components:
       enum: [active, revoked, expired, view_limit_exhausted]
     AccountShareMetadata:
       type: object
-      required: [id, label, created_at, expires_at, max_views, view_count, revoked_at, status]
+      required: [id, label, created_at, expires_at, max_views, view_count, revoked_at, status, link_available]
       properties:
+        link_available:
+          type: boolean
+          description: Whether an encrypted original capability is stored. False for legacy shares; does not indicate public availability.
         id:
           type: string
           format: uuid

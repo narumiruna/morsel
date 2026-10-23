@@ -42,6 +42,7 @@ async function mockManagement(page: Page, backupPasskey = false) {
     view_count: index,
     revoked_at: null as string | null,
     status: "active",
+    link_available: true,
   }))
   const requests: string[] = []
   await page.route("**/v1/**", async (route) => {
@@ -118,6 +119,8 @@ async function mockManagement(page: Page, backupPasskey = false) {
           ...(offset + 25 < matching.length ? { next_cursor: "fixture-next" } : {}),
         },
       })
+    } else if (path.endsWith("/link") && request.method() === "GET") {
+      await route.fulfill({ json: { share_url: `${url.origin}/#/s/${token}` } })
     } else if (path.startsWith("/v1/account/shares/")) {
       const item = items.find((candidate) => path.endsWith(candidate.id))
       if (!item) return route.fulfill({ status: 404, json: { code: "not_found" } })
@@ -316,10 +319,15 @@ for (const width of [1280, 375]) {
         await expect.poll(() => source.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
       }
       await page.getByRole("button", { name: "Close share details", exact: true }).click()
-      await page.getByRole("button", { name: "Copy link for Project note 30", exact: true }).click()
+      await page
+        .getByRole("button", { name: "More actions for Project note 30", exact: true })
+        .click()
+      await page.getByRole("menuitem", { name: "Show link", exact: true }).click()
       await expect(
-        page.getByRole("dialog", { name: "Public link: Project note 30", exact: true }),
-      ).toBeVisible()
+        page
+          .getByRole("region", { name: "Public link: Project note 30", exact: true })
+          .getByRole("textbox"),
+      ).toBeFocused()
       await checkAxe(page)
       await page.keyboard.press("Escape")
       await revokeShare(page, "Project note 30")

@@ -384,7 +384,6 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                       <ShareManagement
                         busy={busy}
                         canVerify={supported}
-                        csrf={account.csrf_token}
                         mutate={mutate}
                         onSessionExpired={expireShareSession}
                         controls={shareListState}

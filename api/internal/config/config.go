@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,7 @@ type Config struct {
 	Environment       string
 	Address           string
 	DatabaseURL       string
+	ShareLinkKey      []byte
 	PublicViewerURL   *url.URL
 	ViewerDir         string
 	MaxDocumentBytes  int64
@@ -46,6 +48,11 @@ func Load() (Config, error) {
 	var err error
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("MORSEL_DATABASE_URL is required")
+	}
+	key := os.Getenv("MORSEL_SHARE_LINK_KEY")
+	cfg.ShareLinkKey, err = hex.DecodeString(key)
+	if err != nil || len(cfg.ShareLinkKey) != 32 {
+		return Config{}, errors.New("MORSEL_SHARE_LINK_KEY must contain 64 hexadecimal characters")
 	}
 	if strings.TrimSpace(cfg.ViewerDir) == "" {
 		return Config{}, errors.New("MORSEL_VIEWER_DIR must not be empty")

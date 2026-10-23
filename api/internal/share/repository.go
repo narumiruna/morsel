@@ -43,6 +43,7 @@ type Share struct {
 type CreateParams struct {
 	ID                  uuid.UUID
 	TokenHash           [32]byte
+	LinkCiphertext      []byte
 	Content             string
 	ExpiresIn           *int64
 	MaxViews            *int64
@@ -73,10 +74,10 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share, error) {
 	const query = `
 		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_title, preview_description,
-			preview_image, preview_locale, telegram_instant_view, admin_label)
+			preview_image, preview_locale, telegram_instant_view, admin_label, link_ciphertext)
 		VALUES ($1, $2, $3,
 			CASE WHEN $4::bigint IS NULL THEN NULL ELSE statement_timestamp() + make_interval(secs => $4::double precision) END,
-			$5, $6, $7, $8, $9, $10, $11)
+			$5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at,
 			preview_title, preview_description, preview_image, preview_locale, telegram_instant_view`
 	var previewTitle, previewDescription, previewImage, previewLocale *string
@@ -92,7 +93,7 @@ func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share,
 	}
 	var result Share
 	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews,
-		previewTitle, previewDescription, previewImage, previewLocale, p.TelegramInstantView, NormalizeLabel(p.Content, previewTitle)).Scan(
+		previewTitle, previewDescription, previewImage, previewLocale, p.TelegramInstantView, NormalizeLabel(p.Content, previewTitle), p.LinkCiphertext).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
 		&result.ViewCount, &result.RevokedAt, &previewTitle, &previewDescription, &previewImage, &previewLocale,
 		&result.TelegramInstantView,

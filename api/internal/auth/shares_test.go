@@ -57,7 +57,7 @@ func TestAccountShareLifecycle(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
 	}
-	if len(fields) != 8 || string(fields["expires_at"]) != "null" || string(fields["revoked_at"]) != "null" {
+	if len(fields) != 9 || string(fields["expires_at"]) != "null" || string(fields["revoked_at"]) != "null" {
 		t.Fatalf("metadata fields: %s", data)
 	}
 	w = b.request("GET", path, nil)
