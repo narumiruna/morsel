@@ -1,158 +1,167 @@
-import { Button, Dialog, Flex, Text } from "@radix-ui/themes"
+import { Button, Flex, Text } from "@radix-ui/themes"
 import { useEffect, useRef, useState } from "react"
-import { parseDocumentUrl } from "../documentUrl"
-import { parseRoute } from "../route"
 import { AccountError, accountErrorMessage, accountRequest } from "./accountApi"
 import type { ShareMetadata } from "./ShareManagement"
 
 // Capabilities stay in this mounted section only, never in browser storage or history.
 export function useShareLinks({
-  csrf,
   onSessionExpired,
   restoreFocus,
 }: {
-  csrf?: string
   onSessionExpired: () => void
   restoreFocus: (trigger: HTMLElement | null) => void
 }) {
-  const [links, setLinks] = useState<Record<string, string>>({})
+  const links = useRef(new Map<string, string>())
   const [selected, setSelected] = useState<ShareMetadata | null>(null)
-  const [original, setOriginal] = useState("")
-  const [verifying, setVerifying] = useState(false)
+  const [url, setURL] = useState("")
   const [error, setError] = useState("")
   const [feedback, setFeedback] = useState("")
   const [copiedID, setCopiedID] = useState<string | null>(null)
+  const [loadingID, setLoadingID] = useState<string | null>(null)
+  const [unavailable, setUnavailable] = useState(new Set<string>())
   const trigger = useRef<HTMLElement | null>(null)
   const request = useRef<AbortController | null>(null)
-  const generation = useRef(0)
   const urlInput = useRef<HTMLTextAreaElement>(null)
-  const url = selected ? links[selected.id] : undefined
-
-  useEffect(
-    () => () => {
-      request.current?.abort()
-      generation.current += 1
-    },
-    [],
-  )
 
   useEffect(() => {
-    if (url) {
+    const cache = links.current
+    return () => {
+      request.current?.abort()
+      cache.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selected && url) {
       urlInput.current?.focus()
       urlInput.current?.select()
     }
-  }, [url])
+  }, [selected, url])
 
   const close = () => {
     request.current?.abort()
-    generation.current += 1
     setSelected(null)
-    setOriginal("")
+    setURL("")
     setError("")
     setFeedback("")
-    setCopiedID(null)
-    setVerifying(false)
+    setLoadingID(null)
+    restoreFocus(trigger.current)
   }
 
-  const showLink = (share: ShareMetadata, element: HTMLElement | null) => {
+  const begin = (share: ShareMetadata, element: HTMLElement | null) => {
     request.current?.abort()
-    generation.current += 1
+    const controller = new AbortController()
+    request.current = controller
     trigger.current = element
-    setOriginal("")
+    setSelected(null)
+    setURL("")
     setError("")
     setFeedback("")
     setCopiedID(null)
-    setVerifying(false)
+    setLoadingID(share.id)
+    return controller.signal
+  }
+
+  const load = async (share: ShareMetadata, signal: AbortSignal) => {
+    const cached = links.current.get(share.id)
+    if (cached) return cached
+    const result = await accountRequest<{ share_url: string }>(
+      `account/shares/${encodeURIComponent(share.id)}/link`,
+      { signal },
+    )
+    signal.throwIfAborted()
+    links.current.set(share.id, result.share_url)
+    return result.share_url
+  }
+
+  const failed = (share: ShareMetadata, failure: unknown) => {
+    if (failure instanceof AccountError && failure.status === 401) {
+      links.current.clear()
+      setSelected(null)
+      setURL("")
+      onSessionExpired()
+      return
+    }
+    if (failure instanceof AccountError && failure.code === "link_unavailable") {
+      setUnavailable((value) => new Set(value).add(share.id))
+    }
     setSelected(share)
+    setError(accountErrorMessage(failure))
+  }
+
+  const showLink = async (share: ShareMetadata, element: HTMLElement | null) => {
+    const signal = begin(share, element)
+    setSelected(share)
+    try {
+      const value = await load(share, signal)
+      if (!signal.aborted) setURL(value)
+    } catch (failure) {
+      if (!signal.aborted) failed(share, failure)
+    } finally {
+      if (!signal.aborted) setLoadingID(null)
+    }
   }
 
   const copyLink = async (share: ShareMetadata, element: HTMLElement | null) => {
-    const link = links[share.id]
-    if (!link) {
-      showLink(share, element)
-      return
-    }
-    const current = ++generation.current
-    setFeedback("")
-    setCopiedID(null)
+    const cached = links.current.get(share.id)
+    const signal = begin(share, element)
+    const pending = load(share, signal)
+    // A clipboard rejection can occur before the network request settles.
+    void pending.catch(() => {})
     try {
-      await navigator.clipboard.writeText(link)
-      if (current === generation.current) {
+      if (!cached && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+        // Start the write during the click, before fetching, to preserve Safari user activation.
+        const text = pending.then((value) => new Blob([value], { type: "text/plain" }))
+        void text.catch(() => {})
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": text })])
+      } else {
+        const value = cached ?? (await pending)
+        signal.throwIfAborted()
+        await navigator.clipboard.writeText(value)
+      }
+      if (!signal.aborted) {
         setFeedback(`Link copied. ${share.label}`)
         setCopiedID(share.id)
       }
     } catch {
-      if (current !== generation.current) return
-      if (!selected) showLink(share, element)
-      setFeedback("Could not copy link. Select and copy the complete URL below.")
-      urlInput.current?.focus()
-      urlInput.current?.select()
+      if (signal.aborted) return
+      try {
+        const value = await pending
+        if (signal.aborted) return
+        setSelected(share)
+        setURL(value)
+        setFeedback("Could not copy link. Select and copy the displayed URL.")
+      } catch (failure) {
+        if (!signal.aborted) failed(share, failure)
+      }
+    } finally {
+      if (!signal.aborted) setLoadingID(null)
     }
   }
 
-  const verify = async () => {
-    if (!selected || verifying) return
-    const path = parseDocumentUrl(original, window.location.origin)
-    const parsed = path ? new URL(path, window.location.origin) : null
-    const route = parsed ? parseRoute(parsed.pathname, parsed.hash) : null
-    setError("")
-    if (route?.kind !== "share") {
-      setError("Enter an original public share URL from this Morsel site.")
-      return
-    }
-    const controller = new AbortController()
-    request.current?.abort()
-    request.current = controller
-    setVerifying(true)
-    try {
-      const result = await accountRequest<{ share_url: string }>(
-        `account/shares/${encodeURIComponent(selected.id)}/link`,
-        { method: "POST", body: { token: route.token }, csrf, signal: controller.signal },
-      )
-      if (controller.signal.aborted) return
-      setLinks((value) => ({ ...value, [selected.id]: result.share_url }))
-      setOriginal("")
-    } catch (failure) {
-      if (controller.signal.aborted) return
-      if (failure instanceof AccountError && failure.status === 401) onSessionExpired()
-      else setError(accountErrorMessage(failure))
-    } finally {
-      if (!controller.signal.aborted) setVerifying(false)
-    }
-  }
+  const available = (share: ShareMetadata) => share.link_available && !unavailable.has(share.id)
 
   return {
     copyLink,
     showLink,
+    available,
     copiedID,
-    feedback: selected ? "" : feedback,
-    dialog: (
-      <Dialog.Root open={selected !== null} onOpenChange={(open) => !open && close()}>
-        <Dialog.Content
-          className="share-link-dialog"
-          maxWidth="36rem"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault()
-            restoreFocus(trigger.current)
-          }}
-        >
-          <Dialog.Title size="4">Public link: {selected?.label}</Dialog.Title>
-          <Dialog.Description size="2">
-            {url
-              ? "Anyone with this URL can read the share while it is available. Copying does not use a view or change availability."
-              : "Morsel stores only a token hash, so it cannot recover the original public URL. Supply the original link to enable copying for this visit."}
-          </Dialog.Description>
-          {selected && selected.status !== "active" && (
-            <Text as="p" size="2" weight="medium">
-              {selected.status === "revoked"
-                ? "Revoked. This link no longer grants public access."
-                : selected.status === "expired"
-                  ? "Expired. This link no longer grants public access."
-                  : "View limit exhausted. This link no longer grants public access."}{" "}
-              Copying does not reactivate it.
+    loadingID,
+    feedback,
+    panel: (share: ShareMetadata) =>
+      selected?.id === share.id ? (
+        <section className="share-link-panel" aria-label={`Public link: ${share.label}`}>
+          {loadingID === share.id && (
+            <Text as="p" role="status">
+              Loading link…
             </Text>
           )}
-          {url ? (
+          {error && (
+            <Text as="p" role="alert">
+              {error}
+            </Text>
+          )}
+          {url && (
             <>
               <label htmlFor="public-share-url">Public share URL</label>
               <textarea
@@ -164,65 +173,47 @@ export function useShareLinks({
                 spellCheck={false}
                 autoComplete="off"
                 onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault()
+                    close()
+                  }
+                }}
               />
-              <Flex gap="3" wrap="wrap" mt="3">
-                <Button
-                  highContrast
-                  onClick={() => selected && void copyLink(selected, trigger.current)}
-                >
-                  Copy link
-                </Button>
-                <Button
-                  variant="soft"
-                  highContrast
-                  onClick={() => {
-                    urlInput.current?.focus()
-                    urlInput.current?.select()
-                  }}
-                >
-                  Select link
-                </Button>
-              </Flex>
+              {share.status !== "active" && (
+                <Text as="p" size="2">
+                  This share is no longer available to readers. Copying does not reactivate it.
+                </Text>
+              )}
             </>
-          ) : (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault()
-                void verify()
-              }}
-            >
-              <label htmlFor="original-share-url">Original public URL</label>
-              <input
-                id="original-share-url"
-                type="text"
-                inputMode="url"
-                value={original}
-                onChange={(event) => setOriginal(event.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                required
-                aria-describedby="share-link-memory"
-              />
-              <Text as="p" size="2" id="share-link-memory">
-                The link is checked against this share without opening it. It stays only in page
-                memory and is cleared when you leave Shares or sign out.
-              </Text>
-              <Button type="submit" highContrast disabled={verifying}>
-                {verifying ? "Checking link…" : "Use original link"}
-              </Button>
-            </form>
           )}
-          <div role="alert">{error}</div>
-          <div role="status">{feedback}</div>
-          <Flex justify="end" mt="3">
-            <Dialog.Close>
-              <Button variant="soft" highContrast>
-                Close link
+          <Flex gap="2" wrap="wrap" mt="2">
+            {url && (
+              <Button
+                variant="soft"
+                highContrast
+                onClick={() => {
+                  urlInput.current?.focus()
+                  urlInput.current?.select()
+                }}
+              >
+                Select link
               </Button>
-            </Dialog.Close>
+            )}
+            {error && available(share) && (
+              <Button
+                variant="soft"
+                highContrast
+                onClick={() => void showLink(share, trigger.current)}
+              >
+                Retry link
+              </Button>
+            )}
+            <Button variant="soft" highContrast onClick={close}>
+              Hide link
+            </Button>
           </Flex>
-        </Dialog.Content>
-      </Dialog.Root>
-    ),
+        </section>
+      ) : null,
   }
 }

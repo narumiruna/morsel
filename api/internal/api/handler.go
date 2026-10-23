@@ -29,15 +29,16 @@ var previewLocalePattern = regexp.MustCompile(`^[a-z]{2,3}_[A-Z]{2}$`)
 type Service struct {
 	repository       share.Repository
 	tokens           share.TokenGenerator
+	linkCipher       *share.LinkCipher
 	publicViewerURL  *url.URL
 	maxDocumentBytes int64
 	logger           *slog.Logger
 }
 
-func NewService(repository share.Repository, tokens share.TokenGenerator, publicViewerURL *url.URL, maxDocumentBytes int64, logger *slog.Logger) *Service {
+func NewService(repository share.Repository, tokens share.TokenGenerator, publicViewerURL *url.URL, maxDocumentBytes int64, logger *slog.Logger, linkCipher *share.LinkCipher) *Service {
 	return &Service{
 		repository: repository, tokens: tokens, publicViewerURL: publicViewerURL,
-		maxDocumentBytes: maxDocumentBytes, logger: logger,
+		maxDocumentBytes: maxDocumentBytes, logger: logger, linkCipher: linkCipher,
 	}
 }
 
@@ -94,8 +95,13 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 			h.logError(ctx, "generate capability token", err)
 			return createInternalError(), nil
 		}
+		encrypted, err := h.linkCipher.Encrypt(id, token)
+		if err != nil {
+			h.logError(ctx, "encrypt share link", err)
+			return createInternalError(), nil
+		}
 		created, err := h.repository.Create(ctx, share.CreateParams{
-			ID: id, TokenHash: tokenHash, Content: body.Content,
+			ID: id, TokenHash: tokenHash, LinkCiphertext: encrypted, Content: body.Content,
 			ExpiresIn: body.ExpiresIn, MaxViews: body.MaxViews, Preview: preview,
 			TelegramInstantView: telegramInstantView,
 		})

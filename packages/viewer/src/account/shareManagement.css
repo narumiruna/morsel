@@ -243,20 +243,21 @@
   background: var(--color-background);
 }
 
-.rt-DialogContent.share-link-dialog {
-  width: calc(100vw - 2rem);
-  max-height: calc(100dvh - 2rem);
-  overflow: auto;
+.share-link-panel {
+  width: min(22rem, 100%);
+  margin-top: 0.75rem;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 
-.rt-DialogContent.share-link-dialog label {
+.account-shares .share-link-panel label {
   display: block;
-  margin-block: 1rem 0.25rem;
+  margin-bottom: 0.25rem;
+  font-size: var(--font-size-1);
   font-weight: 500;
 }
 
-.share-link-dialog :is(input, textarea) {
+.share-link-panel textarea {
   box-sizing: border-box;
   width: 100%;
   min-height: 2.75rem;
@@ -266,15 +267,12 @@
   background: var(--color-background);
   color: var(--gray-12);
   font: inherit;
-}
-
-.share-link-dialog textarea {
   resize: vertical;
   overflow-wrap: anywhere;
   word-break: break-all;
 }
 
-.share-link-dialog :is(button, input, textarea):focus-visible {
+.share-link-panel :is(button, textarea):focus-visible {
   outline: 2px solid var(--accent-12);
   outline-offset: 3px;
 }

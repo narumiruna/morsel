@@ -56,7 +56,12 @@ func run() int {
 	}
 	defer pool.Close()
 
-	accounts, err := auth.NewService(pool, cfg.PublicViewerURL)
+	linkCipher, err := share.NewLinkCipher(cfg.ShareLinkKey)
+	if err != nil {
+		logger.Error("initialize share link encryption", "error", err)
+		return 1
+	}
+	accounts, err := auth.NewService(pool, cfg.PublicViewerURL, linkCipher)
 	if err != nil {
 		logger.Error("initialize authentication", "error", err)
 		return 1
@@ -67,7 +72,7 @@ func run() int {
 		logger.Error("initialize viewer", "error", err)
 		return 1
 	}
-	handler := morselapi.NewService(repository, share.TokenGenerator{}, cfg.PublicViewerURL, cfg.MaxDocumentBytes, logger)
+	handler := morselapi.NewService(repository, share.TokenGenerator{}, cfg.PublicViewerURL, cfg.MaxDocumentBytes, logger, linkCipher)
 	router := morselapi.NewRouter(handler, morselapi.RouterConfig{
 		Authenticator: accounts, Account: accounts, Viewer: viewer,
 		MaxRequestBody: cfg.MaxRequestBytes, RequestTimeout: cfg.RequestTimeout, Logger: logger,

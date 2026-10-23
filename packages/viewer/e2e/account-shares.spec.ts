@@ -24,6 +24,7 @@ async function mockAccount(page: Page) {
   const first = () => ({
     id: firstID,
     label: "Historical share",
+    link_available: true,
     created_at: created,
     expires_at: null,
     max_views: 5,
@@ -87,10 +88,8 @@ async function mockAccount(page: Page) {
           },
         })
       }
-    } else if (path.endsWith("/link") && request.method() === "POST") {
-      expect(request.headers()["x-csrf-token"]).toBe("current-csrf")
+    } else if (path.endsWith("/link") && request.method() === "GET") {
       const token = path.includes(secondID) ? secondToken : firstToken
-      expect(request.postDataJSON()).toEqual({ token })
       await route.fulfill({
         json: { share_url: `${url.origin}/${path.includes(secondID) ? "s/" : "#/s/"}${token}` },
       })
@@ -193,7 +192,9 @@ for (const width of [1280, 375]) {
     const expiredDetail = page.getByRole("dialog", { name: "Share details: Expired share" })
     await expect(expiredDetail.getByRole("heading", { name: "Private content" })).toBeVisible()
     await expect(expiredDetail.getByText("Expired", { exact: true })).toBeVisible()
-    await expect(expiredDetail.getByText(/original public URL cannot be recovered/)).toBeVisible()
+    await expect(
+      expiredDetail.getByText(/Use the row actions to copy or show the public URL/),
+    ).toBeVisible()
     await expect(expiredDetail.locator("script")).toHaveCount(0)
     await expect(expiredDetail.locator("img")).toHaveCount(0)
     await expect(expiredDetail.locator("pre > code.language-mermaid")).toBeVisible()
@@ -265,27 +266,19 @@ for (const width of [1280, 375, 320]) {
     const copy = page.getByRole("button", { name: "Copy link for Historical share", exact: true })
     await copy.focus()
     await page.keyboard.press("Enter")
-    const link = page.getByRole("dialog", { name: "Public link: Historical share" })
-    await expect(link.getByText(/cannot recover the original public URL/)).toBeVisible()
-    await link
-      .getByRole("textbox", { name: "Original public URL" })
-      .fill(`${new URL(page.url()).origin}/s/${firstToken}`)
-    await link.getByRole("button", { name: "Use original link" }).click()
     const canonical = `${new URL(page.url()).origin}/#/s/${firstToken}`
-    const input = link.getByRole("textbox", { name: "Public share URL" })
-    await expect(input).toHaveValue(canonical)
-    await expect(input).toBeFocused()
-    await page.keyboard.press("Escape")
-    await expect(copy).toBeFocused()
-    const focus = await copy.evaluate((element) => getComputedStyle(element).outlineStyle)
-    expect(focus).not.toBe("none")
-    await page.keyboard.press("Enter")
     await expect(page.getByText("Link copied. Historical share", { exact: true })).toBeVisible()
+    await expect(copy).toBeFocused()
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(page.getByRole("textbox", { name: "Original public URL" })).toHaveCount(0)
+    const link = page.getByRole("region", { name: "Public link: Historical share" })
+    const input = link.getByRole("textbox", { name: "Public share URL" })
+    await expect(link).toHaveCount(0)
     await page.evaluate(() => {
       ;(window as typeof window & { failClipboard: boolean }).failClipboard = true
     })
     await copy.click()
-    await expect(link.getByRole("status")).toContainText("Could not copy link")
+    await expect(page.getByText(/Could not copy link/)).toBeVisible()
     await expect(input).toHaveValue(canonical)
     await link.getByRole("button", { name: "Select link" }).click()
     expect(
@@ -318,13 +311,14 @@ for (const width of [1280, 375, 320]) {
     })
     await page.getByRole("button", { name: "Next shares" }).click()
     await page.getByRole("button", { name: "Copy link for Expired share" }).click()
-    const expired = page.getByRole("dialog", { name: "Public link: Expired share" })
-    await expect(expired.getByText(/Expired.*no longer grants public access/)).toBeVisible()
-    await expired
-      .getByRole("textbox", { name: "Original public URL" })
-      .fill(`${new URL(page.url()).origin}/#/s/${secondToken}`)
-    await expired.getByRole("button", { name: "Use original link" }).click()
-    await expired.getByRole("button", { name: "Copy link", exact: true }).click()
+    await expect(page.getByText("Link copied. Expired share", { exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "More actions for Expired share" }).click()
+    await page.getByRole("menuitem", { name: "Show link" }).click()
+    const expired = page.getByRole("region", { name: "Public link: Expired share" })
+    await expect(expired.getByText(/Copying does not reactivate it/)).toBeVisible()
+    await expect(expired.getByRole("textbox")).toHaveValue(
+      `${new URL(page.url()).origin}/s/${secondToken}`,
+    )
     expect(
       await page.evaluate(() => (window as typeof window & { copiedLinks: string[] }).copiedLinks),
     ).toEqual([canonical, `${new URL(page.url()).origin}/s/${secondToken}`])

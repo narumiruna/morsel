@@ -396,7 +396,12 @@ test("required real-backend account and API key lifecycle", async ({
     ).toBeVisible()
     const legacy = await page.request.get(`/v1/account/shares/${legacyID}`)
     expect(legacy.status()).toBe(200)
-    expect((await legacy.json()).view_count).toBe(0)
+    const legacyMetadata = await legacy.json()
+    expect(legacyMetadata.view_count).toBe(0)
+    expect(legacyMetadata.link_available).toBe(false)
+    const legacyLink = await page.request.get(`/v1/account/shares/${legacyID}/link`)
+    expect(legacyLink.status()).toBe(404)
+    expect((await legacyLink.json()).code).toBe("link_unavailable")
     await page.getByRole("button", { name: "Close share details", exact: true }).click()
 
     const client = new MorselClient({ baseUrl: baseURL as string, apiKey: recoveryKey.key })
@@ -439,6 +444,10 @@ test("required real-backend account and API key lifecycle", async ({
       headers: { Cookie: "", Authorization: `Bearer ${recoveryKey.key}` },
     })
     expect(bearerOnly.status()).toBe(401)
+    const bearerLink = await page.request.get(`${path}/link`, {
+      headers: { Cookie: "", Authorization: `Bearer ${recoveryKey.key}` },
+    })
+    expect(bearerLink.status()).toBe(401)
     await test.info().attach("share-management-desktop", {
       body: await page.screenshot({ animations: "disabled", fullPage: true }),
       contentType: "image/png",
@@ -451,16 +460,21 @@ test("required real-backend account and API key lifecycle", async ({
     })
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.getByRole("button", { name: "Close share details", exact: true }).click()
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
     await page.getByRole("button", { name: "Copy link for Managed history", exact: true }).click()
-    const link = page.getByRole("dialog", { name: "Public link: Managed history", exact: true })
-    await link
-      .getByRole("textbox", { name: "Original public URL", exact: true })
-      .fill(managed.share_url)
-    await link.getByRole("button", { name: "Use original link", exact: true }).click()
+    await expect(page.getByText("Link copied. Managed history", { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(managed.share_url)
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await page.reload()
+    await page
+      .getByRole("button", { name: "More actions for Managed history", exact: true })
+      .click()
+    await page.getByRole("menuitem", { name: "Show link", exact: true }).click()
+    const link = page.getByRole("region", { name: "Public link: Managed history", exact: true })
     await expect(link.getByRole("textbox", { name: "Public share URL", exact: true })).toHaveValue(
       managed.share_url,
     )
-    await link.getByRole("button", { name: "Close link", exact: true }).click()
+    await link.getByRole("button", { name: "Hide link", exact: true }).click()
     await revokeShare(page, "Managed history")
     const removed = page.waitForResponse(
       (response) => response.url().endsWith(path) && response.request().method() === "DELETE",

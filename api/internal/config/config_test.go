@@ -11,6 +11,7 @@ func validEnvironment(t *testing.T) {
 	t.Setenv("MORSEL_API_KEY", "")
 	t.Setenv("MORSEL_API_KEY_FILE", "")
 	t.Setenv("MORSEL_URL", "https://morsel.example.com/")
+	t.Setenv("MORSEL_SHARE_LINK_KEY", strings.Repeat("a1", 32))
 	t.Setenv("MORSEL_ENVIRONMENT", "production")
 }
 
@@ -47,6 +48,9 @@ func TestLoadRejectsUnsafeConfigurationWithoutLeakingSecrets(t *testing.T) {
 		value  string
 		needle string
 	}{
+		{name: "missing link key", key: "MORSEL_SHARE_LINK_KEY", value: "", needle: "64 hexadecimal"},
+		{name: "short link key", key: "MORSEL_SHARE_LINK_KEY", value: "a1", needle: "64 hexadecimal"},
+		{name: "invalid link key", key: "MORSEL_SHARE_LINK_KEY", value: strings.Repeat("zz", 32), needle: "64 hexadecimal"},
 		{name: "empty viewer directory", key: "MORSEL_VIEWER_DIR", value: " ", needle: "must not be empty"},
 		{name: "insecure viewer", key: "MORSEL_URL", value: "http://morsel.example.com", needle: "HTTPS"},
 		{name: "viewer path", key: "MORSEL_URL", value: "https://morsel.example.com/app", needle: "without credentials"},

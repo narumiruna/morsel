@@ -16,7 +16,7 @@ func TestCanonicalOriginHTTPChecks(t *testing.T) {
 	} {
 		t.Run(test.configured, func(t *testing.T) {
 			u, _ := url.Parse(test.configured)
-			s, err := NewService(pool, u)
+			s, err := NewService(pool, u, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
