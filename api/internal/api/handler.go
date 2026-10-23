@@ -107,14 +107,8 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 			return createInternalError(), nil
 		}
 		telemetry.SetShareID(ctx, created.ID.String())
-		viewerURL := *h.publicViewerURL
-		if created.Preview != nil {
-			viewerURL.Path = "/s/" + token
-		} else {
-			viewerURL.Fragment = "/s/" + token
-		}
 		return CreateShare201JSONResponse{
-			Id: created.ID, ShareUrl: viewerURL.String(), CreatedAt: created.CreatedAt,
+			Id: created.ID, ShareUrl: share.PublicURL(h.publicViewerURL, token, created.Preview != nil), CreatedAt: created.CreatedAt,
 			ExpiresAt: created.ExpiresAt, MaxViews: created.MaxViews, Preview: responsePreview(created.Preview),
 			TelegramInstantView: created.TelegramInstantView,
 		}, nil

@@ -6,6 +6,14 @@ const created = "2026-10-22T09:41:00Z"
 const longTitle = "長".repeat(80)
 const themes = ["light", "dark", "sepia", "sage", "midnight", "system"] as const
 
+async function revokeShare(page: Page, label: string) {
+  await page.getByRole("button", { name: `More actions for ${label}`, exact: true }).click()
+  await page.getByRole("menuitem", { name: `Revoke share ${label}`, exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: `Revoke share ${label}?`, exact: true }),
+  ).toBeFocused()
+}
+
 async function mockManagement(page: Page, backupPasskey = false) {
   let authenticated = true
   let reads = 0
@@ -225,6 +233,15 @@ async function checkAxe(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   )
+  // Inspect the final colors, not a partially transparent dialog/menu transition.
+  await page.evaluate(async () => {
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => {})),
+    )
+  })
   await page.evaluate(axe.source)
   const violations = await page.evaluate(async () => {
     const browserAxe = (window as unknown as { axe: typeof axe }).axe
@@ -249,7 +266,7 @@ for (const width of [1280, 375]) {
       const api = await mockManagement(page)
       await page.goto("/manage/shares")
       await expect(
-        page.getByRole("button", { name: "Preview share Project note 30", exact: true }),
+        page.getByRole("link", { name: "Preview share Project note 30", exact: true }),
       ).toBeVisible()
       expect(api.requests).not.toContain("/v1/api-keys")
       expect(api.requests).not.toContain("/v1/passkeys")
@@ -262,11 +279,21 @@ for (const width of [1280, 375]) {
       }
       if (width === 1280) {
         const fifth = await page
-          .getByRole("button", { name: "Preview share Project note 26", exact: true })
+          .getByRole("link", { name: "Preview share Project note 26", exact: true })
           .boundingBox()
         expect(fifth).not.toBeNull()
         expect((fifth?.y ?? 801) + (fifth?.height ?? 0)).toBeLessThanOrEqual(800)
         await expect(page.getByRole("table")).toBeVisible()
+        const titleWidth = await page
+          .locator(".share-table .share-title")
+          .first()
+          .evaluate(
+            (element) =>
+              element.getBoundingClientRect().width /
+              (element.closest("table")?.getBoundingClientRect().width ?? 1),
+          )
+        expect(titleWidth).toBeGreaterThanOrEqual(0.55)
+        expect(titleWidth).toBeLessThanOrEqual(0.6)
       }
       await page.getByLabel("Search shares", { exact: true }).focus()
       await page.keyboard.press("Tab")
@@ -277,7 +304,7 @@ for (const width of [1280, 375]) {
       await testInfo.attach(`task-ui-${width}-${theme}`, { path, contentType: "image/png" })
       await page.getByText("About share management", { exact: true }).click()
       await checkAxe(page)
-      await page.getByRole("button", { name: "Preview share Project note 30", exact: true }).click()
+      await page.getByRole("link", { name: "Preview share Project note 30", exact: true }).click()
       await expect(
         page.getByRole("heading", { name: "Preview content", exact: true }),
       ).toBeVisible()
@@ -289,7 +316,13 @@ for (const width of [1280, 375]) {
         await expect.poll(() => source.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
       }
       await page.getByRole("button", { name: "Close share details", exact: true }).click()
-      await page.getByRole("button", { name: "Revoke share Project note 30", exact: true }).click()
+      await page.getByRole("button", { name: "Copy link for Project note 30", exact: true }).click()
+      await expect(
+        page.getByRole("dialog", { name: "Public link: Project note 30", exact: true }),
+      ).toBeVisible()
+      await checkAxe(page)
+      await page.keyboard.press("Escape")
+      await revokeShare(page, "Project note 30")
       await checkAxe(page)
       await page.getByRole("button", { name: "Cancel revocation", exact: true }).click()
       await page.getByRole("link", { name: "Morsel home", exact: true }).click()
@@ -326,24 +359,24 @@ test("search, ordering, pagination, copy feedback, preview and confirmation rema
   await expect(page.locator(".share-page-summary")).toContainText("30 matching shares")
   await page.getByLabel("Share order", { exact: true }).selectOption("oldest")
   await expect(
-    page.getByRole("button", { name: "Preview share Project note 01", exact: true }),
+    page.getByRole("link", { name: "Preview share Project note 01", exact: true }),
   ).toBeVisible()
   await expect(page.getByRole("button", { name: "Previous shares", exact: true })).toBeDisabled()
   await page.getByLabel("Share order", { exact: true }).selectOption("newest")
   await expect(
-    page.getByRole("button", { name: "Preview share Project note 30", exact: true }),
+    page.getByRole("link", { name: "Preview share Project note 30", exact: true }),
   ).toBeVisible()
   await page.getByRole("button", { name: "Next shares", exact: true }).click()
   await expect(
-    page.getByRole("button", { name: "Preview share Project note 01", exact: true }),
+    page.getByRole("link", { name: "Preview share Project note 01", exact: true }),
   ).toBeVisible()
   await page.getByLabel("Search shares", { exact: true }).fill("Project note 30")
   await page.getByRole("button", { name: "Search shares", exact: true }).click()
   await expect(page.getByRole("button", { name: "Previous shares", exact: true })).toBeDisabled()
   await expect(
-    page.getByRole("button", { name: "Preview share Project note 30", exact: true }),
+    page.getByRole("link", { name: "Preview share Project note 30", exact: true }),
   ).toBeVisible()
-  await page.getByRole("button", { name: "Preview share Project note 30", exact: true }).click()
+  await page.getByRole("link", { name: "Preview share Project note 30", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Preview content", exact: true })).toBeVisible()
   expect(api.reads()).toBe(0)
   await expect(page.locator(".share-admin-detail img")).toHaveCount(0)
@@ -361,10 +394,10 @@ test("search, ordering, pagination, copy feedback, preview and confirmation rema
   await page.getByRole("button", { name: "Copy share ID", exact: true }).click()
   await expect(page.getByText(/(could not|failed|unable).*cop/i)).toBeVisible()
   await page.getByRole("button", { name: "Close share details", exact: true }).click()
-  await page.getByRole("button", { name: "Revoke share Project note 30", exact: true }).click()
+  await revokeShare(page, "Project note 30")
   await page.getByRole("button", { name: "Cancel revocation", exact: true }).click()
   expect(api.mutations).toHaveLength(0)
-  await page.getByRole("button", { name: "Revoke share Project note 30", exact: true }).click()
+  await revokeShare(page, "Project note 30")
   await page.getByRole("button", { name: "Confirm revocation", exact: true }).click()
   await expect.poll(() => api.mutations.length).toBe(1)
   await page.getByRole("link", { name: "API keys", exact: true }).click()
@@ -380,7 +413,7 @@ for (const width of [1280, 375, 320]) {
     await page.setViewportSize({ width, height: 800 })
     const api = await mockManagement(page)
     await page.goto("/manage/shares")
-    const trigger = page.getByRole("button", { name: "Preview share Project note 30", exact: true })
+    const trigger = page.getByRole("link", { name: "Preview share Project note 30", exact: true })
     await trigger.focus()
     const scroll = await page.evaluate(() => window.scrollY)
     await page.keyboard.press("Enter")
@@ -452,7 +485,7 @@ test("Escape exits an expanded preview chart before closing its parent dialog", 
     }),
   )
   await page.goto("/manage/shares")
-  const trigger = page.getByRole("button", { name: "Preview share Project note 30", exact: true })
+  const trigger = page.getByRole("link", { name: "Preview share Project note 30", exact: true })
   await trigger.click()
   const dialog = page.getByRole("dialog", { name: "Share details: Project note 30", exact: true })
   const chart = dialog.locator(".vega-lite-card")
@@ -603,7 +636,7 @@ test("keyboard focus follows preview, confirmation, section links, and the accou
 }) => {
   await mockManagement(page)
   await page.goto("/manage/shares")
-  const preview = page.getByRole("button", { name: "Preview share Project note 30", exact: true })
+  const preview = page.getByRole("link", { name: "Preview share Project note 30", exact: true })
   await preview.focus()
   await page.keyboard.press("Enter")
   await expect(
@@ -612,8 +645,11 @@ test("keyboard focus follows preview, confirmation, section links, and the accou
   await page.getByRole("button", { name: "Close share details", exact: true }).focus()
   await page.keyboard.press("Enter")
   await expect(preview).toBeFocused()
-  const revoke = page.getByRole("button", { name: "Revoke share Project note 30", exact: true })
+  const revoke = page.getByRole("button", { name: "More actions for Project note 30", exact: true })
   await revoke.focus()
+  await page.keyboard.press("ArrowDown")
+  await page.keyboard.press("End")
+  await expect(page.getByRole("menuitem", { name: "Revoke share Project note 30" })).toBeFocused()
   await page.keyboard.press("Enter")
   await page.getByRole("button", { name: "Cancel revocation", exact: true }).focus()
   await page.keyboard.press("Enter")
@@ -673,7 +709,15 @@ test("long Unicode titles and administrative IDs fit at 375px", async ({ page })
   await page.setViewportSize({ width: 375, height: 800 })
   await mockManagement(page)
   await page.goto("/manage/shares")
-  await page.getByRole("button", { name: `Preview share ${longTitle}`, exact: true }).click()
+  const title = page.getByRole("link", { name: `Preview share ${longTitle}`, exact: true })
+  await expect(title).toHaveAttribute("title", longTitle)
+  expect(
+    await title.locator("span").evaluate((element) => {
+      const style = getComputedStyle(element)
+      return element.getBoundingClientRect().height <= 2 * Number.parseFloat(style.lineHeight) + 1
+    }),
+  ).toBe(true)
+  await title.click()
   await expect(
     page.getByRole("heading", { name: `Share details: ${longTitle}`, exact: true }),
   ).toBeVisible()

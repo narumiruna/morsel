@@ -25,6 +25,7 @@ const credential = { id: "credential", response: {} }
 const firstID = "a0000000-0000-4000-8000-000000000001"
 let shares: ShareDetail[]
 let account: Account
+let publicLinks: Map<string, string>
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>
 let intercept: ((path: string, init?: RequestInit) => Promise<Response> | undefined) | undefined
 
@@ -82,15 +83,21 @@ async function showPage(strict = false) {
   return result
 }
 
-async function viewShare(label = "Historical share") {
+async function revokeItem(label = "Historical share") {
   await userEvent
     .setup()
-    .click(await screen.findByRole("button", { name: `Preview share ${label}` }))
+    .click(await screen.findByRole("button", { name: `More actions for ${label}` }))
+  return screen.findByRole("menuitem", { name: `Revoke share ${label}` })
+}
+
+async function viewShare(label = "Historical share") {
+  await userEvent.setup().click(await screen.findByRole("link", { name: `Preview share ${label}` }))
   return screen.findByRole("dialog", { name: `Share details: ${label}` })
 }
 
 beforeEach(() => {
   shares = [makeShare()]
+  publicLinks = new Map()
   account = {
     setup_required: false,
     authenticated: true,
@@ -122,6 +129,14 @@ beforeEach(() => {
         )
         .map(({ content: _content, ...metadata }) => metadata)
       return json({ items, matching_count: items.length })
+    }
+    if (path.startsWith("account/shares/") && path.endsWith("/link")) {
+      const id = path.slice("account/shares/".length, -"/link".length)
+      const canonical = publicLinks.get(id)
+      const body = JSON.parse(String(init?.body)) as { token: string }
+      if (!canonical?.endsWith(`/s/${body.token}`))
+        return json({ message: "This public link does not belong to this share." }, 404)
+      return json({ share_url: canonical })
     }
     if (path.startsWith("account/shares/")) {
       const share = shares.find(
@@ -161,7 +176,7 @@ describe("account share management", () => {
     for (const name of ["Title", "Status", "Views", "Created", "Actions"])
       expect(within(list).getByRole("columnheader", { name })).toBeInTheDocument()
     for (const label of shares.map((share) => share.label))
-      expect(within(list).getByRole("button", { name: `Preview share ${label}` })).toBeEnabled()
+      expect(within(list).getByRole("link", { name: `Preview share ${label}` })).toBeEnabled()
     expect(within(list).getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument()
     expect(list.querySelector("img")).toBeNull()
     expect(within(list).getByText("Expired", { selector: "td" })).toBeInTheDocument()
@@ -198,8 +213,8 @@ describe("account share management", () => {
       await userEvent
         .setup()
         .selectOptions(screen.getByRole("combobox", { name: "Share status" }), status)
-      await screen.findByRole("button", { name: "Preview share Unavailable" })
-      expect(screen.queryByRole("button", { name: "Preview share Other" })).not.toBeInTheDocument()
+      await screen.findByRole("link", { name: "Preview share Unavailable" })
+      expect(screen.queryByRole("link", { name: "Preview share Other" })).not.toBeInTheDocument()
       const region = await viewShare("Unavailable")
       await within(region).findByRole("heading", { name: "Private Markdown" })
       expect(within(region).getByText("Owner content").tagName).toBe("STRONG")
@@ -215,7 +230,9 @@ describe("account share management", () => {
       expect(
         within(region).getByText(/original public URL cannot be recovered/),
       ).toBeInTheDocument()
-      expect(screen.queryByRole("button", { name: /copy.*(url|link)/i })).not.toBeInTheDocument()
+      expect(
+        within(region).queryByRole("button", { name: /copy.*(url|link)/i }),
+      ).not.toBeInTheDocument()
       expect(shares[0]?.view_count).toBe(3)
       expect(requests(`account/shares/${firstID}`)).toHaveLength(1)
       expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/v1/shares"))).toBe(false)
@@ -231,7 +248,7 @@ describe("account share management", () => {
     await user.type(input, "  Historical  ")
     expect(managementRequests()).toHaveLength(count)
     await user.keyboard("{Enter}")
-    await screen.findByRole("button", { name: "Preview share Historical share" })
+    await screen.findByRole("link", { name: "Preview share Historical share" })
     expect(input).toHaveValue("Historical")
     let params = new URL(String(managementRequests().at(-1)?.[0]), "https://example.test")
       .searchParams
@@ -268,7 +285,7 @@ describe("account share management", () => {
     await screen.findByText("Loading shares…")
     await user.clear(input)
     await user.type(input, "Historical{Enter}")
-    await screen.findByRole("button", { name: "Preview share Historical share" })
+    await screen.findByRole("link", { name: "Preview share Historical share" })
     expect(signal?.aborted).toBe(true)
     await act(async () =>
       pending.resolve(
@@ -317,7 +334,7 @@ describe("account share management", () => {
   it("toggles Views and Created with the keyboard and keeps header focus while loading", async () => {
     await showPage()
     const table = await screen.findByRole("table", { name: "Share history" })
-    await screen.findByRole("button", { name: "Preview share Historical share" })
+    await screen.findByRole("link", { name: "Preview share Historical share" })
     const views = within(table).getByRole("button", { name: "Views" })
     const createdHeader = within(table).getByRole("columnheader", { name: "Created" })
     expect(createdHeader).toHaveAttribute("aria-sort", "descending")
@@ -336,7 +353,7 @@ describe("account share management", () => {
     expect(createdHeader).toHaveAttribute("aria-sort", "none")
     expect(screen.getByRole("combobox", { name: "Share order" })).toHaveValue("most_views")
     await act(async () => pending.resolve(json({ items: shares, matching_count: 1 })))
-    await screen.findByRole("button", { name: "Preview share Historical share" })
+    await screen.findByRole("link", { name: "Preview share Historical share" })
     expect(views).toHaveFocus()
     intercept = undefined
     for (const [button, expected, direction] of [
@@ -346,7 +363,7 @@ describe("account share management", () => {
     ] as const) {
       button.focus()
       await user.keyboard(" ")
-      await screen.findByRole("button", { name: "Preview share Historical share" })
+      await screen.findByRole("link", { name: "Preview share Historical share" })
       const params = new URL(String(managementRequests().at(-1)?.[0]), "https://example.test")
         .searchParams
       expect(params.get("sort")).toBe(expected)
@@ -360,7 +377,7 @@ describe("account share management", () => {
     "aborts a replaced view order and ignores its late %s response",
     async (status) => {
       await showPage()
-      await screen.findByRole("button", { name: "Preview share Historical share" })
+      await screen.findByRole("link", { name: "Preview share Historical share" })
       const pending = deferred<Response>()
       let signal: AbortSignal | null | undefined
       intercept = (path, init) => {
@@ -376,7 +393,7 @@ describe("account share management", () => {
       await user.click(screen.getByRole("button", { name: "Views" }))
       await screen.findByText("Loading shares…")
       await user.click(screen.getByRole("button", { name: "Views" }))
-      await screen.findByRole("button", { name: "Preview share Historical share" })
+      await screen.findByRole("link", { name: "Preview share Historical share" })
       expect(signal?.aborted).toBe(true)
       await act(async () =>
         pending.resolve(
@@ -512,7 +529,7 @@ describe("account share management", () => {
   it("focuses preview and confirmation, restores their triggers, and uses a stable target after revocation", async () => {
     await showPage()
     const user = userEvent.setup()
-    const preview = await screen.findByRole("button", { name: "Preview share Historical share" })
+    const preview = await screen.findByRole("link", { name: "Preview share Historical share" })
     preview.focus()
     await user.keyboard("{Enter}")
     expect(screen.getByRole("heading", { name: "Share details: Historical share" })).toHaveFocus()
@@ -550,14 +567,16 @@ describe("account share management", () => {
     await user.click(screen.getByRole("button", { name: "Close share details" }))
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(preview).toHaveFocus()
-    const revoke = screen.getByRole("button", { name: "Revoke share Historical share" })
-    await user.click(revoke)
-    expect(screen.getByRole("heading", { name: "Revoke share Historical share?" })).toHaveFocus()
+    const more = screen.getByRole("button", { name: "More actions for Historical share" })
+    await user.click(await revokeItem("Historical share"))
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Revoke share Historical share?" })).toHaveFocus(),
+    )
     expect(screen.getByText(/requires passkey verification/)).toBeVisible()
     expect(screen.getByText(/Share ID:/)).toHaveTextContent(firstID)
     await user.click(screen.getByRole("button", { name: "Cancel revocation" }))
-    expect(revoke).toHaveFocus()
-    await user.click(revoke)
+    await waitFor(() => expect(more).toHaveFocus())
+    await user.click(await revokeItem("Historical share"))
     await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
     await screen.findByText(/Share revoked\. Copies/)
     expect(screen.getByRole("heading", { name: "Shares" })).toHaveFocus()
@@ -609,7 +628,7 @@ describe("account share management", () => {
     const user = userEvent.setup()
     await user.click(await screen.findByRole("button", { name: "Next shares" }))
     await screen.findByText("26 matching shares · Page 2")
-    await user.click(screen.getByRole("button", { name: "Revoke share Historical share" }))
+    await user.click(await revokeItem("Historical share"))
     await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
     await screen.findByText("26 matching shares · Page 1")
     const params = new URL(String(managementRequests().at(-1)?.[0]), "https://example.test")
@@ -637,20 +656,20 @@ describe("account share management", () => {
     }
     await showPage()
     const user = userEvent.setup()
-    await screen.findByRole("button", { name: "Preview share Historical share" })
+    await screen.findByRole("link", { name: "Preview share Historical share" })
     expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
     await user.click(screen.getByRole("button", { name: "Next shares" }))
-    await screen.findByRole("button", { name: "Preview share Older share" })
+    await screen.findByRole("link", { name: "Preview share Older share" })
     expect(screen.getByRole("button", { name: "Next shares" })).toBeDisabled()
     await user.click(screen.getByRole("button", { name: "Previous shares" }))
-    await screen.findByRole("button", { name: "Preview share Historical share" })
+    await screen.findByRole("link", { name: "Preview share Historical share" })
     await user.click(screen.getByRole("button", { name: "Next shares" }))
-    await screen.findByRole("button", { name: "Preview share Older share" })
+    await screen.findByRole("link", { name: "Preview share Older share" })
     await user.selectOptions(screen.getByLabelText("Share status"), "expired")
     await screen.findByText("No shares match this search or status.")
     expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
     await user.selectOptions(screen.getByLabelText("Share status"), "all")
-    await screen.findByRole("button", { name: "Preview share Historical share" })
+    await screen.findByRole("link", { name: "Preview share Historical share" })
     expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
   })
 
@@ -660,12 +679,12 @@ describe("account share management", () => {
     await within(region).findByRole("heading", { name: "Private Markdown" })
     const user = userEvent.setup()
     await user.click(within(region).getByRole("button", { name: "Close share details" }))
-    await user.click(screen.getByRole("button", { name: "Revoke share Historical share" }))
+    await user.click(await revokeItem("Historical share"))
     expect(requests(`account/shares/${firstID}`, "DELETE")).toHaveLength(0)
     expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Cancel revocation" }))
     expect(screen.queryByRole("button", { name: "Confirm revocation" })).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Revoke share Historical share" }))
+    await user.click(await revokeItem("Historical share"))
     account = { ...account, csrf_token: "fresh-csrf" }
     await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
     await screen.findByText(/Share revoked\. Copies/)
@@ -692,7 +711,7 @@ describe("account share management", () => {
     await showPage()
     const user = userEvent.setup()
     await user.selectOptions(screen.getByLabelText("Share status"), "active")
-    await user.click(await screen.findByRole("button", { name: "Revoke share Historical share" }))
+    await user.click(await revokeItem("Historical share"))
     account = { ...account, verification_required: false }
     await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
     await screen.findByText("No shares match this search or status.")
@@ -705,7 +724,7 @@ describe("account share management", () => {
     vi.mocked(startAuthentication).mockReturnValueOnce(pending.promise)
     await showPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole("button", { name: "Revoke share Historical share" }))
+    await user.click(await revokeItem("Historical share"))
     const confirm = screen.getByRole("button", { name: "Confirm revocation" })
     await user.click(confirm)
     expect(confirm).toBeDisabled()
@@ -734,7 +753,7 @@ describe("account share management", () => {
           ? Promise.resolve(json({ message: "Cannot revoke share." }, status))
           : undefined
       const user = userEvent.setup()
-      await user.click(await screen.findByRole("button", { name: "Revoke share Historical share" }))
+      await user.click(await revokeItem("Historical share"))
       await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
       await screen.findByText(status === 403 ? /Authorization expired/ : "Cannot revoke share.")
       expect(requests(`account/shares/${firstID}`, "DELETE")).toHaveLength(1)
@@ -795,7 +814,7 @@ describe("account share management", () => {
       )
       expect(screen.getByRole("heading", { name: "Shares" })).toBeInTheDocument()
       expect(
-        screen.queryByRole("button", { name: "Preview share Historical share" }),
+        screen.queryByRole("link", { name: "Preview share Historical share" }),
       ).not.toBeInTheDocument()
     },
   )
@@ -813,7 +832,7 @@ describe("account share management", () => {
     const user = userEvent.setup()
     await viewShare()
     await user.click(screen.getByRole("button", { name: "Close share details" }))
-    await user.click(screen.getByRole("button", { name: "Preview share Second" }))
+    await user.click(screen.getByRole("link", { name: "Preview share Second" }))
     const region = await screen.findByRole("dialog", { name: "Share details: Second" })
     await within(region).findByRole("heading", { name: "Private Markdown" })
     expect(signals[0]?.aborted).toBe(true)
@@ -844,7 +863,7 @@ describe("account share management", () => {
           : Promise.resolve(json({ message: "Session expired." }, 401))
       }
       if (source === "mutation") {
-        await user.click(screen.getByRole("button", { name: "Revoke share Historical share" }))
+        await user.click(await revokeItem("Historical share"))
         await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
       } else if (source === "detail") {
         const reopened = await viewShare()
@@ -914,9 +933,8 @@ describe("account share management", () => {
   it("allows reads but disables revocation when passkeys are not supported", async () => {
     vi.mocked(browserSupportsWebAuthn).mockReturnValue(false)
     await showPage()
-    expect(
-      await screen.findByRole("button", { name: "Revoke share Historical share" }),
-    ).toBeDisabled()
+    expect(await revokeItem("Historical share")).toHaveAttribute("aria-disabled", "true")
+    await userEvent.setup().keyboard("{Escape}")
     const region = await viewShare()
     await within(region).findByRole("heading", { name: "Private Markdown" })
     expect(startAuthentication).not.toHaveBeenCalled()
@@ -932,7 +950,7 @@ describe("account share management", () => {
       return pending.promise
     }
     const user = userEvent.setup()
-    await user.click(await screen.findByRole("button", { name: "Revoke share Historical share" }))
+    await user.click(await revokeItem("Historical share"))
     const confirm = screen.getByRole("button", { name: "Confirm revocation" })
     await user.click(confirm)
     await waitFor(() => expect(requests(`account/shares/${firstID}`, "DELETE")).toHaveLength(1))
@@ -952,7 +970,7 @@ describe("account share management", () => {
     const pendingList = deferred<Response>()
     await showPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole("button", { name: "Revoke share Historical share" }))
+    await user.click(await revokeItem("Historical share"))
     intercept = (path) => (path.startsWith("account/shares?") ? pendingList.promise : undefined)
     await user.click(screen.getByRole("button", { name: "Refresh shares" }))
     await user.click(screen.getByRole("button", { name: "Confirm revocation" }))
@@ -963,5 +981,216 @@ describe("account share management", () => {
     await act(async () => pending.resolve(credential as never))
     expect(requests("auth/verify/finish", "POST")).toHaveLength(0)
     expect(requests(`account/shares/${firstID}`, "DELETE")).toHaveLength(0)
+  })
+})
+
+describe("public share links", () => {
+  const token = "A".repeat(43)
+  const secondToken = `${"B".repeat(42)}A`
+  const publicURL = () => `${window.location.origin}/#/s/${token}`
+
+  async function supplyLink(
+    user: ReturnType<typeof userEvent.setup>,
+    label: string,
+    original: string,
+  ) {
+    await user.click(await screen.findByRole("button", { name: `Copy link for ${label}` }))
+    const dialog = await screen.findByRole("dialog", { name: `Public link: ${label}` })
+    await user.type(within(dialog).getByRole("textbox", { name: "Original public URL" }), original)
+    await user.click(within(dialog).getByRole("button", { name: "Use original link" }))
+    await within(dialog).findByRole("textbox", { name: "Public share URL" })
+    return dialog
+  }
+
+  it("explains unavailable links and rejects internal, external, and mismatched URLs without guessing", async () => {
+    await showPage()
+    const user = userEvent.setup()
+    const write = vi.spyOn(navigator.clipboard, "writeText")
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
+    const dialog = await screen.findByRole("dialog", { name: "Public link: Historical share" })
+    expect(within(dialog).getByText(/cannot recover the original public URL/)).toBeVisible()
+    const input = within(dialog).getByRole("textbox", { name: "Original public URL" })
+    for (const invalid of [
+      `${window.location.origin}/manage/shares`,
+      `https://other.test/s/${token}`,
+      firstID,
+    ]) {
+      await user.clear(input)
+      await user.type(input, invalid)
+      await user.click(within(dialog).getByRole("button", { name: "Use original link" }))
+      expect(within(dialog).getByRole("alert")).toHaveTextContent(
+        "Enter an original public share URL",
+      )
+    }
+    expect(requests(`account/shares/${firstID}/link`, "POST")).toHaveLength(0)
+    await user.clear(input)
+    await user.type(input, publicURL())
+    await user.click(within(dialog).getByRole("button", { name: "Use original link" }))
+    await within(dialog).findByText("This public link does not belong to this share.")
+    expect(write).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Link copied/)).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/v1/shares"))).toBe(false)
+    expect(await axe.run(document.body).then((result) => result.violations)).toEqual([])
+  })
+
+  it("copies each row's server-verified canonical URL and announces success only after the clipboard resolves", async () => {
+    shares = [makeShare(), makeShare("second", "Preview-enabled share")]
+    const previewURL = `${window.location.origin}/s/${secondToken}`
+    publicLinks.set(firstID, publicURL())
+    publicLinks.set("second", previewURL)
+    await showPage()
+    const user = userEvent.setup()
+    const pending = deferred<void>()
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockReturnValueOnce(pending.promise)
+    const first = await supplyLink(user, "Historical share", `${window.location.origin}/s/${token}`)
+    expect(within(first).getByRole("textbox", { name: "Public share URL" })).toHaveValue(
+      publicURL(),
+    )
+    expect(write).not.toHaveBeenCalled()
+    await user.click(within(first).getByRole("button", { name: "Copy link" }))
+    expect(screen.queryByText(/Link copied/)).not.toBeInTheDocument()
+    await act(async () => pending.resolve())
+    expect(within(first).getByRole("status")).toHaveTextContent("Link copied. Historical share")
+    await user.click(within(first).getByRole("button", { name: "Close link" }))
+    const second = await supplyLink(
+      user,
+      "Preview-enabled share",
+      `${window.location.origin}/#/s/${secondToken}`,
+    )
+    await user.click(within(second).getByRole("button", { name: "Copy link" }))
+    expect(write.mock.calls.map(([value]) => value)).toEqual([publicURL(), previewURL])
+    await user.click(within(second).getByRole("button", { name: "Close link" }))
+    await user.click(screen.getByRole("button", { name: "Copy link for Historical share" }))
+    expect(write).toHaveBeenLastCalledWith(publicURL())
+    expect(
+      within(screen.getByRole("row", { name: /Preview share Historical share/ })).getByText(
+        "Link copied",
+      ),
+    ).toBeVisible()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    const call = requests(`account/shares/${firstID}/link`, "POST")[0]?.[1]
+    expect(call?.headers).toHaveProperty("X-CSRF-Token", "csrf")
+    expect(JSON.parse(String(call?.body))).toEqual({ token })
+    expect(startAuthentication).not.toHaveBeenCalled()
+    expect(shares.map((share) => share.view_count)).toEqual([3, 3])
+  })
+
+  it.each(["denied", "unavailable"])(
+    "reveals the complete selectable URL when clipboard access is %s",
+    async (failure) => {
+      publicLinks.set(firstID, publicURL())
+      await showPage()
+      const user = userEvent.setup()
+      const dialog = await supplyLink(user, "Historical share", publicURL())
+      await user.click(within(dialog).getByRole("button", { name: "Close link" }))
+      const clipboard = navigator.clipboard
+      if (failure === "denied")
+        vi.spyOn(clipboard, "writeText").mockRejectedValue(new Error("denied"))
+      else Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true })
+      try {
+        await user.click(screen.getByRole("button", { name: "Copy link for Historical share" }))
+        const fallback = await screen.findByRole("dialog", {
+          name: "Public link: Historical share",
+        })
+        expect(within(fallback).getByRole("status")).toHaveTextContent("Could not copy link")
+        expect(screen.queryByText(/Link copied/)).not.toBeInTheDocument()
+        const input = within(fallback).getByRole("textbox", {
+          name: "Public share URL",
+        }) as HTMLTextAreaElement
+        expect(input).toHaveValue(publicURL())
+        await user.click(within(fallback).getByRole("button", { name: "Select link" }))
+        expect(input).toHaveFocus()
+        expect(input.selectionStart).toBe(0)
+        expect(input.selectionEnd).toBe(publicURL().length)
+        expect(await axe.run(document.body).then((result) => result.violations)).toEqual([])
+      } finally {
+        Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true })
+      }
+    },
+  )
+
+  it.each(["revoked", "expired", "view_limit_exhausted"] as const)(
+    "keeps %s availability clear and unchanged when copying",
+    async (status) => {
+      shares = [makeShare(firstID, "Unavailable", status)]
+      publicLinks.set(firstID, publicURL())
+      await showPage()
+      const user = userEvent.setup()
+      const before = JSON.stringify(shares)
+      const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
+      const dialog = await supplyLink(user, "Unavailable", publicURL())
+      expect(within(dialog).getByText(/Copying does not reactivate it/)).toBeVisible()
+      await user.click(within(dialog).getByRole("button", { name: "Copy link" }))
+      expect(write).toHaveBeenCalledWith(publicURL())
+      expect(JSON.stringify(shares)).toBe(before)
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false)
+      expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/v1/shares"))).toBe(false)
+    },
+  )
+
+  it("shows links through the overflow menu and restores keyboard focus on Escape", async () => {
+    publicLinks.set(firstID, publicURL())
+    await showPage()
+    const user = userEvent.setup()
+    const dialog = await supplyLink(user, "Historical share", publicURL())
+    await user.click(within(dialog).getByRole("button", { name: "Close link" }))
+    const more = screen.getByRole("button", { name: "More actions for Historical share" })
+    more.focus()
+    await user.keyboard("{ArrowDown}")
+    const show = await screen.findByRole("menuitem", { name: "Show link" })
+    await waitFor(() => expect(show).toHaveFocus())
+    await user.keyboard("{Enter}")
+    const input = await screen.findByRole("textbox", { name: "Public share URL" })
+    await waitFor(() => expect(input).toHaveFocus())
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(more).toHaveFocus())
+  })
+
+  it("aborts verification on close and removes supplied links after leaving Shares", async () => {
+    publicLinks.set(firstID, publicURL())
+    const page = await showPage()
+    const user = userEvent.setup()
+    const pending = deferred<Response>()
+    let signal: AbortSignal | undefined
+    intercept = (path, init) => {
+      if (!path.endsWith("/link")) return
+      signal = init?.signal as AbortSignal
+      return pending.promise
+    }
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
+    await user.type(screen.getByRole("textbox", { name: "Original public URL" }), publicURL())
+    await user.click(screen.getByRole("button", { name: "Use original link" }))
+    await user.click(screen.getByRole("button", { name: "Close link" }))
+    expect(signal?.aborted).toBe(true)
+    await act(async () => pending.resolve(json({ share_url: publicURL() })))
+    intercept = undefined
+    const dialog = await supplyLink(user, "Historical share", publicURL())
+    await user.click(within(dialog).getByRole("button", { name: "Close link" }))
+    page.unmount()
+    await showPage()
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
+    expect(screen.getByRole("textbox", { name: "Original public URL" })).toHaveValue("")
+    expect(screen.queryByDisplayValue(publicURL())).not.toBeInTheDocument()
+  })
+
+  it("clears link state on a verification 401 and ignores late clipboard results after unmount", async () => {
+    publicLinks.set(firstID, publicURL())
+    const page = await showPage()
+    const user = userEvent.setup()
+    const dialog = await supplyLink(user, "Historical share", publicURL())
+    const pending = deferred<void>()
+    vi.spyOn(navigator.clipboard, "writeText").mockReturnValueOnce(pending.promise)
+    await user.click(within(dialog).getByRole("button", { name: "Copy link" }))
+    page.unmount()
+    await act(async () => pending.resolve())
+    expect(screen.queryByText(/Link copied/)).not.toBeInTheDocument()
+    await showPage()
+    intercept = (path) => (path.endsWith("/link") ? Promise.resolve(json({}, 401)) : undefined)
+    await user.click(await screen.findByRole("button", { name: "Copy link for Historical share" }))
+    await user.type(screen.getByRole("textbox", { name: "Original public URL" }), publicURL())
+    await user.click(screen.getByRole("button", { name: "Use original link" }))
+    await screen.findByRole("button", { name: "Sign in with passkey" })
+    expect(screen.queryByDisplayValue(publicURL())).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 })

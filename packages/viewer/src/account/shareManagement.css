@@ -1,4 +1,5 @@
 .account-shares {
+  position: relative;
   min-width: 0;
 }
 
@@ -134,9 +135,26 @@
 }
 
 .account-shares .share-title {
-  width: 34%;
+  width: 56%;
   overflow-wrap: anywhere;
   font-weight: 500;
+}
+
+.account-shares .share-preview-link {
+  display: block;
+  color: var(--accent-12);
+  text-decoration: none;
+}
+
+.account-shares .share-preview-link:hover {
+  text-decoration: underline;
+}
+
+.account-shares .share-preview-link span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .account-shares .share-title small {
@@ -158,11 +176,13 @@
   padding-inline: 0.5rem;
 }
 
-.account-shares .share-actions button + button {
-  margin-left: 0.375rem;
+.account-shares .share-link-result {
+  display: block;
+  color: var(--accent-12);
+  font-size: var(--font-size-1);
 }
 
-.account-shares :is(button, input, select, summary):focus-visible,
+.account-shares :is(a, button, input, select, summary):focus-visible,
 .account-shares [tabindex="-1"]:focus {
   outline: 2px solid var(--accent-12);
   outline-offset: 3px;
@@ -203,18 +223,66 @@
   outline-offset: 3px;
 }
 
+.account-shares .share-section-heading:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.account-shares .share-toolbar {
+  justify-content: end;
+}
+
+.account-shares .share-section-heading:focus {
+  position: absolute;
+  inset-block-start: 0.5rem;
+  inset-inline-start: 1rem;
+  z-index: 1;
+  background: var(--color-background);
+}
+
+.rt-DialogContent.share-link-dialog {
+  width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.rt-DialogContent.share-link-dialog label {
+  display: block;
+  margin-block: 1rem 0.25rem;
+  font-weight: 500;
+}
+
+.share-link-dialog :is(input, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid var(--gray-10);
+  border-radius: var(--radius-2);
+  padding: 0.5rem;
+  background: var(--color-background);
+  color: var(--gray-12);
+  font: inherit;
+}
+
+.share-link-dialog textarea {
+  resize: vertical;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.share-link-dialog :is(button, input, textarea):focus-visible {
+  outline: 2px solid var(--accent-12);
+  outline-offset: 3px;
+}
+
 @media (max-width: 600px) {
   .account-shares .share-toolbar {
     float: right;
     margin-left: 0.5rem;
-  }
-
-  .account-shares #shares-heading:not(:focus) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
   }
 
   .account-shares .share-help {

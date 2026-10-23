@@ -36,6 +36,7 @@ type Service struct {
 	pool      *pgxpool.Pool
 	web       *webauthn.WebAuthn
 	origin    string
+	publicURL *url.URL
 	secure    bool
 	limiter   rateLimiter
 	cleanupAt atomic.Int64
@@ -69,7 +70,7 @@ func NewService(pool *pgxpool.Pool, publicURL *url.URL) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure WebAuthn: %w", err)
 	}
-	return &Service{pool: pool, web: web, origin: origin, secure: scheme == "https"}, nil
+	return &Service{pool: pool, web: web, origin: origin, publicURL: publicURL, secure: scheme == "https"}, nil
 }
 
 func randomToken() string { return base64.RawURLEncoding.EncodeToString(randomBytes(32)) }
