@@ -243,6 +243,74 @@ paths:
           $ref: "#/components/responses/AccountError"
         "503":
           $ref: "#/components/responses/AccountError"
+  /v1/account/shares/{id}/link:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Administrative share UUID, not a reader capability.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: verifyAccountShareLink
+      summary: Verify an owner-supplied capability and return its canonical public URL
+      description: Requires an owner session, exact Origin, and CSRF. Does not require fresh passkey verification, consume a view, retain the supplied capability, or change share availability. Works for revoked, expired, and exhausted shares without reactivating them. Cannot recover a lost capability.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: X-CSRF-Token
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Origin
+          in: header
+          required: true
+          description: Exact configured application origin.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  minLength: 43
+                  maxLength: 43
+                  description: Original base64url capability supplied by the owner, never an administrative UUID.
+      responses:
+        "200":
+          description: Canonical public URL for the supplied capability and matching share
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [share_url]
+                properties:
+                  share_url:
+                    type: string
+                    format: uri
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "404":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
   /v1/account:
     get:
       operationId: getAccount

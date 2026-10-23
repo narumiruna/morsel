@@ -5,6 +5,14 @@ import { join, resolve } from "node:path"
 import { type CDPSession, expect, type Page, test } from "@playwright/test"
 import { MorselClient } from "../../client/src/index"
 
+async function revokeShare(page: Page, label: string) {
+  await page.getByRole("button", { name: `More actions for ${label}`, exact: true }).click()
+  await page.getByRole("menuitem", { name: `Revoke share ${label}`, exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: `Revoke share ${label}?`, exact: true }),
+  ).toBeFocused()
+}
+
 function command(file: string, args: string[], input?: string, env = process.env): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { env, stdio: ["pipe", "pipe", "ignore"] })
@@ -381,7 +389,7 @@ test("required real-backend account and API key lifecycle", async ({
     await openSection(page, "Shares")
     await page.getByRole("button", { name: "Refresh shares", exact: true }).click()
     await page
-      .getByRole("button", { name: "Preview share Legacy before account", exact: true })
+      .getByRole("link", { name: "Preview share Legacy before account", exact: true })
       .click()
     await expect(
       page.getByRole("heading", { name: "Legacy before account", exact: true }),
@@ -408,7 +416,7 @@ test("required real-backend account and API key lifecycle", async ({
     }
     page.on("request", observe)
     await page.getByRole("button", { name: "Refresh shares", exact: true }).click()
-    await page.getByRole("button", { name: "Preview share Managed history", exact: true }).click()
+    await page.getByRole("link", { name: "Preview share Managed history", exact: true }).click()
     await expect(
       page.getByRole("heading", { name: "Managed history content", exact: true }),
     ).toBeVisible()
@@ -443,7 +451,17 @@ test("required real-backend account and API key lifecycle", async ({
     })
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.getByRole("button", { name: "Close share details", exact: true }).click()
-    await page.getByRole("button", { name: "Revoke share Managed history", exact: true }).click()
+    await page.getByRole("button", { name: "Copy link for Managed history", exact: true }).click()
+    const link = page.getByRole("dialog", { name: "Public link: Managed history", exact: true })
+    await link
+      .getByRole("textbox", { name: "Original public URL", exact: true })
+      .fill(managed.share_url)
+    await link.getByRole("button", { name: "Use original link", exact: true }).click()
+    await expect(link.getByRole("textbox", { name: "Public share URL", exact: true })).toHaveValue(
+      managed.share_url,
+    )
+    await link.getByRole("button", { name: "Close link", exact: true }).click()
+    await revokeShare(page, "Managed history")
     const removed = page.waitForResponse(
       (response) => response.url().endsWith(path) && response.request().method() === "DELETE",
     )
@@ -461,7 +479,7 @@ test("required real-backend account and API key lifecycle", async ({
     page.off("request", observe)
     await page.getByLabel("Share status", { exact: true }).selectOption("revoked")
     await expect(
-      page.getByRole("button", { name: "Preview share Managed history", exact: true }),
+      page.getByRole("link", { name: "Preview share Managed history", exact: true }),
     ).toBeVisible()
     await page.getByLabel("Share status", { exact: true }).selectOption("all")
   })
@@ -475,7 +493,7 @@ test("required real-backend account and API key lifecycle", async ({
     await login(page, "/manage/shares")
     await expect(page).toHaveURL(/\/manage\/shares$/)
     await page
-      .getByRole("button", { name: "Preview share Legacy before account", exact: true })
+      .getByRole("link", { name: "Preview share Legacy before account", exact: true })
       .click()
     await expect(
       page.getByRole("heading", { name: "Legacy before account", exact: true }),

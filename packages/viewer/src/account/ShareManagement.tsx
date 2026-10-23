@@ -1,9 +1,20 @@
-import { Button, Card, Dialog, Flex, Heading, Text } from "@radix-ui/themes"
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import {
+  Button,
+  Card,
+  Dialog,
+  DropdownMenu,
+  Flex,
+  Heading,
+  IconButton,
+  Text,
+} from "@radix-ui/themes"
 import { useEffect, useRef, useState } from "react"
 import { formatDate } from "../formatDate"
 import { MarkdownDocument } from "../markdown/MarkdownDocument"
 import { AccountError, accountErrorMessage, accountRequest } from "./accountApi"
 import "./shareManagement.css"
+import { useShareLinks } from "./useShareLinks"
 
 export type ShareStatus = "active" | "revoked" | "expired" | "view_limit_exhausted"
 export type ShareMetadata = {
@@ -46,6 +57,7 @@ const statuses: Record<ShareStatus, string> = {
 export function ShareManagement({
   busy,
   canVerify,
+  csrf,
   mutate,
   onSessionExpired,
   controls,
@@ -53,6 +65,7 @@ export function ShareManagement({
 }: {
   busy: boolean
   canVerify: boolean
+  csrf?: string
   mutate: AccountMutation
   onSessionExpired: () => void
   controls: ShareListState
@@ -86,8 +99,9 @@ export function ShareManagement({
   const previewHeading = useRef<HTMLHeadingElement>(null)
   const previewDialog = useRef<HTMLDivElement>(null)
   const confirmationHeading = useRef<HTMLHeadingElement>(null)
-  const previewTrigger = useRef<HTMLButtonElement | null>(null)
-  const confirmationTrigger = useRef<HTMLButtonElement | null>(null)
+  const previewTrigger = useRef<HTMLAnchorElement | null>(null)
+  const confirmationTrigger = useRef<HTMLElement | null>(null)
+  const menuAction = useRef<(() => void) | null>(null)
   const copyGeneration = useRef(0)
 
   useEffect(() => {
@@ -194,10 +208,17 @@ export function ShareManagement({
     setDetailRevision((value) => value + 1)
   }
 
-  const restoreFocus = (trigger: HTMLButtonElement | null) => {
-    if (trigger?.isConnected && !trigger.disabled) trigger.focus()
+  const restoreFocus = (trigger: HTMLElement | null) => {
+    if (
+      trigger?.isConnected &&
+      !trigger.matches(":disabled") &&
+      trigger.getAttribute("aria-disabled") !== "true"
+    )
+      trigger.focus()
     else sharesHeading.current?.focus()
   }
+
+  const links = useShareLinks({ csrf, onSessionExpired, restoreFocus })
 
   const closePreview = () => {
     detailRequest.current?.abort()
@@ -252,10 +273,23 @@ export function ShareManagement({
     <Card asChild>
       <section aria-labelledby="shares-heading" className="account-shares">
         <Flex align="center" justify="between" gap="3" wrap="wrap" className="share-toolbar">
-          <Heading as="h2" size="5" id="shares-heading" tabIndex={-1} ref={sharesHeading}>
+          <Heading
+            as="h2"
+            size="5"
+            id="shares-heading"
+            className="share-section-heading"
+            tabIndex={-1}
+            ref={sharesHeading}
+          >
             Shares
           </Heading>
-          <Button variant="soft" disabled={busy || revoking || listLoading} onClick={refresh}>
+          <Button
+            variant="ghost"
+            color="gray"
+            size="2"
+            disabled={busy || revoking || listLoading}
+            onClick={refresh}
+          >
             Refresh shares
           </Button>
         </Flex>
@@ -267,7 +301,10 @@ export function ShareManagement({
             Status and view counts are snapshots. Public reads and expiry can change availability.
             Refresh to check again.
           </p>
-          <p>The original public URL cannot be recovered. A share ID is not a public link.</p>
+          <p>
+            Copy link needs the original public URL once per visit. Morsel stores only a token hash
+            and cannot recover a lost URL. A share ID is not a public link.
+          </p>
         </details>
         <form
           className="share-controls"
@@ -419,23 +456,18 @@ export function ShareManagement({
               {page?.items.map((share) => (
                 <tr key={share.id}>
                   <th scope="row" className="share-title">
-                    <span>{share.label}</span>
-                    {share.expires_at && <small>Expires {compactDate(share.expires_at)}</small>}
-                  </th>
-                  <td data-label="Status">{statuses[share.status]}</td>
-                  <td data-label="Views">
-                    {share.view_count}
-                    {share.max_views !== null && ` / ${share.max_views}`}
-                  </td>
-                  <td data-label="Created" className="share-created">
-                    <time dateTime={share.created_at}>{compactDate(share.created_at)}</time>
-                  </td>
-                  <td className="share-actions">
-                    <Button
-                      variant="soft"
+                    <a
+                      href={`#share-preview-${share.id}`}
                       aria-label={`Preview share ${share.label}`}
-                      disabled={busy || revoking}
+                      aria-haspopup="dialog"
+                      aria-controls={`share-preview-${share.id}`}
+                      aria-disabled={busy || revoking}
+                      tabIndex={busy || revoking ? -1 : 0}
+                      title={share.label}
+                      className="share-preview-link"
                       onClick={(event) => {
+                        event.preventDefault()
+                        if (busy || revoking) return
                         previewTrigger.current = event.currentTarget
                         detailRequest.current?.abort()
                         copyGeneration.current += 1
@@ -447,22 +479,90 @@ export function ShareManagement({
                         setDetailRevision((value) => value + 1)
                       }}
                     >
-                      Preview
-                    </Button>
-                    {share.status !== "revoked" && (
+                      <span>{share.label}</span>
+                    </a>
+                    {share.expires_at && <small>Expires {compactDate(share.expires_at)}</small>}
+                  </th>
+                  <td data-label="Status">{statuses[share.status]}</td>
+                  <td data-label="Views">
+                    {share.view_count}
+                    {share.max_views !== null && ` / ${share.max_views}`}
+                  </td>
+                  <td data-label="Created" className="share-created">
+                    <time dateTime={share.created_at}>{compactDate(share.created_at)}</time>
+                  </td>
+                  <td className="share-actions">
+                    <Flex gap="2" align="center">
                       <Button
-                        variant="soft"
-                        color="red"
-                        aria-label={`Revoke share ${share.label}`}
-                        disabled={busy || revoking || !canVerify}
-                        onClick={(event) => {
-                          confirmationTrigger.current = event.currentTarget
-                          setNotice("")
-                          setConfirmation(share)
-                        }}
+                        highContrast
+                        aria-label={`Copy link for ${share.label}`}
+                        disabled={busy || revoking}
+                        onClick={(event) => void links.copyLink(share, event.currentTarget)}
                       >
-                        Revoke
+                        Copy link
                       </Button>
+                      <DropdownMenu.Root>
+                        <DropdownMenu.Trigger>
+                          <IconButton
+                            id={`share-actions-${share.id}`}
+                            variant="ghost"
+                            color="gray"
+                            aria-label={`More actions for ${share.label}`}
+                            disabled={busy || revoking}
+                          >
+                            <DotsHorizontalIcon width="18" height="18" aria-hidden="true" />
+                          </IconButton>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Content
+                          highContrast
+                          onCloseAutoFocus={(event) => {
+                            const action = menuAction.current
+                            if (action) {
+                              event.preventDefault()
+                              menuAction.current = null
+                              action()
+                            }
+                          }}
+                        >
+                          <DropdownMenu.Item
+                            onSelect={() => {
+                              menuAction.current = () =>
+                                links.showLink(
+                                  share,
+                                  document.getElementById(`share-actions-${share.id}`),
+                                )
+                            }}
+                          >
+                            Show link
+                          </DropdownMenu.Item>
+                          {share.status !== "revoked" && (
+                            <>
+                              <DropdownMenu.Separator />
+                              <DropdownMenu.Item
+                                color="red"
+                                aria-label={`Revoke share ${share.label}`}
+                                disabled={!canVerify}
+                                onSelect={() => {
+                                  menuAction.current = () => {
+                                    confirmationTrigger.current = document.getElementById(
+                                      `share-actions-${share.id}`,
+                                    )
+                                    setNotice("")
+                                    setConfirmation(share)
+                                  }
+                                }}
+                              >
+                                Revoke
+                              </DropdownMenu.Item>
+                            </>
+                          )}
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Root>
+                    </Flex>
+                    {links.copiedID === share.id && (
+                      <span className="share-link-result" aria-hidden="true">
+                        Link copied
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -470,6 +570,8 @@ export function ShareManagement({
             </tbody>
           </table>
         )}
+        <div role="status">{links.feedback}</div>
+        {links.dialog}
         <Flex gap="3" wrap="wrap" mt="3" aria-label="Share pagination">
           <Button
             variant="soft"
@@ -542,6 +644,7 @@ export function ShareManagement({
         <Dialog.Root open={selected !== null} onOpenChange={(open) => !open && closePreview()}>
           <Dialog.Content
             className="share-admin-detail"
+            id={`share-preview-${selected?.id}`}
             maxWidth="60rem"
             ref={previewDialog}
             onEscapeKeyDown={(event) => {

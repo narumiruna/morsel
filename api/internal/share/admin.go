@@ -275,6 +275,19 @@ func (r *AdminRepository) Detail(ctx context.Context, id uuid.UUID) (AdminDetail
 	return detail, nil
 }
 
+// VerifyToken matches an owner-supplied capability without consuming or changing a share.
+func (r *AdminRepository) VerifyToken(ctx context.Context, id uuid.UUID, hash [32]byte) (bool, error) {
+	var preview bool
+	err := r.tx.QueryRow(ctx, `SELECT preview_title IS NOT NULL FROM shares WHERE id=$1 AND token_hash=$2`, id, hash[:]).Scan(&preview)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("verify share link: %w", err)
+	}
+	return preview, nil
+}
+
 func (r *AdminRepository) Revoke(ctx context.Context, id uuid.UUID) (bool, error) {
 	return revoke(ctx, r.tx, id)
 }
