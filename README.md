@@ -16,11 +16,9 @@ Requirements: Docker with Compose and `openssl`.
 
 ```sh
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
-MORSEL_SHARE_LINK_KEY="$(openssl rand -hex 32)"
 umask 077
 cat > .env <<EOF
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-MORSEL_SHARE_LINK_KEY=$MORSEL_SHARE_LINK_KEY
 MORSEL_ENVIRONMENT=development
 MORSEL_URL=http://localhost:12647/
 MORSEL_PORT=12647
@@ -40,7 +38,7 @@ docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -ki
 
 Open <http://localhost:12647/account>, enter the token in the setup form within one hour, and enroll the owner passkey. Only the first account can register. Add a backup passkey, then open **API keys** and create a client key. Copy the key when shown; it cannot be recovered. Export it as the **client-only** secret `MORSEL_API_KEY` for the examples below. Privileged share operations are rejected until setup; public share reads are unchanged.
 
-Keep `MORSEL_SHARE_LINK_KEY` stable and back it up separately from PostgreSQL. It encrypts saved share links. Do not generate a new key on restart or redeployment. See [share link storage](docs/deployment.md#share-link-storage) before upgrading an existing deployment.
+New shares retain their original tokens in PostgreSQL so the signed-in owner can copy or show saved links. No share-link encryption key is required. Database access or a backup exposes these tokens and their share URLs; protect both as secrets. See [share link storage](docs/deployment.md#share-link-storage) before upgrading an existing deployment.
 
 The root [`compose.yaml`](compose.yaml) uses the explicitly built image, starts PostgreSQL, applies migrations, and binds Morsel to loopback. Keep `MORSEL_IMAGE=morsel:local` exported for later Compose commands. `.env` is ignored by Git; [`.env.example`](.env.example) contains no secrets. Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
 

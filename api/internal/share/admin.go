@@ -131,7 +131,7 @@ const adminStatusSQL = `CASE
 	WHEN max_views IS NOT NULL AND view_count >= max_views THEN 'view_limit_exhausted'
 	ELSE 'active' END`
 
-const adminColumnsSQL = `id, COALESCE(admin_label, '') AS label, created_at, expires_at, max_views, view_count, revoked_at, ` + adminStatusSQL + ` AS status, link_ciphertext IS NOT NULL AS link_available`
+const adminColumnsSQL = `id, COALESCE(admin_label, '') AS label, created_at, expires_at, max_views, view_count, revoked_at, ` + adminStatusSQL + ` AS status, link_token IS NOT NULL AS link_available`
 
 func searchHash(q string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(q)))
@@ -278,24 +278,25 @@ func (r *AdminRepository) Detail(ctx context.Context, id uuid.UUID) (AdminDetail
 }
 
 // Link returns retained capability data only inside the owner's authorization transaction.
-func (r *AdminRepository) Link(ctx context.Context, id uuid.UUID, cipher *LinkCipher) (string, bool, error) {
-	var encrypted, storedHash []byte
+func (r *AdminRepository) Link(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	var token *string
+	var storedHash []byte
 	var preview bool
-	err := r.tx.QueryRow(ctx, `SELECT link_ciphertext, token_hash, preview_title IS NOT NULL FROM shares WHERE id=$1`, id).Scan(&encrypted, &storedHash, &preview)
+	err := r.tx.QueryRow(ctx, `SELECT link_token, token_hash, preview_title IS NOT NULL FROM shares WHERE id=$1`, id).Scan(&token, &storedHash, &preview)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, ErrNotFound
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("get share link: %w", err)
 	}
-	if encrypted == nil {
+	if token == nil {
 		return "", false, ErrLinkUnavailable
 	}
-	if len(storedHash) != 32 {
-		return "", false, errors.New("invalid stored capability hash")
+	hash, err := HashToken(*token)
+	if err != nil || !bytes.Equal(hash[:], storedHash) {
+		return "", false, errors.New("stored share link does not match capability hash")
 	}
-	token, err := cipher.Decrypt(id, encrypted, [32]byte(storedHash))
-	return token, preview, err
+	return *token, preview, nil
 }
 
 // VerifyToken matches an owner-supplied capability without consuming or changing a share.

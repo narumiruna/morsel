@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -25,11 +24,7 @@ func TestStoredAccountShareLink(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := uuid.New()
-		encrypted, err := s.linkCipher.Encrypt(id, token)
-		if err != nil {
-			t.Fatal(err)
-		}
-		params := share.CreateParams{ID: id, TokenHash: hash, LinkCiphertext: encrypted, Content: "# Stored link"}
+		params := share.CreateParams{ID: id, TokenHash: hash, LinkToken: token, Content: "# Stored link"}
 		if preview {
 			params.Preview = &share.PreviewMetadata{Title: "Stored link", Description: "Description"}
 		}
@@ -70,7 +65,7 @@ func TestStoredAccountShareLink(t *testing.T) {
 		for _, metadataPath := range []string{"/v1/account/shares", "/v1/account/shares/" + id.String()} {
 			w := b.request("GET", metadataPath, nil)
 			requireStatus(t, w, 200)
-			if strings.Contains(w.Body.String(), token) || strings.Contains(w.Body.String(), "token_hash") || strings.Contains(w.Body.String(), "link_ciphertext") || !strings.Contains(w.Body.String(), `"link_available":true`) {
+			if strings.Contains(w.Body.String(), token) || strings.Contains(w.Body.String(), "token_hash") || strings.Contains(w.Body.String(), "link_token") || !strings.Contains(w.Body.String(), `"link_available":true`) {
 				t.Fatal("metadata must expose only link availability")
 			}
 		}
@@ -80,10 +75,10 @@ func TestStoredAccountShareLink(t *testing.T) {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, r)
 		requireStatus(t, w, 401)
-		// Ciphertext cannot be moved to a different share or silently treated as a legacy link.
+		// A retained token must match the share's public authorization hash.
 		otherID := uuid.New()
 		_, otherHash, _ := (share.TokenGenerator{}).Generate()
-		if _, err := repository.Create(ctx, share.CreateParams{ID: otherID, TokenHash: otherHash, LinkCiphertext: encrypted}); err != nil {
+		if _, err := repository.Create(ctx, share.CreateParams{ID: otherID, TokenHash: otherHash, LinkToken: token}); err != nil {
 			t.Fatal(err)
 		}
 		w = b.request("GET", "/v1/account/shares/"+otherID.String()+"/link", nil)
@@ -92,15 +87,16 @@ func TestStoredAccountShareLink(t *testing.T) {
 		if strings.Contains(w.Body.String(), token) {
 			t.Fatal("error disclosed capability")
 		}
-		originalCipher := s.linkCipher
-		s.linkCipher, _ = share.NewLinkCipher(bytes.Repeat([]byte{3}, 32))
+		if _, err := pool.Exec(ctx, "UPDATE shares SET link_token=$2 WHERE id=$1", id, "invalid-token"); err != nil {
+			t.Fatal(err)
+		}
 		w = b.request("GET", path, nil)
 		requireStatus(t, w, 503)
-		if strings.Contains(w.Body.String(), token) {
-			t.Fatal("wrong key disclosed capability")
+		assertShareNoStore(t, w)
+		if strings.Contains(w.Body.String(), token) || strings.Contains(w.Body.String(), "invalid-token") {
+			t.Fatal("invalid stored token disclosed capability")
 		}
-		s.linkCipher = originalCipher
-		if _, err := pool.Exec(ctx, "UPDATE shares SET link_ciphertext=NULL WHERE id=$1", id); err != nil {
+		if _, err := pool.Exec(ctx, "UPDATE shares SET link_token=NULL WHERE id=$1", id); err != nil {
 			t.Fatal(err)
 		}
 		w = b.request("GET", path, nil)

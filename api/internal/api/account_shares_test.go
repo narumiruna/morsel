@@ -21,7 +21,7 @@ func TestAccountShareRoutesPreserveAuthenticationBoundaries(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := t.Context()
 	origin, _ := url.Parse("http://localhost:5173")
-	account, err := auth.NewService(pool, origin, testLinkCipher(t))
+	account, err := auth.NewService(pool, origin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,12 +45,12 @@ func TestAccountShareRoutesPreserveAuthenticationBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := uuid.New()
-	if _, err := repository.Create(ctx, share.CreateParams{ID: id, TokenHash: capabilityHash, Content: "private Markdown"}); err != nil {
+	if _, err := repository.Create(ctx, share.CreateParams{ID: id, TokenHash: capabilityHash, LinkToken: capability, Content: "private Markdown"}); err != nil {
 		t.Fatal(err)
 	}
 	logs := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
-	handler := NewRouter(NewService(repository, share.TokenGenerator{}, origin, 100, logger, testLinkCipher(t)), RouterConfig{
+	handler := NewRouter(NewService(repository, share.TokenGenerator{}, origin, 100, logger), RouterConfig{
 		Authenticator: account, Account: account, MaxRequestBody: 1024, RequestTimeout: time.Second, Logger: logger,
 	})
 	perform := func(method, path string, session, bearer bool) *httptest.ResponseRecorder {
@@ -69,7 +69,7 @@ func TestAccountShareRoutesPreserveAuthenticationBoundaries(t *testing.T) {
 		return w
 	}
 	path := "/v1/account/shares/" + id.String()
-	for _, endpoint := range []struct{ method, path string }{{"GET", "/v1/account/shares"}, {"GET", path}, {"DELETE", path}} {
+	for _, endpoint := range []struct{ method, path string }{{"GET", "/v1/account/shares"}, {"GET", path}, {"GET", path + "/link"}, {"DELETE", path}} {
 		for _, bearer := range []bool{false, true} {
 			w := perform(endpoint.method, endpoint.path, false, bearer)
 			if w.Code != 401 || w.Header().Get("Cache-Control") != "no-store" {
@@ -85,9 +85,12 @@ func TestAccountShareRoutesPreserveAuthenticationBoundaries(t *testing.T) {
 	}
 	for _, endpoint := range []struct{ method, path string }{{"GET", "/v1/account/shares?limit=1"}, {"GET", path}} {
 		w := perform(endpoint.method, endpoint.path, true, false)
-		if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || strings.Contains(w.Body.String(), "token_hash") {
+		if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || strings.Contains(w.Body.String(), "token_hash") || strings.Contains(w.Body.String(), "link_token") || strings.Contains(w.Body.String(), capability) {
 			t.Fatalf("management route: %d %s", w.Code, w.Body.String())
 		}
+	}
+	if w := perform("GET", path+"/link", true, false); w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || !strings.Contains(w.Body.String(), capability) {
+		t.Fatalf("stored link retrieval: %d %s", w.Code, w.Body.String())
 	}
 	if n := testdb.Count(t, pool, `SELECT view_count FROM shares WHERE id=$1`, id); n != 0 {
 		t.Fatal("management consumed a view")

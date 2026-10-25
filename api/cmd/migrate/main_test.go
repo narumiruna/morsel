@@ -11,7 +11,7 @@ import (
 func TestMigrateRunsResumableLabelsOnlyForApplicableSchema(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := t.Context()
-	if err := migrate(ctx, pool, migrations.Down, 2); err != nil {
+	if err := migrate(ctx, pool, migrations.Down, 3); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content)
@@ -28,7 +28,7 @@ func TestMigrateRunsResumableLabelsOnlyForApplicableSchema(t *testing.T) {
 	if err := migrate(ctx, pool, migrations.Up, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(ctx, pool, migrations.Down, 2); err != nil {
+	if err := migrate(ctx, pool, migrations.Down, 3); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrate(ctx, pool, migrations.Down, 1); err != nil {

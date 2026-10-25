@@ -73,15 +73,6 @@ func (r *repositoryStub) Revoke(context.Context, uuid.UUID) (bool, error) {
 }
 func (r *repositoryStub) Ping(context.Context) error { return r.pingError }
 
-func testLinkCipher(t *testing.T) *share.LinkCipher {
-	t.Helper()
-	cipher, err := share.NewLinkCipher(bytes.Repeat([]byte{1}, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cipher
-}
-
 func testRouter(t *testing.T, repository share.Repository, tokenReader io.Reader, logOutput io.Writer, maxDocumentBytes int64) http.Handler {
 	t.Helper()
 	viewerURL, _ := url.Parse("https://morsel.example/")
@@ -92,7 +83,7 @@ func testRouter(t *testing.T, repository share.Repository, tokenReader io.Reader
 		logOutput = io.Discard
 	}
 	logger := slog.New(slog.NewJSONHandler(logOutput, nil))
-	service := NewService(repository, share.TokenGenerator{Reader: tokenReader}, viewerURL, maxDocumentBytes, logger, testLinkCipher(t))
+	service := NewService(repository, share.TokenGenerator{Reader: tokenReader}, viewerURL, maxDocumentBytes, logger)
 	return NewRouter(service, RouterConfig{
 		Authenticator:  authenticatorStub{},
 		MaxRequestBody: maxDocumentBytes + 4096, RequestTimeout: time.Second, Logger: logger,
@@ -399,7 +390,7 @@ func TestRevokeAndReadiness(t *testing.T) {
 func TestRouterServesViewerWithoutMaskingUnknownAPIRoutes(t *testing.T) {
 	repository := &repositoryStub{}
 	viewerURL, _ := url.Parse("https://morsel.example/")
-	service := NewService(repository, share.TokenGenerator{}, viewerURL, 100, slog.Default(), testLinkCipher(t))
+	service := NewService(repository, share.TokenGenerator{}, viewerURL, 100, slog.Default())
 	viewerCalls := 0
 	router := NewRouter(service, RouterConfig{
 		Authenticator: authenticatorStub{},

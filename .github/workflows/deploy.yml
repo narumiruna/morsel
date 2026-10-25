@@ -30,9 +30,7 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           MORSEL_ENVIRONMENT: ${{ secrets.MORSEL_ENVIRONMENT || 'production' }}
           MORSEL_URL: ${{ secrets.MORSEL_URL }}
-          MORSEL_SHARE_LINK_KEY: ${{ secrets.MORSEL_SHARE_LINK_KEY }}
           MORSEL_PORT: ${{ secrets.MORSEL_PORT || '12647' }}
         run: |
           : "${MORSEL_URL:?set MORSEL_URL secret}"
-          : "${MORSEL_SHARE_LINK_KEY:?set MORSEL_SHARE_LINK_KEY secret}"
           docker compose up --detach --wait --wait-timeout 120

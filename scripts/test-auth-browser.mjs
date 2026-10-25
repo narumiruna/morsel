@@ -138,7 +138,6 @@ try {
     MORSEL_ENVIRONMENT: "development",
     MORSEL_ADDRESS: `127.0.0.1:${port}`,
     MORSEL_URL: origin,
-    MORSEL_SHARE_LINK_KEY: randomBytes(32).toString("hex"),
     MORSEL_VIEWER_DIR: join(root, "packages/viewer/dist"),
     MORSEL_AUTH_TEST_ORIGIN: origin,
     MORSEL_AUTH_TEST_HELPER: helper,

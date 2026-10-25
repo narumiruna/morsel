@@ -20,7 +20,6 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/narumiruna/morsel/api/internal/share"
 )
 
 const (
@@ -34,17 +33,16 @@ const (
 )
 
 type Service struct {
-	pool       *pgxpool.Pool
-	web        *webauthn.WebAuthn
-	origin     string
-	publicURL  *url.URL
-	linkCipher *share.LinkCipher
-	secure     bool
-	limiter    rateLimiter
-	cleanupAt  atomic.Int64
+	pool      *pgxpool.Pool
+	web       *webauthn.WebAuthn
+	origin    string
+	publicURL *url.URL
+	secure    bool
+	limiter   rateLimiter
+	cleanupAt atomic.Int64
 }
 
-func NewService(pool *pgxpool.Pool, publicURL *url.URL, linkCipher *share.LinkCipher) (*Service, error) {
+func NewService(pool *pgxpool.Pool, publicURL *url.URL) (*Service, error) {
 	if pool == nil || publicURL == nil || publicURL.Hostname() == "" || publicURL.User != nil || publicURL.RawQuery != "" || publicURL.Fragment != "" {
 		return nil, errors.New("invalid authentication configuration")
 	}
@@ -72,7 +70,7 @@ func NewService(pool *pgxpool.Pool, publicURL *url.URL, linkCipher *share.LinkCi
 	if err != nil {
 		return nil, fmt.Errorf("configure WebAuthn: %w", err)
 	}
-	return &Service{pool: pool, web: web, origin: origin, publicURL: publicURL, linkCipher: linkCipher, secure: scheme == "https"}, nil
+	return &Service{pool: pool, web: web, origin: origin, publicURL: publicURL, secure: scheme == "https"}, nil
 }
 
 func randomToken() string { return base64.RawURLEncoding.EncodeToString(randomBytes(32)) }

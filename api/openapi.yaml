@@ -858,7 +858,7 @@ components:
       properties:
         link_available:
           type: boolean
-          description: Whether an encrypted original capability is stored. False for legacy shares; does not indicate public availability.
+          description: Whether the original capability token is stored for owner retrieval. False when no plaintext token is retained; does not indicate public availability.
         id:
           type: string
           format: uuid
