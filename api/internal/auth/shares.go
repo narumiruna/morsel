@@ -53,7 +53,7 @@ func (s *Service) getShareLink(w http.ResponseWriter, r *http.Request, value str
 	if err != nil || len(value) != 36 {
 		return failure(400, "invalid_id", "invalid share ID")
 	}
-	token, preview, err := share.NewAdminRepository(tx).Link(r.Context(), id, s.linkCipher)
+	token, preview, err := share.NewAdminRepository(tx).Link(r.Context(), id)
 	if errors.Is(err, share.ErrLinkUnavailable) {
 		return failure(404, "link_unavailable", "The original link was not saved. Existing public URLs are unchanged.")
 	}

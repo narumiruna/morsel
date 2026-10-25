@@ -3,27 +3,12 @@ package api
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
-	"net/url"
 	"testing"
 
 	"github.com/narumiruna/morsel/api/internal/share"
 )
 
-func TestCreateFailsClosedWithoutLinkCipher(t *testing.T) {
-	repository := &repositoryStub{}
-	origin, _ := url.Parse("https://morsel.example/")
-	service := NewService(repository, share.TokenGenerator{}, origin, 100, slog.Default(), nil)
-	response, err := service.CreateShare(t.Context(), CreateShareRequestObject{Body: &CreateShareJSONRequestBody{Content: "No plaintext fallback"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := response.(CreateShare500JSONResponse); !ok || len(repository.created) != 0 {
-		t.Fatal("missing encryption must not create a hash-only share")
-	}
-}
-
-func TestCreateRetainsEncryptedLink(t *testing.T) {
+func TestCreateRetainsOriginalLink(t *testing.T) {
 	repository := &repositoryStub{}
 	var logs bytes.Buffer
 	handler := testRouter(t, repository, nil, &logs, 100)
@@ -38,11 +23,12 @@ func TestCreateRetainsEncryptedLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	params := repository.created[0]
-	token, err := testLinkCipher(t).Decrypt(params.ID, params.LinkCiphertext, params.TokenHash)
-	if err != nil || result.URL != "https://morsel.example/#/s/"+token {
+	token := params.LinkToken
+	hash, err := share.HashToken(token)
+	if err != nil || hash != params.TokenHash || result.URL != "https://morsel.example/#/s/"+token {
 		t.Fatalf("retained wrong link: %v", err)
 	}
-	if logs.Len() > 0 && bytes.Contains(logs.Bytes(), []byte(token)) {
+	if bytes.Contains(logs.Bytes(), []byte(token)) {
 		t.Fatal("logs contain a capability")
 	}
 }

@@ -9,7 +9,6 @@ The API reads these environment variables:
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
-| `MORSEL_SHARE_LINK_KEY` | yes | — | Stable AES-256-GCM key for stored share links: exactly 64 hexadecimal characters (32 bytes). Keep outside PostgreSQL. |
 | `MORSEL_URL` | yes | — | Public origin for share links and WebAuthn. Non-root paths, queries, fragments, and credentials are rejected. |
 | `MORSEL_VIEWER_DIR` | no | `../packages/viewer/dist` | Viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS. |
@@ -24,26 +23,26 @@ The API reads these environment variables:
 | `MORSEL_SHUTDOWN_TIMEOUT` | no | `10s` | Graceful shutdown deadline. |
 | `MORSEL_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error`. |
 
-Startup rejects missing or invalid share link keys, insecure public URLs, empty viewer paths, and invalid limits or timeouts. Errors do not echo configured secrets. Server API key environment configuration and key-file loading are removed. Clients and scripts can still use `MORSEL_API_KEY` for a key created in the UI; do not pass it to the server.
+Startup rejects insecure public URLs, empty viewer paths, and invalid limits or timeouts. Errors do not echo configured secrets. Server API key environment configuration and key-file loading are removed. Clients and scripts can still use `MORSEL_API_KEY` for a key created in the UI; do not pass it to the server.
 
 The WebAuthn RP ID is derived from the hostname in `MORSEL_URL`, without a scheme or port. The allowed origin includes its scheme and port. Production uses `MORSEL_URL=https://morsel.narumi.dev`, RP ID `morsel.narumi.dev`, and origin `https://morsel.narumi.dev`. These values are not derived from request headers. WebAuthn requires a hostname RP ID; numeric IP origins are not supported. Use `localhost`, not `127.0.0.1` or `::1`, for the configured development browser origin. API clients can still connect through loopback IPs. Keep the hostname stable: an RP ID change can require passkey re-enrollment. Development uses [the exact localhost origin](development.md#interactive-account-development).
 
 ## Share link storage
 
-Migration 9 adds nullable encrypted capability storage. New shares store their tokens with AES-256-GCM, a random nonce, and the share UUID as authenticated data. Public reads still use the SHA-256 hash. Only an authenticated owner can retrieve a stored URL; list and detail responses return only `link_available`.
+Migration 10 adds nullable `link_token` storage. New shares retain their original tokens without encryption. Public reads still use the SHA-256 hash. Only an authenticated owner can retrieve a stored URL; list and detail responses return only `link_available`. No share-link encryption key is required.
+
+**Database or backup access exposes retained share tokens and Markdown content.** Treat both as secrets. A token grants public read access subject to the share's limits and revocation. Revoke shares whose tokens are exposed.
 
 Before deploying this release:
 
-1. Generate `MORSEL_SHARE_LINK_KEY` once with `openssl rand -hex 32` in a private terminal. Save it in the server secret store and back it up separately from PostgreSQL.
-2. Set the `MORSEL_SHARE_LINK_KEY` GitHub Actions secret for the deployment workflow, or add it to the protected Compose `.env` file. All server instances must use the same key.
-3. Back up PostgreSQL, apply migrations, and deploy the API and viewer together. A missing key prevents startup. Never generate a new key during deployment.
+1. Back up PostgreSQL and test the migration on a restored copy.
+2. If the database used the previous encrypted-storage release, recover its retained tokens with that release and its original key before upgrading. Copy recovered tokens to `link_token` in a controlled data migration after applying migration 10; verify each token against its existing `token_hash`. Do not discard the original key or backup until recovery is verified.
+3. Apply migrations and deploy the API and viewer together. Do not mix old and new application writers during the transition.
 4. Create a test share and confirm that Copy link and Show link work after a page reload without changing its view count.
 
-Legacy shares remain readable through their original URLs, subject to existing limits and revocation. Their hashes cannot restore the original tokens, so management shows **Link unavailable**. Migration 9 does not regenerate tokens or change existing URLs.
+Legacy rows without a plaintext token show **Link unavailable**. Their original public URLs remain valid subject to existing limits and revocation. Hashes cannot restore original tokens. Migration 10 does not regenerate tokens, change public URLs, or automatically decrypt old data. It preserves migration 9's `link_ciphertext` column for recovery; the new server does not read it.
 
-Losing the encryption key prevents retrieval of saved links but does not invalidate public URLs. Restore the correct key; do not replace it with a new value. There is no automatic key rotation command. Planned rotation requires a separate, verified re-encryption migration before any key is retired. If a key is exposed with a database copy, treat retained capabilities as exposed and revoke affected shares.
-
-For rollback, keep migration 9 and the key when running an older application binary directly; an older migration runner rejects the unknown version. Do not run that runner against the upgraded schema. If a schema downgrade is required, stop writes and use the new migration executable with `-direction down -steps 1`, only after confirming version 9 is latest. Dropping the column permanently removes stored-link retrieval. It does not invalidate public URLs. Restore the column from a protected backup and retain the matching key to recover retrieval.
+For rollback, prefer retaining the additive schema. An older application can still use the unchanged public hashes, but cannot retrieve new plaintext-only saved links. The encrypted-storage release also needs its original encryption key. An older migration runner rejects version 10; do not run it against the upgraded schema. If a schema downgrade is required, stop writes and use the new migration executable with `-direction down -steps 1`, only after confirming version 10 is latest. This drops `link_token` and permanently removes its saved-link retrieval unless restored from backup. Public hashes and old ciphertext remain unchanged.
 
 ## Operator setup and recovery
 
@@ -157,7 +156,7 @@ Older writers can create pending labels after an application rollback. Rerun the
 
 ## Backup, restore, and rollback
 
-PostgreSQL is authoritative for shares, encrypted capabilities, accounts, passkeys, API key hashes, sessions, and temporary authentication grants. Protect backups as secrets and define recovery point and recovery time objectives. Back up `MORSEL_SHARE_LINK_KEY` separately; both the database backup and its matching key are required to restore saved-link retrieval.
+PostgreSQL is authoritative for shares, plaintext share tokens, accounts, passkeys, API key hashes, sessions, and temporary authentication grants. Database backups include retained share tokens and can restore saved-link retrieval without a separate encryption key. Protect backups as secrets and define recovery point and recovery time objectives. Retain the original key and backup for any legacy encrypted tokens until their recovery is verified.
 
 ```sh
 pg_dump --format=custom --dbname="$MORSEL_DATABASE_URL" --file=morsel.dump

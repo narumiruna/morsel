@@ -13,7 +13,7 @@ import (
 func TestShareHistoryIndexPreservesLegacyRows(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := t.Context()
-	if err := migrations.Run(ctx, pool, migrations.Down, 3); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Down, 4); err != nil {
 		t.Fatal(err)
 	}
 	assertAuthTables(t, pool, true)

@@ -141,7 +141,7 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 		t.Fatal("legacy fixture requires an account")
 	}
 	var targetMigrations int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 9 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 10 {
 		t.Fatal("target database was not fully migrated")
 	}
 }

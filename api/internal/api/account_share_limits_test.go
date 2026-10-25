@@ -15,7 +15,7 @@ import (
 
 func TestAccountShareMountPreservesBodyLimit(t *testing.T) {
 	origin, _ := url.Parse("https://morsel.example/")
-	handler := NewRouter(NewService(&repositoryStub{}, share.TokenGenerator{}, origin, 100, slog.Default(), testLinkCipher(t)), RouterConfig{
+	handler := NewRouter(NewService(&repositoryStub{}, share.TokenGenerator{}, origin, 100, slog.Default()), RouterConfig{
 		Account: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			var tooLarge *http.MaxBytesError

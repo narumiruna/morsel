@@ -24,7 +24,7 @@ func TestBearerAuthenticationFailsClosed(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			repository := &repositoryStub{}
 			origin, _ := url.Parse("https://morsel.example/")
-			handler := NewRouter(NewService(repository, share.TokenGenerator{}, origin, 100, slog.Default(), testLinkCipher(t)), RouterConfig{
+			handler := NewRouter(NewService(repository, share.TokenGenerator{}, origin, 100, slog.Default()), RouterConfig{
 				Authenticator: test.auth, Logger: slog.Default(), MaxRequestBody: 1024, RequestTimeout: time.Second,
 			})
 			for _, endpoint := range []struct{ method, path string }{
@@ -49,7 +49,7 @@ func TestBearerAuthenticationFailsClosed(t *testing.T) {
 func TestRouterMountsAccountRoutesWithoutRequiringBearer(t *testing.T) {
 	origin, _ := url.Parse("https://morsel.example/")
 	calls := 0
-	handler := NewRouter(NewService(&repositoryStub{}, share.TokenGenerator{}, origin, 100, slog.Default(), testLinkCipher(t)), RouterConfig{
+	handler := NewRouter(NewService(&repositoryStub{}, share.TokenGenerator{}, origin, 100, slog.Default()), RouterConfig{
 		Account: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			deadline, ok := r.Context().Deadline()
 			if !ok || time.Until(deadline) > time.Second {
