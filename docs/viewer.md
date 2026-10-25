@@ -2,6 +2,18 @@
 
 Morsel renders GitHub Flavored Markdown, syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts. It offers system-aware light and dark modes plus Sepia, Sage, and Midnight reader themes. Authored HTML is disabled and output is sanitized; see the [security model](design.md#security-model).
 
+## Authentication and management
+
+Management uses three authenticated routes: `/manage/shares`, `/manage/api-keys`, and `/account` (Security). Signed-out visits go to `/login`; management navigation is hidden until sign-in completes. Login shows a Passkey button and a link to `/recover`, not a recovery form.
+
+Initial setup uses `/setup` only while the server reports that setup is required. Recovery uses an operator token and a replacement Passkey. It replaces existing Passkeys and invalidates other sessions, but does not revoke API keys.
+
+Authentication links preserve the destination in `?next=`. Only the three exact management paths above are accepted. Missing, repeated, or invalid values use `/manage/shares`. Setup and recovery also return to this destination. Tokens and credentials belong in forms, never in URLs.
+
+Automatic redirects replace the current history entry. Session expiry clears private UI state and sends the user to login with the current management destination. Successful logout goes to `/login` with Shares as the default destination. Failed logout reports an error without claiming success. Network failures during the initial account check show a retry control rather than a login form.
+
+The Go server serves all three authentication paths on direct visits and refreshes. Configure reverse proxies to bypass caching for these paths, including query-string variants, as for management pages.
+
 ## Mermaid diagram controls
 
 Mermaid diagrams open fitted to the available space without upscaling. Use **Reset zoom** to restore a readable size, which may crop a large diagram, or **Fit to screen** to display the entire diagram. Pan by dragging or using the arrow keys. Zoom with the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel. Press `0` to fit the diagram.

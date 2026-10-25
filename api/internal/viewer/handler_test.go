@@ -65,7 +65,7 @@ func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing
 	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") == "" {
 		t.Fatalf("Gist HEAD status=%d length=%q body=%q", head.Code, head.Header().Get("Content-Length"), head.Body.String())
 	}
-	for _, appPath := range []string{"/account", "/manage/shares", "/manage/api-keys", "/example"} {
+	for _, appPath := range []string{"/account", "/manage/shares", "/manage/api-keys", "/example", "/login", "/recover", "/setup", "/login?next=%2Faccount", "/recover?next=%2Fmanage%2Fapi-keys", "/setup?next=%2Fmanage%2Fshares"} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			account := httptest.NewRecorder()
 			handler.ServeHTTP(account, httptest.NewRequest(method, appPath, nil))
@@ -77,7 +77,7 @@ func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing
 			}
 		}
 	}
-	for _, path := range []string{"/account/", "/account/unknown", "/manage/shares/", "/manage/api-keys/extra", "/manage/unknown", "/example/", "/missing-asset.js"} {
+	for _, path := range []string{"/login/", "/recover/", "/setup/", "/login/unknown", "/recover/unknown", "/setup/unknown", "/account/", "/account/unknown", "/manage/shares/", "/manage/api-keys/extra", "/manage/unknown", "/example/", "/missing-asset.js"} {
 		missing := httptest.NewRecorder()
 		handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, path, nil))
 		if missing.Code != http.StatusNotFound {

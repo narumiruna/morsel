@@ -1,8 +1,10 @@
 import * as Tooltip from "@radix-ui/react-tooltip"
 import type { ReactNode } from "react"
+import { AccountSession } from "./account/AccountSession"
 import { AppHeader } from "./components/AppHeader"
 import { useAppLocation } from "./navigation"
 import { AccountPage } from "./pages/AccountPage"
+import { AuthPage } from "./pages/AuthPage"
 import { ExamplePage } from "./pages/ExamplePage"
 import { GistPage } from "./pages/GistPage"
 import { SharePage } from "./pages/SharePage"
@@ -17,6 +19,15 @@ export function App() {
   switch (route.kind) {
     case "home":
       page = <HomePage />
+      break
+    case "authentication":
+      page = (
+        <AuthPage
+          key={`${route.mode}:${location.search}`}
+          mode={route.mode}
+          search={location.search}
+        />
+      )
       break
     case "account":
     case "management":
@@ -43,8 +54,12 @@ export function App() {
 
   return (
     <Tooltip.Provider delayDuration={350}>
-      {route.kind === "account" || route.kind === "management" ? (
-        page
+      {route.kind === "account" ||
+      route.kind === "management" ||
+      route.kind === "authentication" ? (
+        <AccountSession pathname={location.pathname} search={location.search}>
+          {page}
+        </AccountSession>
       ) : (
         <>
           <AppHeader />

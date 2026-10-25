@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event"
 import axe from "axe-core"
 import { StrictMode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { AccountPage } from "../pages/AccountPage"
+import { App } from "../App"
 import { ThemeProvider } from "../theme"
 import type { Account } from "./accountApi"
 import type { ShareDetail, ShareStatus } from "./ShareManagement"
@@ -74,9 +74,10 @@ function managementRequests() {
 }
 
 async function showPage(strict = false) {
+  window.history.replaceState({}, "", "/manage/shares")
   const page = (
     <ThemeProvider>
-      <AccountPage section="shares" />
+      <App />
     </ThemeProvider>
   )
   const result = render(strict ? <StrictMode>{page}</StrictMode> : page)
