@@ -7,9 +7,11 @@ import {
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import axe from "axe-core"
-import { StrictMode } from "react"
+import { StrictMode, useEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { AccountPage, type AccountSection } from "../pages/AccountPage"
+import { App } from "../App"
+import { navigate } from "../navigation"
+import type { AccountSection } from "../pages/AccountPage"
 import { ThemeProvider } from "../theme"
 import type { Account, APIKey, Passkey } from "./accountApi"
 
@@ -44,7 +46,15 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
 }
 
+function AccountPage({ section = "security" }: { section?: AccountSection }) {
+  useEffect(() => {
+    navigate(section === "security" ? "/account" : `/manage/${section}`, { force: true })
+  }, [section])
+  return <App />
+}
+
 function showPage(strict = false, section: AccountSection = "api-keys") {
+  window.history.replaceState({}, "", section === "security" ? "/account" : `/manage/${section}`)
   const page = (
     <ThemeProvider>
       <AccountPage section={section} />
@@ -184,7 +194,8 @@ describe("AccountPage", () => {
   it("signs in without a username and offers recovery when setup is closed", async () => {
     showPage()
     const user = userEvent.setup()
-    expect(await screen.findByLabelText("Recovery token")).toHaveAttribute("type", "password")
+    expect(await screen.findByRole("link", { name: "Recover account" })).toBeInTheDocument()
+    expect(screen.queryByLabelText("Recovery token")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Setup token")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Sign in with passkey" }))
     await screen.findByRole("heading", { name: "API keys" })
@@ -196,7 +207,9 @@ describe("AccountPage", () => {
   it("recovers with an operator token, a replacement passkey, and an API key review warning", async () => {
     showPage()
     const user = userEvent.setup()
-    await user.type(await screen.findByLabelText("Recovery token"), "recovery-secret")
+    await user.click(await screen.findByRole("link", { name: "Recover account" }))
+    expect(screen.getByLabelText("Recovery token")).toHaveAttribute("type", "password")
+    await user.type(screen.getByLabelText("Recovery token"), "recovery-secret")
     await user.type(screen.getByLabelText("Replacement passkey name"), "New device")
     await user.click(screen.getByRole("button", { name: "Recover account" }))
     await screen.findByRole("heading", { name: "API keys" })
@@ -609,6 +622,7 @@ describe("AccountPage", () => {
     const signIn = await screen.findByRole("button", { name: "Sign in with passkey" })
     expect(signIn).toBeDisabled()
     expect(screen.getByText(/This browser does not support passkeys/)).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole("link", { name: "Recover account" }))
     expect(screen.getByRole("button", { name: "Recover account" })).toBeDisabled()
     expect(startAuthentication).not.toHaveBeenCalled()
   })
@@ -652,11 +666,15 @@ describe("AccountPage", () => {
   })
 
   it("handles session expiry and clears all account secrets", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
     await signedIn()
     await createKey()
     fail = { path: "auth/verify/begin", status: 401 }
     await confirmRevoke()
     await screen.findByText("Your session expired. Sign in again.")
+    expect(confirm).not.toHaveBeenCalled()
+    expect(window.location.pathname).toBe("/login")
+    expect(new URLSearchParams(window.location.search).get("next")).toBe("/manage/api-keys")
     expect(screen.queryByDisplayValue("raw-secret-only-once")).not.toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "API keys" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Sign in with passkey" })).toBeEnabled()
@@ -977,6 +995,7 @@ describe("AccountPage", () => {
         await user.type(screen.getByLabelText("Passkey name"), "Device")
         await user.click(screen.getByRole("button", { name: "Set up account" }))
       } else if (operation === "recover") {
+        await user.click(await screen.findByRole("link", { name: "Recover account" }))
         await user.type(await screen.findByLabelText("Recovery token"), "secret")
         await user.type(screen.getByLabelText("Replacement passkey name"), "Device")
         await user.click(screen.getByRole("button", { name: "Recover account" }))
@@ -993,7 +1012,9 @@ describe("AccountPage", () => {
           <AccountPage section="security" />
         </ThemeProvider>,
       )
-      await screen.findByRole("heading", { name: "Morsel account" })
+      await screen.findByRole("heading", {
+        name: operation === "setup" ? "Set up account" : "Sign in",
+      })
       await act(async () => {
         complete?.(credential as never)
       })

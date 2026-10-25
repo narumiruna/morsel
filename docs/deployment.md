@@ -55,7 +55,7 @@ For Compose, use the same environment, image, project, and database as the targe
 docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind setup
 ```
 
-1. Open `/account` at the configured browser origin. For production, use <https://morsel.narumi.dev/account>.
+1. Open `/setup` at the configured browser origin. For production, use <https://morsel.narumi.dev/setup>. The setup form is available only before account setup is complete.
 2. Enter the token in the setup form within one hour and complete passkey registration. The WebAuthn flow expires after 10 minutes; the browser can end its prompt sooner. The token is single-use; only the first owner can register. Invitations and additional accounts are not implemented.
 3. Add a backup passkey. Removal of the last passkey is rejected.
 4. Create named API keys and save each raw value in the appropriate client secret store when shown. It is shown only once; only its SHA-256 hash and metadata are stored.
@@ -68,7 +68,7 @@ If all passkeys are lost or compromised, an authorized operator can issue a reco
 docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind recover
 ```
 
-Enter the single-use token in the recovery form at `/account` within one hour and enroll a replacement passkey. Recovery completion replaces old credentials, advances the account authentication generation, and invalidates old sessions, pending authentication flows, verification grants, and recovery grants. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
+Enter the single-use token in the recovery form at `/recover` within one hour and enroll a replacement passkey. Recovery completion replaces old credentials, advances the account authentication generation, and invalidates old sessions, pending authentication flows, verification grants, and recovery grants. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
 
 Sessions expire 30 days after login, without sliding renewal. Their persistent cookies survive browser restarts; logout and account recovery still revoke sessions immediately. Key creation, key revocation, share revocation, and passkey changes reuse passkey verification for 12 hours, then require verification again. The UI checks the current server session before each change. Production session cookies remain `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
 
@@ -78,7 +78,7 @@ Authentication POST requests have a fixed limit of 60 attempts per source addres
 
 ### Rotate or revoke client keys
 
-1. Sign in at `/account`, complete fresh passkey verification, and create a named replacement key.
+1. Open `/manage/api-keys`. If signed out, sign in at the redirected `/login` page. Complete fresh passkey verification and create a named replacement key.
 2. Save its one-time value in the client secret store and update all affected clients. Existing clients and scripts can retain the variable name `MORSEL_API_KEY`.
 3. Verify share creation and revocation with the replacement, then revoke the old key in the UI. No server restart is needed.
 
@@ -91,7 +91,7 @@ HTTPS and reverse-proxy provisioning are already in place and are not changed he
 The reverse proxy must:
 
 - Preserve the browser `Origin` header unchanged and preserve `X-Request-ID` response headers.
-- Never cache `/v1/*` (including authentication and management), `/manage/*`, `/account`, `/account/*`, or `/s/*`; honor `Cache-Control: no-store`.
+- Never cache `/v1/*` (including authentication and management), `/manage/*`, `/account`, `/account/*`, `/login`, `/recover`, `/setup`, or `/s/*`; honor `Cache-Control: no-store`.
 - Exclude authorization headers, cookies, setup/recovery tokens, WebAuthn payloads, raw keys, request bodies, and raw `/s/<token>` paths from logs. Do not enable shell tracing around secret operations.
 - Not replace the configured WebAuthn origin with forwarded request headers. Do not assume arbitrary forwarded client IP headers are trusted.
 
@@ -135,7 +135,7 @@ Generated local fixtures measured list/count queries at approximately 4–9 ms a
 
 - Deployment operator:
   - Prerequisite: required checks pass; backup, restore, write window, and rollback procedures are confirmed on a restored database.
-  - Action: perform the label migration/backfill and API/viewer cutover above; verify direct navigation and refresh for `/manage/shares`, `/manage/api-keys`, `/account`, and `/example`.
+  - Action: perform the label migration/backfill and API/viewer cutover above; verify direct navigation and refresh for `/manage/shares`, `/manage/api-keys`, `/account`, `/login`, `/recover`, `/setup`, and `/example`.
   - Expected result: global title search includes legacy shares and existing public URLs retain their behavior.
   - Unverified behavior: production-scale parsing, lock duration, older-writer coordination, and release integration. Do not deploy this data change until backup, recovery, and write-impact procedures are confirmed. Local validation authorizes no production writes.
 - Product owner:

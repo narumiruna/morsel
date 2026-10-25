@@ -37,7 +37,7 @@ go run ./cmd/server
 
 Generate the share link key once with `openssl rand -hex 32` and save it outside the repository. Reuse the same key on each start; do not generate it in a startup script.
 
-In another terminal, start Vite with the command above. Open only <http://localhost:5173/account>. The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The existing Vite `/v1` proxy still targets `http://127.0.0.1:12647`; relative API paths keep cookies and Origin checks at the browser origin. CORS stays disabled.
+In another terminal, start Vite with the command above. Open <http://localhost:5173/login> (or `/setup` for initial account setup). The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The existing Vite `/v1` proxy still targets `http://127.0.0.1:12647`; relative API paths keep cookies and Origin checks at the browser origin. CORS stays disabled.
 
 With the same local database variable set, generate a setup token:
 
@@ -46,7 +46,7 @@ cd api
 go run ./cmd/account -kind setup
 ```
 
-The command needs only `MORSEL_DATABASE_URL`. Enter the token in the setup form, not a URL, within one hour. Enroll the first passkey and a backup, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For lost credentials, use `go run ./cmd/account -kind recover` and the recovery form; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
+The command needs only `MORSEL_DATABASE_URL`. Enter the token in the form at `/setup`, not a URL, within one hour. Enroll the first passkey and a backup, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For lost credentials, use `go run ./cmd/account -kind recover` and the form at `/recover`; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
 
 ## Authentication browser tests
 
@@ -114,6 +114,7 @@ The focused component tests cover URL validation, exact-one public reads after s
 - Light, dark, Sepia, Sage, Midnight, and system palette checks on homepage and share management.
 - Browser axe WCAG A/AA checks, native form-boundary contrast of at least 3:1, and visible keyboard focus rings of at least 3:1.
 - Bounded preview dialogs with keyboard focus containment, list-position restoration, and Escape handling for nested expanded charts.
+- Dedicated login, setup, and recovery routes; safe return destinations; loading, retry, session expiry, and history navigation.
 - Key-creation focus, passkey confirmation/cancellation, list-only retries, retained share controls across section/history navigation, and native history warnings for undismissed keys.
 - Fixture screenshots under ignored `packages/viewer/test-results/task-ui-*/`: list/home captures, `manage-preview-<width>.png`, and `manage-api-key-mobile.png`. No production content or real keys are used.
 

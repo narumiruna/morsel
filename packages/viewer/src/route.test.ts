@@ -5,6 +5,16 @@ const token = "A".repeat(43)
 const gist = "7dbaf8170c7292354678069a9acb061f"
 
 describe("parseRoute", () => {
+  it.each(["login", "recover", "setup"])(
+    "matches only the explicit %s authentication route",
+    (mode) => {
+      expect(parseRoute(`/${mode}`, "")).toEqual({ kind: "authentication", mode })
+      expect(parseRoute(`/${mode}/`, "")).toEqual({ kind: "not-found" })
+      expect(parseRoute(`/${mode}/unknown`, "")).toEqual({ kind: "not-found" })
+      expect(parseRoute("/", `#/${mode}`)).toEqual({ kind: "not-found" })
+    },
+  )
+
   it("matches only the explicit account route", () => {
     expect(parseRoute("/account", "")).toEqual({ kind: "account" })
     expect(parseRoute("/account", "#ignored")).toEqual({ kind: "account" })

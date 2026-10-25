@@ -109,7 +109,12 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock)
     renderApp()
     expect(screen.getByLabelText("Loading account")).toBeInTheDocument()
-    expect(await screen.findByRole("heading", { name: "Morsel account" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/login")
+    expect(new URLSearchParams(window.location.search).get("next")).toBe("/account")
+    expect(
+      screen.queryByRole("navigation", { name: "Management sections" }),
+    ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Sign in with passkey" })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
       "/v1/account",
@@ -357,8 +362,8 @@ describe("App", () => {
     const user = userEvent.setup()
     await user.click(await screen.findByRole("button", { name: "Sign in with passkey" }))
     await waitFor(() => expect(startAuthentication).toHaveBeenCalledOnce())
-    await user.click(screen.getByRole("link", { name: "Security" }))
-    await screen.findByRole("heading", { name: "Morsel account" })
+    await user.click(screen.getByRole("link", { name: "Recover account" }))
+    await screen.findByRole("heading", { name: "Recover account" })
     expect(WebAuthnAbortService.cancelCeremony).toHaveBeenCalledOnce()
     await act(async () => {
       complete?.({ id: "late" } as never)

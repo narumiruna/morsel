@@ -78,6 +78,7 @@ async function login(page: Page, destination = "/account") {
   await page.getByRole("button", { name: "Sign in with passkey", exact: true }).click()
   expect((await completion).status()).toBe(200)
   await expectSignedIn(page)
+  await expect(page).toHaveURL(new URL(destination, page.url()).href)
   expect((await account(page)).authenticated).toBe(true)
 }
 
@@ -160,10 +161,14 @@ test("required real-backend account and API key lifecycle", async ({
     expect(token.length >= 32).toBe(true)
     await page.goto("/account")
     expect((await account(page)).setup_required).toBe(true)
+    await expect(page).toHaveURL(/\/setup\?next=%2Faccount$/)
+    await page.reload()
+    await expect(page.getByRole("navigation", { name: "Management sections" })).toHaveCount(0)
     await page.getByLabel("Setup token", { exact: true }).fill(token)
     await page.getByLabel("Passkey name", { exact: true }).fill("Primary browser passkey")
     await page.getByRole("button", { name: "Set up account", exact: true }).click()
     await expectSignedIn(page)
+    await expect(page).toHaveURL(/\/account$/)
     const state = await account(page)
     expect(state.authenticated).toBe(true)
     expect(state.setup_required).toBe(false)
@@ -529,6 +534,22 @@ test("required real-backend account and API key lifecycle", async ({
     await login(page)
   })
 
+  await test.step("all protected destinations return through dedicated login", async () => {
+    for (const destination of ["/manage/shares", "/manage/api-keys", "/account"]) {
+      await logOut(page)
+      await expect(page).toHaveURL(/\/login$/)
+      await page.goto(destination)
+      await expect(page).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(destination)}$`))
+      await expect(page.getByRole("navigation", { name: "Management sections" })).toHaveCount(0)
+      await page.reload()
+      await page.getByRole("button", { name: "Sign in with passkey", exact: true }).click()
+      await expectSignedIn(page)
+      await expect(page).toHaveURL(new URL(destination, baseURL).href)
+      await page.reload()
+      await expectSignedIn(page)
+    }
+  })
+
   await test.step("cancelled browser authentication does not create an API key", async () => {
     await openSection(page, "API keys")
     await command(helper, ["expire-verification"])
@@ -555,12 +576,17 @@ test("required real-backend account and API key lifecycle", async ({
       await replacementCDP.send("WebAuthn.enable")
       await authenticator(replacementCDP)
       await replacementPage.goto(`${baseURL}/account`)
+      await expect(replacementPage).toHaveURL(/\/login\?next=%2Faccount$/)
+      await replacementPage.getByRole("link", { name: "Recover account", exact: true }).click()
+      await expect(replacementPage).toHaveURL(/\/recover\?next=%2Faccount$/)
+      await replacementPage.reload()
       await replacementPage.getByLabel("Recovery token", { exact: true }).fill(token)
       await replacementPage
         .getByLabel("Replacement passkey name", { exact: true })
         .fill("Replacement passkey")
       await replacementPage.getByRole("button", { name: "Recover account", exact: true }).click()
       await expectSignedIn(replacementPage)
+      await expect(replacementPage).toHaveURL(/\/account$/)
       expect((await account(page)).authenticated).toBe(false)
       const remaining = await replacementPage.request.get("/v1/passkeys")
       const passkeys = await remaining.json()

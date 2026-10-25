@@ -2,6 +2,25 @@ import { useEffect, useState } from "react"
 import { parseRoute } from "./route"
 
 const beforeNavigate = "morsel:before-navigate"
+const navigationEvent = "morsel:navigate"
+
+export function navigate(path: string, options: { replace?: boolean; force?: boolean } = {}) {
+  window.dispatchEvent(new CustomEvent(navigationEvent, { detail: { path, ...options } }))
+}
+
+export function loginDestination(search: string): string {
+  const values = new URLSearchParams(search).getAll("next")
+  return values.length === 1 &&
+    values[0] !== undefined &&
+    ["/manage/shares", "/manage/api-keys", "/account"].includes(values[0])
+    ? values[0]
+    : "/manage/shares"
+}
+
+export function authenticationURL(mode: "login" | "recover" | "setup", next: string) {
+  const destination = loginDestination(`?next=${encodeURIComponent(next)}`)
+  return `/${mode}?next=${encodeURIComponent(destination)}`
+}
 
 function isDocumentAnchor(url: URL, current: URL) {
   if (
@@ -23,6 +42,7 @@ function canNavigate() {
 export function useAppLocation() {
   const [location, setLocation] = useState(() => ({
     pathname: window.location.pathname,
+    search: window.location.search,
     hash: window.location.hash,
   }))
   useEffect(() => {
@@ -34,7 +54,11 @@ export function useAppLocation() {
     window.history.replaceState({ ...window.history.state, morselIndex: index }, "")
     const update = () => {
       currentURL = window.location.href
-      setLocation({ pathname: window.location.pathname, hash: window.location.hash })
+      setLocation({
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+      })
     }
     const pop = () => {
       if (restoring) {
@@ -108,13 +132,32 @@ export function useAppLocation() {
       window.history.pushState({ morselIndex: index }, "", url)
       update()
     }
+    const navigateTo = (event: Event) => {
+      const { path, replace, force } = (
+        event as CustomEvent<{
+          path: string
+          replace?: boolean
+          force?: boolean
+        }>
+      ).detail
+      const url = new URL(path, window.location.origin)
+      if (url.origin !== window.location.origin || (!force && !canNavigate())) return
+      if (replace) window.history.replaceState({ morselIndex: index }, "", url)
+      else {
+        index += 1
+        window.history.pushState({ morselIndex: index }, "", url)
+      }
+      update()
+    }
     const hash = () => {
       if (!restoring) pop()
     }
+    window.addEventListener(navigationEvent, navigateTo)
     document.addEventListener("click", click)
     window.addEventListener("popstate", pop)
     window.addEventListener("hashchange", hash)
     return () => {
+      window.removeEventListener(navigationEvent, navigateTo)
       document.removeEventListener("click", click)
       window.removeEventListener("popstate", pop)
       window.removeEventListener("hashchange", hash)

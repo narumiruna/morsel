@@ -1,5 +1,6 @@
 export type Route =
   | { kind: "home" }
+  | { kind: "authentication"; mode: "login" | "recover" | "setup" }
   | { kind: "account" }
   | { kind: "management"; section: "shares" | "api-keys" }
   | { kind: "example" }
@@ -13,6 +14,8 @@ const tokenPattern = /^[A-Za-z0-9_-]{43}$/
 const gistPattern = /^[0-9A-Fa-f]{1,64}$/
 
 export function parseRoute(pathname: string, hash: string): Route {
+  if (pathname === "/login" || pathname === "/recover" || pathname === "/setup")
+    return { kind: "authentication", mode: pathname.slice(1) as "login" | "recover" | "setup" }
   if (pathname === "/account") return { kind: "account" }
   if (pathname === "/manage/shares") return { kind: "management", section: "shares" }
   if (pathname === "/manage/api-keys") return { kind: "management", section: "api-keys" }
