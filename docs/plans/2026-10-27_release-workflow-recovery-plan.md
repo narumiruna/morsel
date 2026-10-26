@@ -30,7 +30,7 @@ Implement only after authorization, on a new branch from current `main`, named `
 - [x] Add `push-with-git-cli: true` to the Changesets action step in `.github/workflows/release.yml`. The workflow contract test verifies the input; the custom version command, disabled built-in publisher/tag/release behavior, and job permissions are unchanged.
 - [x] Add regression tests in `scripts/test-release.mjs`. Reproduced four expected failures before the fix: stale roots with published/unreleased tags, invalid stable-root recovery, and the missing Git CLI workflow input. After the fix, all 32 release tests pass, including equal-baseline `0.1.0` to root-only `0.1.1`, unchanged workspace metadata, recovery, and no-op cases.
 - [x] Run local verification. `npm ci --no-audit --no-fund`, `npm run ci`, all 32 release tests on Node.js 24.15.0 and 26.10.0, checksum-verified Actionlint 1.7.7 for release/CI workflows, and `git diff --check` pass. Viewer browser checks pass 83 tests; only the production-only scenario is excluded. Strict metadata comparison confirms only the three root version fields changed, with unchanged workspace manifests, dependency entries, pending changeset, private-package policy, container/deployment workflows, and permissions. Publication tests use disposable fixtures and stubbed commands.
-- [ ] Open a new fix PR with the confirmed baseline defect, the unconfirmed API failure, local test evidence, and the live verification requirement. Acceptance: the PR contains only intended paths and does not claim that mocked API tests prove real PR creation.
+- [x] Open a new fix PR with the confirmed baseline defect, the unconfirmed API failure, local test evidence, and the live verification requirement. [PR #131](https://github.com/narumiruna/morsel/pull/131) targets `main` from `narumi/fix/release-version-pr`; implementation commit `20eff9f` contains only intended paths. The PR explicitly states that mocked API checks do not prove real Actions PR authentication.
 - [ ] Blocked: after the fix PR is merged, inspect the new main-triggered Publish run. Acceptance remains unchanged: Git CLI commit/push succeeds and a real root-only version PR proposes `0.1.1`, with no workspace version changes or new release tag. The current authorization requires PR delivery and prohibits release dispatch; no PR is merged or release workflow started during this execution. If the new run fails, obtain its debug logs after authorization. Do not rerun the old run to validate new configuration.
 
 ## Rollback / Recovery
@@ -47,11 +47,13 @@ Implement only after authorization, on a new branch from current `main`, named `
 - [x] Root version and lockfile metadata match the verified published baseline `0.1.0`.
 - [x] Stale root versions cannot pass through pending-changeset or recovery paths into version PR preparation; regression tests cover both paths.
 - [x] Regression tests, npm CI, supported Node checks, Actionlint, and diff checks pass; independent diff review found no material issue.
-- [ ] A new fix PR clearly separates confirmed defects from the unconfirmed API failure.
+- [x] [Fix PR #131](https://github.com/narumiruna/morsel/pull/131) separates the confirmed version-baseline defect from the unconfirmed API failure and records the required post-merge verification.
 - [ ] Blocked until merge: a new main workflow run creates the correct real version PR. Mocked API results are not used as evidence for this check.
 - [x] Workspace versions, published tags/releases, and the manual deployment boundary are preserved. No release, publication, real version tag creation, workflow dispatch, or deployment was performed.
 
 ## Additional Verification Evidence
+
+- Viewer production audit reports zero vulnerabilities. The client package dry run passes without creating or publishing a tarball.
 
 - Verified the exact shipped `changesets/action` revision `ae32849d5ba541f9ae29e40e22a623bc13562f51` in two isolated fixtures under Node.js 24.15.0. All 11 shipped bundle files matched upstream Git blob hashes and were unchanged.
 - Real Git CLI commits and pushes to local bare fixture repositories passed for a fresh managed branch and a stale `0.0.2` managed branch. Both produced only root version `0.1.1`, root changelog/lockfile changes, and changeset removal. Workspace versions remained `0.1.0`; no Git tags were created.
