@@ -27,12 +27,23 @@ export async function publishRepository(root = repositoryRoot, env = process.env
   const tags = run("git", ["tag", "--list", "v*", "--sort=-version:refname"])
     .split("\n")
     .filter((tag) => tag.startsWith("v") && isStableVersion(tag.slice(1)))
+  const latestTag = tags[0]
+  const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
+  if (!isStableVersion(version)) {
+    throw new Error("The repository version must be a stable semantic version.")
+  }
+  const tag = `v${version}`
+  if (latestTag && semver.lt(version, latestTag.slice(1))) {
+    throw new Error(
+      `Repository version ${tag} is older than ${latestTag}; update the root version first.`,
+    )
+  }
+
   const releasedTags = new Set(
     run("gh", ["api", "--paginate", "repos/{owner}/{repo}/releases", "--jq", ".[].tag_name"])
       .split("\n")
       .filter(Boolean),
   )
-  const latestTag = tags[0]
 
   // Recover the immutable tag before considering newer changesets on main.
   if (latestTag && !releasedTags.has(latestTag)) {
@@ -47,14 +58,6 @@ export async function publishRepository(root = repositoryRoot, env = process.env
   const plan = JSON.parse(await runChangeset(["status"], root))
   if (plan.changesets.length > 0) return null
 
-  const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
-  if (!isStableVersion(version)) {
-    throw new Error("The repository version must be a stable semantic version.")
-  }
-  const tag = `v${version}`
-  if (latestTag && semver.lt(version, latestTag.slice(1))) {
-    throw new Error(`Version ${tag} must be newer than ${latestTag}.`)
-  }
   if (releasedTags.has(tag)) return null
 
   const changelog = await readFile(join(root, "CHANGELOG.md"), "utf8")

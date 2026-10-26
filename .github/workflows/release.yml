@@ -44,6 +44,7 @@ jobs:
         uses: changesets/action@v2
         with:
           version-script: npm run release:version
+          push-with-git-cli: true
           commit-message: "chore(release): version repository"
           pr-title: "chore(release): version repository"
           create-github-releases: false

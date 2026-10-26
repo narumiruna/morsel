@@ -317,6 +317,77 @@ test("pending changesets are left for the action's version PR", async (t) => {
   assert.equal((await json(join(root, "package.json"))).version, "0.0.1")
 })
 
+for (const released of [true, false]) {
+  test(`an outdated root with pending changesets cannot bypass ${released ? "published" : "unreleased"} tags`, async (t) => {
+    const root = await fixture(t, "0.0.1")
+    await add(root, "patch")
+    const before = git(root, "status", "--porcelain")
+    const command = await publication(t, root, {
+      tags: ["v0.1.0"],
+      releasedTags: released ? ["v0.1.0"] : [],
+    })
+    await assert.rejects(command.run(), /older than v0\.1\.0/)
+    assert.deepEqual(await command.writes(), [])
+    assert.equal(
+      (await command.calls()).some(([command]) => command === "gh"),
+      false,
+    )
+    assert.equal(git(root, "status", "--porcelain"), before)
+    assert.equal((await json(join(root, "package.json"))).version, "0.0.1")
+  })
+}
+
+test("an invalid stable root with pending changesets cannot bypass recovery", async (t) => {
+  const root = await fixture(t, "0.1.1-beta.1")
+  await add(root, "patch")
+  const before = git(root, "status", "--porcelain")
+  const command = await publication(t, root, { tags: ["v0.1.0"], releasedTags: [] })
+  await assert.rejects(command.run(), /stable semantic version/)
+  assert.deepEqual(await command.writes(), [])
+  assert.equal(
+    (await command.calls()).some(([command]) => command === "gh"),
+    false,
+  )
+  assert.equal(git(root, "status", "--porcelain"), before)
+})
+
+test("an equal baseline permits only a root patch version PR", async (t) => {
+  const root = await fixture(t, "0.1.0")
+  await add(root, "patch")
+  git(root, "add", "--", ".changeset")
+  git(root, "commit", "--quiet", "-m", "test: add patch to published baseline")
+  const head = git(root, "rev-parse", "HEAD")
+  const lockfile = await json(join(root, "package-lock.json"))
+  const workspaces = await Promise.all(
+    workspaceNames.map((workspace) =>
+      readFile(join(root, `packages/${workspace}/package.json`), "utf8"),
+    ),
+  )
+  const command = await publication(t, root, { tags: ["v0.1.0"], releasedTags: ["v0.1.0"] })
+  assert.equal(await command.run(), null)
+  const plan = JSON.parse(await runChangeset(["status"], root))
+  assert.equal(plan.releases.length, 1)
+  assert.equal(plan.releases[0].name, name)
+  assert.equal(plan.releases[0].oldVersion, "0.1.0")
+  assert.equal(plan.releases[0].newVersion, "0.1.1")
+  assert.equal(await runChangeset(["version"], root), "Versioned repository: v0.1.1")
+  assert.equal((await json(join(root, "package.json"))).version, "0.1.1")
+  lockfile.version = "0.1.1"
+  lockfile.packages[""].version = "0.1.1"
+  assert.deepEqual(await json(join(root, "package-lock.json")), lockfile)
+  for (const [index, workspace] of workspaceNames.entries()) {
+    assert.equal(
+      await readFile(join(root, `packages/${workspace}/package.json`), "utf8"),
+      workspaces[index],
+    )
+    assert.deepEqual(await readdir(join(root, `packages/${workspace}`)), ["package.json"])
+  }
+  assert.deepEqual((await readdir(join(root, ".changeset"))).sort(), ["README.md", "config.json"])
+  assert.deepEqual(await command.writes(), [])
+  assert.equal(git(root, "rev-parse", "HEAD"), head)
+  assert.equal(git(root, "tag", "--list"), "")
+})
+
 test("a retry recovers an unreleased tag before processing newer changesets", async (t) => {
   const root = await fixture(t, "0.0.3")
   await add(root, "minor")
@@ -348,7 +419,7 @@ test("recovery still permits a root-only version PR for pending changesets", asy
 })
 
 for (const [description, version, state, expected] of [
-  ["older version", "0.0.1", { tags: ["v0.0.2"], releasedTags: ["v0.0.2"] }, /must be newer/],
+  ["older version", "0.0.1", { tags: ["v0.0.2"], releasedTags: ["v0.0.2"] }, /older than/],
   ["prerelease", "0.0.2-beta.1", {}, /stable semantic version/],
   ["foreign unreleased tag", "0.0.2", { tags: ["v0.0.2"], foreignTag: true }, /is not on main/],
   ["GitHub API failure", "0.0.2", { apiFailure: true }, /GitHub API failed/],
@@ -431,6 +502,7 @@ test("workflow uses the action only for root version PRs and keeps manual deploy
   assert.ok(workflow.includes("pull-requests: write"))
   assert.ok(workflow.includes("uses: changesets/action@v2"))
   assert.ok(workflow.includes("version-script: npm run release:version"))
+  assert.ok(workflow.includes("push-with-git-cli: true"))
   assert.ok(workflow.includes("create-github-releases: false"))
   assert.ok(workflow.includes("push-git-tags: false"))
   assert.match(workflow, /name: Prepare version PR\n\s+uses: changesets\/action@v2/)

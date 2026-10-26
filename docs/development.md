@@ -187,7 +187,7 @@ For backend query/backfill measurements, run `go test -v ./internal/share -run '
 
 ## Releases
 
-Morsel has one repository version in the root `package.json`. The initial value, `0.0.1`, matches the existing `v0.0.1` Git tag. Server, viewer, and client changes all use this release target. Workspace package versions are not updated or published by this process.
+Morsel has one repository version in the root `package.json`. The root version must not be older than the latest stable `vX.Y.Z` Git tag, even with pending changesets or an unreleased tag to recover. If the baseline is behind, update only the root version and the two root lockfile version fields. Do this before preparing a version PR. Do not move published tags. Server, viewer, and client changes all use this release target. Workspace package versions are not updated or published by this process.
 
 Add a changeset with the change:
 
@@ -201,6 +201,7 @@ Use `minor` for a feature or `major` for a breaking change. Each generated `.cha
 The **Publish** workflow runs on pushes to `main` and through manual dispatch:
 
 1. With pending changesets, `changesets/action@v2` creates or updates a version pull request using `npm run release:version`.
+   - The action uses Git CLI to commit and push its version branch. PR creation still uses the GitHub API and requires the existing PR permissions.
    - The command uses the highest pending bump, updates the root version, root lockfile version metadata, and root `CHANGELOG.md`, and removes the consumed changesets.
    - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
 2. After the version pull request is merged and no changesets remain, `npm run release` creates and pushes one `vX.Y.Z` tag from the checked-out `main` commit.
