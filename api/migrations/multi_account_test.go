@@ -36,7 +36,7 @@ func TestMultiAccountUpgradePreconditionsAreRetryable(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			err := migrations.Run(ctx, pool, migrations.Up, 0)
+			err := migrations.Run(ctx, pool, migrations.Up, 1)
 			if scenario.rejected {
 				if err == nil {
 					t.Fatal("unsafe ownership upgrade succeeded")
@@ -45,7 +45,7 @@ func TestMultiAccountUpgradePreconditionsAreRetryable(t *testing.T) {
 				assertColumnCount(t, pool, "account_id", 0)
 				if scenario.accounts == 0 {
 					testdb.Account(t, pool)
-					if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+					if err := migrations.Run(ctx, pool, migrations.Up, 1); err != nil {
 						t.Fatalf("retry after owner setup: %v", err)
 					}
 					assertMigrationState(t, pool, 11)
@@ -102,7 +102,7 @@ func TestMultiAccountUpgradePreservesLegacyDataAndAuthentication(t *testing.T) {
 	for table, exclude := range map[string]string{"shares": "account_id", "accounts": "display_name", "passkey_credentials": "registered_order", "api_keys": "", "auth_sessions": "", "auth_grants": ""} {
 		before[table] = snapshot(table, exclude)
 	}
-	if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Up, 1); err != nil {
 		t.Fatal(err)
 	}
 	for table, exclude := range map[string]string{"shares": "account_id", "accounts": "display_name", "passkey_credentials": "registered_order", "api_keys": "", "auth_sessions": "", "auth_grants": ""} {
@@ -125,7 +125,7 @@ func TestMultiAccountUpgradePreservesLegacyDataAndAuthentication(t *testing.T) {
 }
 
 func TestMultiAccountDowngradeRejectsUnsafeStateWithoutDirtying(t *testing.T) {
-	pool := testdb.Open(t)
+	pool := testdb.OpenVersion(t, 11)
 	ctx := t.Context()
 	a := testdb.Account(t, pool)
 	b := testdb.Account(t, pool)

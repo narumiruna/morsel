@@ -12,6 +12,7 @@ export type Account = {
   authenticated: boolean
   account_id?: string
   display_name?: string
+  role?: "admin" | "user"
   csrf_token?: string
   verification_required?: boolean
 }

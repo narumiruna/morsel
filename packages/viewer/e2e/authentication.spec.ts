@@ -45,7 +45,12 @@ async function mockAccount(page: Page, state = { authenticated: false, setup_req
   }
 }
 
-for (const destination of ["/manage/shares", "/manage/api-keys", "/account"]) {
+for (const destination of [
+  "/manage/shares",
+  "/manage/api-keys",
+  "/manage/invitations",
+  "/account",
+]) {
   test(`signed-out ${destination} uses dedicated login and preserves history and destination`, async ({
     page,
   }) => {
@@ -102,7 +107,7 @@ test("account failures show retry rather than login and recover without losing t
 
 test("authenticated authentication routes honor only safe destinations", async ({ page }) => {
   await mockAccount(page, { authenticated: true, setup_required: false })
-  for (const mode of ["login", "recover", "setup", "invite"]) {
+  for (const mode of ["login", "recover", "setup"]) {
     await page.goto(`/${mode}?next=%2Faccount`)
     await expect(page).toHaveURL(/\/account$/)
     await expect(page.getByRole("heading", { name: "Passkeys", exact: true })).toBeVisible()

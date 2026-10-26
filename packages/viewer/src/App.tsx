@@ -1,7 +1,8 @@
 import * as Tooltip from "@radix-ui/react-tooltip"
-import type { ReactNode } from "react"
+import { type ReactNode, useRef } from "react"
 import { AccountSession } from "./account/AccountSession"
 import { AppHeader } from "./components/AppHeader"
+import { createInvitationIntake } from "./invitationIntake"
 import { useAppLocation } from "./navigation"
 import { AccountPage } from "./pages/AccountPage"
 import { AuthPage } from "./pages/AuthPage"
@@ -12,7 +13,9 @@ import { ErrorPage, HomePage } from "./pages/StatusPage"
 import { parseRoute } from "./route"
 
 export function App() {
-  const location = useAppLocation()
+  const invitation = useRef<ReturnType<typeof createInvitationIntake> | null>(null)
+  if (!invitation.current) invitation.current = createInvitationIntake()
+  const location = useAppLocation(invitation.current.capture, invitation.current.clear)
   const route = parseRoute(location.pathname, location.hash)
 
   let page: ReactNode
@@ -23,7 +26,8 @@ export function App() {
     case "authentication":
       page = (
         <AuthPage
-          key={`${route.mode}:${location.search}`}
+          key={`${route.mode}:${location.search}:${location.invitationRevision}`}
+          invitation={route.mode === "invite" ? invitation.current : undefined}
           mode={route.mode}
           search={location.search}
         />
@@ -57,7 +61,11 @@ export function App() {
       {route.kind === "account" ||
       route.kind === "management" ||
       route.kind === "authentication" ? (
-        <AccountSession pathname={location.pathname} search={location.search}>
+        <AccountSession
+          pathname={location.pathname}
+          search={location.search}
+          onAccountChange={invitation.current.clear}
+        >
           {page}
         </AccountSession>
       ) : (

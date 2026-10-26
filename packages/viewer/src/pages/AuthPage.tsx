@@ -1,5 +1,5 @@
 import { Button, Card, Heading, Text } from "@radix-ui/themes"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useAccountSession } from "../account/AccountSession"
 import {
   AccountError,
@@ -8,17 +8,26 @@ import {
   supportsPasskeys,
 } from "../account/accountApi"
 import { AppHeader } from "../components/AppHeader"
+import type { InvitationIntake } from "../invitationIntake"
 import { authenticationURL, loginDestination } from "../navigation"
 
 export function AuthPage({
   mode,
   search,
+  invitation,
 }: {
   mode: "login" | "recover" | "setup" | "invite"
   search: string
+  invitation?: InvitationIntake
 }) {
   const session = useAccountSession()
-  const [token, setToken] = useState("")
+  const [token, setToken] = useState(() =>
+    mode === "invite" && !session.account.authenticated ? (invitation?.peek() ?? "") : "",
+  )
+  useLayoutEffect(() => {
+    // Both StrictMode initializers read the same handoff before commit clears it.
+    invitation?.clear()
+  }, [invitation])
   const [name, setName] = useState("")
   const [displayName, setDisplayName] = useState("")
   const [busy, setBusy] = useState(false)
@@ -41,7 +50,8 @@ export function AuthPage({
   }, [])
 
   const submit = async () => {
-    if (request.current || !supported) return
+    if (request.current || !supported || (mode === "invite" && session.account.authenticated))
+      return
     const controller = new AbortController()
     request.current = controller
     const { signal } = controller
@@ -64,7 +74,7 @@ export function AuthPage({
           ? "Account recovered. Review your API keys and revoke any compromised keys."
           : "Signed in.",
       )
-      await session.refresh(signal)
+      await session.refresh(signal, next)
     } catch (failure) {
       if (signal.aborted) return
       setError(accountErrorMessage(failure))
@@ -107,7 +117,12 @@ export function AuthPage({
             </Text>
           )}
           <Card>
-            {mode === "login" ? (
+            {mode === "invite" && session.account.authenticated ? (
+              <Text as="p">
+                You are signed in. Log out from Manage, or use a private window, then reopen the
+                original invitation link. The invitation was not saved. No account was created.
+              </Text>
+            ) : mode === "login" ? (
               <>
                 <Button disabled={busy || !supported} onClick={() => void submit()}>
                   Sign in with passkey

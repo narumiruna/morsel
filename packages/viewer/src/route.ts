@@ -2,7 +2,7 @@ export type Route =
   | { kind: "home" }
   | { kind: "authentication"; mode: "login" | "recover" | "setup" | "invite" }
   | { kind: "account" }
-  | { kind: "management"; section: "shares" | "api-keys" }
+  | { kind: "management"; section: "shares" | "api-keys" | "invitations" }
   | { kind: "example" }
   | { kind: "share"; token: string }
   | { kind: "gist"; id: string }
@@ -22,6 +22,7 @@ export function parseRoute(pathname: string, hash: string): Route {
   if (pathname === "/account") return { kind: "account" }
   if (pathname === "/manage/shares") return { kind: "management", section: "shares" }
   if (pathname === "/manage/api-keys") return { kind: "management", section: "api-keys" }
+  if (pathname === "/manage/invitations") return { kind: "management", section: "invitations" }
   if (pathname === "/example") return { kind: "example" }
   if (pathname.startsWith("/s/")) {
     const token = pathname.slice(3)
