@@ -4,8 +4,11 @@ info:
   version: 1.0.0
   description: |
     API for account-owned Markdown shares and public capability reads.
-    Setup creates the first ordinary account; later accounts require one-use operator
-    invitations. There is no global administrator or public account enumeration.
+    Setup creates an admin; migration 12 promotes the oldest existing account by
+    created_at, id and assigns user to the rest. All invitations create users.
+    Admins can issue browser invitation links; operators can still issue raw tokens.
+    Roles never grant access to another account's shares. There is no public account
+    enumeration, role selection/editing, or admin invitation.
     Bearer writes use the validated key's account; session management uses the
     authenticated account. Request bodies, queries, and headers cannot select an owner.
     All active keys in one account have the same share permissions.
@@ -371,6 +374,106 @@ paths:
           $ref: "#/components/responses/AccountError"
         "503":
           $ref: "#/components/responses/AccountError"
+  /v1/account/invitations:
+    post:
+      operationId: createAccountInvitation
+      summary: Create a one-use invitation link as an admin browser
+      description: |
+        Manual handler, excluded from generated share operations. Requires a browser
+        session, exact configured Origin, valid CSRF, passkey verification within
+        twelve hours, and the current database role admin. Authorization, role check,
+        and grant insertion occur in one transaction. API keys alone, including
+        admin-owned keys, cannot authorize this operation. All query parameters are
+        rejected. The body must be exactly an empty JSON object; unknown fields,
+        role/owner selectors, null, and trailing JSON are rejected.
+        Returns the secret link once, derived only from the configured origin as
+        /invite#token=<43-character base64url token>, never from Host or forwarded
+        headers. Only the grant hash is stored. The database sets the one-hour
+        expiry. Grants are independent and usable once; logout or recovery of the
+        issuer does not revoke them. No listing or revocation is available.
+        Admins manually share this forwardable bearer link; no SMTP, email binding,
+        or person verification is provided. Opening /invite or fetching a preview
+        does not consume a grant. Registration requires explicit passkey submission.
+        Never log or persist the link in browser storage. Do not automatically
+        replay failed or uncertain requests; an explicit retry creates a new grant.
+        Existing request-size limits and a fixed invitation-issuance limiter apply.
+        Rate-limited attempts insert no grant and return Retry-After.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: X-CSRF-Token
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Origin
+          in: header
+          required: true
+          description: Exact configured application origin.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmptyRequest"
+      responses:
+        "201":
+          description: Independent invitation created; secret link returned once
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedInvitation"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          description: Valid browser session required; API keys alone cannot invite
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountFailure"
+        "403":
+          description: Current database role is not admin, Origin/CSRF is invalid, or fresh verification is required
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountFailure"
+        "429":
+          description: Invitation issuance rate limit exceeded; no grant inserted
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: Seconds before retry is permitted. Retry must be explicit.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountFailure"
+        "503":
+          $ref: "#/components/responses/AccountError"
   /v1/account:
     get:
       operationId: getAccount
@@ -489,7 +592,7 @@ paths:
     post:
       operationId: beginInvite
       summary: Begin invited account registration
-      description: Requires a one-use operator invitation, valid for one hour. Independent invitations do not cancel one another. Account display_name and passkey name are separate. Tokens belong only in the body, never in URLs or logs.
+      description: Requires exact Origin and a one-use admin or operator invitation, valid for one hour. Independent invitations do not cancel one another. Creates only a user; display_name and passkey name are separate and cannot select a role. The viewer can ingest an invitation-only /invite#token=<43-character base64url token> fragment, immediately replace the current history entry with clean /invite, and submit the token only in this POST body. No secret query/path or token-bearing GET endpoint is supported. Setup and recovery tokens remain form-only. A valid signed-in browser session returns 409 sign_out_required without consuming the grant or replacing its session. Expired/invalid cookies may proceed; database errors fail closed. The recipient must log out or use a private window and reopen the original link. Merely opening a link does not consume it.
       security: []
       requestBody:
         required: true
@@ -519,7 +622,8 @@ paths:
   /v1/auth/invite/finish:
     post:
       operationId: finishInvite
-      summary: Complete invitation registration and create an account, first passkey, and session atomically
+      summary: Complete invitation registration and create a user, first passkey, and session atomically
+      description: Rechecks that the browser has no valid signed-in session. A valid session returns 409 sign_out_required without consuming the grant or overwriting the session, including when login occurs after begin. Expired/invalid cookies may proceed; database errors fail closed. Expired, used, invalid, or concurrently redeemed grants cannot create accounts and use the generic invalid_grant failure. A cancelled ceremony does not consume the grant. Clients cannot select a role.
       security: []
       requestBody:
         required: true
@@ -617,7 +721,7 @@ paths:
     post:
       operationId: beginRecover
       summary: Begin recovery for the account bound to the operator grant
-      description: The operator issues recovery with an explicit account UUID. The browser cannot select the account. Replaces only that account's credentials and sessions on completion; API keys and share ownership are preserved. Other accounts are unaffected.
+      description: The operator issues recovery with an explicit account UUID. The browser cannot select the account or role. Replaces only that account's credentials and sessions on completion; API keys, share ownership, and account role are preserved. Other accounts are unaffected.
       security: []
       requestBody:
         required: true
@@ -1070,12 +1174,12 @@ components:
       properties:
         code:
           type: string
-          description: Account-specific error code, such as invalid_origin, invalid_csrf, invalid_flow, invalid_grant, setup_closed, last_passkey, or verification_required.
+          description: Account-specific error code, such as invalid_origin, invalid_csrf, invalid_flow, invalid_grant, sign_out_required, setup_closed, last_passkey, or verification_required. Invitation begin and finish return 409 sign_out_required for a valid signed-in browser session without consuming the grant or overwriting the session.
         message:
           type: string
     AccountState:
       type: object
-      description: account_id, display_name, csrf_token, and verification_required are returned only when authenticated is true. No account enumeration is provided.
+      description: account_id, display_name, role, csrf_token, and verification_required are returned only when authenticated is true. Role is loaded from the database, not client input or session claims; it never grants cross-account share access. No account enumeration is provided.
       required: [setup_required, authenticated]
       properties:
         setup_required:
@@ -1091,12 +1195,48 @@ components:
           minLength: 1
           maxLength: 200
           description: Authenticated account display name, bounded to 200 UTF-8 bytes. Need not be unique and does not authorize requests.
+        role:
+          type: string
+          enum: [admin, user]
+          description: Current database role, returned only when authenticated. Only admin can create browser invitations. Neither role can manage another account's shares.
         csrf_token:
           type: string
           description: Session-bound token, returned only to an authenticated browser.
         verification_required:
           type: boolean
           description: Returned only to an authenticated browser. True when sensitive changes need a new passkey verification; verification remains valid for twelve hours. The server rechecks it on each change.
+      allOf:
+        - if:
+            properties:
+              authenticated:
+                const: true
+            required: [authenticated]
+          then:
+            properties:
+              role:
+                type: string
+                enum: [admin, user]
+            required: [role]
+          else:
+            not:
+              properties:
+                role:
+                  type: string
+              required: [role]
+    CreatedInvitation:
+      type: object
+      additionalProperties: false
+      required: [invitation_url, expires_at]
+      properties:
+        invitation_url:
+          type: string
+          format: uri
+          pattern: "^https?://[^/?#]+/invite#token=[A-Za-z0-9_-]{43}$"
+          description: Configured-origin fragment URL returned once; a forwardable bearer secret, never a query/path token. Keep out of logs and browser storage.
+        expires_at:
+          type: string
+          format: date-time
+          description: Database-derived expiry, one hour after issuance.
     EmptyRequest:
       type: object
       additionalProperties: false
@@ -1113,13 +1253,13 @@ components:
     SetupFlowRequest:
       allOf:
         - $ref: "#/components/schemas/GrantFlowRequest"
-      description: Setup only when no account exists. Optional display_name defaults to Owner; name labels the passkey.
+      description: Setup only when no account exists; creates an admin explicitly. Optional display_name defaults to Owner; name labels the passkey. Clients cannot select a role. Setup tokens remain form-only, never in URLs.
     InviteFlowRequest:
       allOf:
         - $ref: "#/components/schemas/GrantFlowRequest"
         - type: object
           required: [display_name]
-      description: A one-use invitation creates a new ordinary account. display_name names the account; name labels its first passkey. Neither selects an existing account.
+      description: A one-use admin or operator invitation always creates a user. display_name names the account; name labels its first passkey. Neither selects an existing account or role.
     GrantFlowRequest:
       type: object
       additionalProperties: false
@@ -1127,7 +1267,7 @@ components:
       properties:
         token:
           type: string
-          description: Operator-issued token; never place it in a URL.
+          description: One-use grant token submitted only in this POST body. Setup and recovery tokens must never appear in URLs. Only invitation tokens may arrive in the viewer's /invite#token=<token> fragment; the viewer removes the fragment before navigation and keeps the token only in flow memory. Never put grant secrets in query parameters, paths, logs, or browser storage.
         name:
           type: string
           maxLength: 200

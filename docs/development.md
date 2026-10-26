@@ -43,7 +43,7 @@ cd api
 GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind setup
 ```
 
-The command needs only `MORSEL_DATABASE_URL`. Enter the token in the form at `/setup`, not a URL, within one hour. Enroll the first passkey and a backup, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For another account, use `GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind invite` and `/invite`; enter a separate account display name and passkey name. For lost credentials, use `GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind recover -account-id ACCOUNT_UUID` and the form at `/recover`; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
+The command needs only `MORSEL_DATABASE_URL` and still prints a raw token. Enter the setup token in the form at `/setup`, not a URL, within one hour. Setup creates an `admin`; enroll a backup passkey, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For another account, use the admin's **Invitations** section at `/manage/invitations`, or keep using `GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind invite` and manual token entry at `/invite`. All invitations create a `user`; enter separate **Account name** and **Passkey name** values. Only invitation tokens can enter through `/invite#token=<43-character base64url token>`; setup/recovery remain form-only. No grant secret is accepted in a query or path. For lost credentials, use `GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind recover -account-id ACCOUNT_UUID` and the form at `/recover`; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
 
 ## Authentication browser tests
 
@@ -118,9 +118,39 @@ For schema version 8 and later, the normal up command also derives missing admin
 
 Migration 11 adds account display names, NOT NULL share ownership with restrictive account deletion, the account-leading history index, and monotonic authentication ordering. Only login flows may be unbound. Legacy credentials receive sequence orders before service startup. Pending authentication flows are cleared; sessions, passkeys, API keys, and valid existing grants are preserved. One existing account receives all legacy shares; a fresh empty database is valid. Upgrade preflight rejects shares without an account or more than one legacy account before setting dirty metadata. Complete first setup on the current migration-10 release for ownerless shares; do not guess ownership from keys. Down-11 preflight rejects multiple accounts before setting dirty metadata. Never run the old unscoped application against multi-account data, even with schema 11 retained. See the [maintenance procedure](deployment.md#multi-account-maintenance-upgrade).
 
+Migration 12 adds `accounts.role NOT NULL DEFAULT 'user'` constrained to `admin|user`. It promotes only the oldest existing account ordered by `created_at, id`. Empty databases stay empty until explicit admin setup; all invitation completions insert user explicitly. Recovery preserves the role, and startup does not reassign it. Roles do not bypass share ownership. Before production, verify the selected UUID on a restored production copy using the [read-only schema-11 query](deployment.md#admin-role-upgrade-migration-12).
+
+Down-12 removes role assignments only, not migration 11's ownership boundary. Keep a role snapshot and reverify the selected UUID before rolling forward. Stop every old writer before migration; an old setup writer against an empty upgraded database can create only a user. Use the existing guarded manual deployment, not mixed versions. Paired schema-11 API/viewer/CLI versions keep account isolation and raw invitations but do not autofill fragment links.
+
 Create legacy test fixtures at the old schema version and run the real migration path. Current-schema shares need explicit owners. Validate two-account isolation, same-account key interchange, foreign/missing 404 equivalence, scoped counts/readiness/link retrieval and verification, v3 cursor binding with v1/v2 rejection, and unchanged public capabilities. Authentication validation includes equal/backwards timestamps, concurrent registration/recovery, consumed in-flight flows, independent recovery, and cross-tab response-marker races. Virtual authenticators do not establish physical passkey-picker behavior. Test output must show required database/browser tests executed, not silently skipped.
 
 The runner rejects dirty, unknown, or gapped migration histories. Apply migrations before starting a newer API. An older runner can reject the new schema's migration version even when changes are additive. Never automatically downgrade production; test migrations and any downgrade on a restored database first. See [backup and rollback](deployment.md#backup-restore-and-rollback) for write-window and authentication cautions.
+
+### Admin invitation validation requirements
+
+These are required checks, not a record of executed tests. Keep new evidence separate from the historical multi-account results below.
+
+- Test zero/one/multiple legacy accounts and equal timestamps at schema 11, then migration 12 up/down/up. Record the selected UUID. Preserve ownership, capabilities, passkeys, session/key/grant bindings, authentication generation, monotonic ordering, and recovery roles. Keep historical fixtures pinned to their intended schema.
+- Check admin issuance, user denial, admin-owned API-key denial, exact Origin, CSRF, freshness, strict `{}` and no-query validation, database failures, fixed-bucket rate limits, and concurrent logout/recovery/role loss. Authorization and insertion must share a transaction. Verify 201 URL/expiry, no-store and account marker, hash-only grant storage, and unchanged `IssueGrant`/CLI output and Bearer response models.
+- Check one-hour expiry, independent grants, forwarding, single use, concurrent redemption, cancellation, and page/preview fetches that do not consume grants. Check valid signed-in sessions at both begin and finish return `409 sign_out_required` without replacing the session or consuming the grant; invalid/expired cookies may proceed and database failures must fail closed.
+- Check strict fragment parsing and cleanup before redirects/shared navigation. Tokens must be absent from HTTP URLs, Referrer, logs, storage, `history.state`, `next`, and the cleaned current entry; Back/Forward must not restore them. Check manual entry, explicit submission, signed-in instructions, reopen-after-cancellation behavior, stale responses, cross-tab identity changes, role loss, clipboard completion/races, and explicit-only retry.
+- Run required real Go/PostgreSQL browser tests with zero skips. Prove admin-to-user enrollment and share isolation in both directions, plus unchanged public capabilities, keys, recovery, share controls, CLI behavior, and authentication ordering. Rehearse the guarded deployment and supported down-12 rollback in a separate disposable Compose project. Do not run production scenarios or send real invitations.
+
+External message previews, rewriting, retained copies, browser history copies before cleanup, physical passkey behavior, and production lock duration remain unverified by local fixtures. Retain them in the [operator handoff](deployment.md#external-admin-invitation-handoff), not as additional human approval gates for agent completion.
+
+### Admin invitation validation evidence
+
+Local validation on 2026-10-26 used Go 1.26.10, Node.js 26, disposable PostgreSQL 17.6, and Chromium virtual WebAuthn authenticators:
+
+- Backend race/coverage suite: 498 passing cases including subtests; no failures or skips. Final-view concurrency passed ten repetitions. Invitation authorization-lock and signed-in-finish checks passed ten repetitions, 60 cases with no skips. Generator idempotence, formatting, module verification, and vet passed.
+- Root CI: 529 viewer tests, 11 client tests, and five deployment-sequence tests passed. OpenAPI lint, viewer typecheck, and production build passed.
+- Browser suite: 83 passed; only the production-only `MORSEL_E2E_LIVE` scenario was excluded. Admin invitation keyboard navigation, overflow, and axe WCAG A/AA checks passed at 320px, 375px, and 1280px. Strict fragment tests reject noncanonical final bits as well as escaped, duplicate, unknown, or invalid-length fields.
+- Required real Go/PostgreSQL authentication: one required test with 21 executed steps passed, with zero skips. It covers admin WebUI issuance, independent signed-out user enrollment, manual CLI invitations, preview/GET non-consumption, expiry/replay, signed-in conflict without session replacement, both directions of share isolation, public reads, recovery, and delayed responses/clipboard acknowledgements. HTTP URLs, Referrer, backend logs, storage, and history are checked for token disclosure; PostgreSQL checks verify hash-only grants and one-hour expiry.
+- Markdown CLI: 28 Python tests passed. Real-backend CLI and TypeScript client share creation, revocation, and foreign-account denial passed in the authentication suite.
+- Docker build and disposable Compose rehearsal passed: schema-11 backup/restore with two enrolled accounts; deterministic admin selection; migration-12 data/authentication preservation; admin issuance and user/API-key denial; invited-user enrollment; role-preserving recovery; supported down-12 to the paired isolation-capable schema-11 application and rollforward; public capabilities; unhealthy replacement shutdown and corrective restart; and fresh explicit-admin setup. Only fixture projects and their volumes were removed.
+- Security scans: npm production audit found zero vulnerabilities. Govulncheck found no reachable or imported-package vulnerabilities; one module-only advisory remains in code the application does not import or call.
+
+Clipboard tests prove guards before invocation and rejection of obsolete acknowledgements or repeat writes. A native clipboard write already started while authorized cannot be cancelled. Production admin selection, scale, backup recovery, messaging previews/rewriting/retained copies, and physical passkeys remain external checks in the [admin invitation handoff](deployment.md#external-admin-invitation-handoff). No production deployment or release workflow was dispatched.
 
 ## Task-oriented UI validation
 
@@ -138,7 +168,9 @@ Run the standard commands above and `npm run test:auth:browser` against test-onl
 
 `npm run test:deploy` uses a Docker test double to check maintenance-script ordering and failure shutdown; it is part of root CI. It does not replace the [disposable Compose rehearsal](deployment.md#maintenance-sequence). Use `bash scripts/deploy.sh` with a separate `--project-name`, fixture environment, local image, and unused loopback port; never use production volumes.
 
-### Multi-account validation evidence
+### Historical multi-account validation evidence
+
+These results precede migration 12 and admin invitation links; they do not establish validation of this feature.
 
 Local validation on 2026-10-26 used Go 1.26.10, Node.js 26, disposable PostgreSQL 17.6, and Chromium:
 

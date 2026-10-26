@@ -9,7 +9,7 @@ The API reads these environment variables:
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
-| `MORSEL_URL` | yes | — | Public origin for share links and WebAuthn. Non-root paths, queries, fragments, and credentials are rejected. |
+| `MORSEL_URL` | yes | — | Public origin for share links, invitation links, and WebAuthn. Non-root paths, queries, fragments, and credentials are rejected. |
 | `MORSEL_VIEWER_DIR` | no | `../packages/viewer/dist` | Viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
@@ -37,7 +37,7 @@ Historical migration-10 recovery prerequisites still apply:
 
 1. Back up PostgreSQL and test recovery on a restored copy.
 2. If the database used the encrypted-storage release, recover its retained tokens with that release and its original key **before the multi-account cutover**, while its single-account data is compatible. Copy recovered tokens to `link_token` in an operator-controlled data migration after applying migration 10; verify each token against its existing `token_hash`. Do not discard the original key or backup until recovery is verified. Never start that old release against multi-account data to recover tokens.
-3. Use the maintenance upgrade below for migration 11. Deploy the API and viewer together; never mix old and new writers.
+3. Use the maintenance upgrade below for migrations 11 and 12. Deploy the API and viewer together; never mix old and new writers.
 4. Confirm that Copy link and Show link survive a page reload without changing view counts.
 
 Legacy rows without a plaintext token show **Link unavailable**. Their original public URLs remain valid subject to existing limits and revocation. Hashes cannot restore original tokens. Migration 10 does not regenerate tokens, change public URLs, or automatically decrypt old data. It preserves migration 9's `link_ciphertext` column for recovery; the new server does not read it.
@@ -46,7 +46,7 @@ Historical migration-10 compatibility: older single-account applications used th
 
 ## Operator setup and recovery
 
-The image contains the static `/usr/local/bin/account` executable. It reads only `MORSEL_DATABASE_URL`; it does not require viewer or public-origin configuration. From source, run `cd api` and use `GOTOOLCHAIN=go1.26.10 go run ./cmd/account` with `-kind setup`, `-kind invite`, or `-kind recover -account-id ACCOUNT_UUID`. Each command prints one raw token; only its hash is stored. Treat the output as a secret. Do not put it in a URL, log, ticket, or shell trace.
+The image contains the static `/usr/local/bin/account` executable. It reads only `MORSEL_DATABASE_URL`; it does not require viewer or public-origin configuration. From source, run `cd api` and use `GOTOOLCHAIN=go1.26.10 go run ./cmd/account` with `-kind setup`, `-kind invite`, or `-kind recover -account-id ACCOUNT_UUID`. Each command prints one raw token; only its hash is stored. Treat the output as a secret. Keep setup and recovery tokens out of all URLs. Invitation tokens alone may use the configured-origin `/invite#token=<43-character base64url token>` format; never put any grant secret in a query or path, log, ticket, or shell trace. CLI output remains a raw token; manual form entry remains supported.
 
 For Compose, use the same environment, image, project, and database as the target deployment. Start PostgreSQL and complete migrations first. The image is distroless and has no shell; use the executable directly:
 
@@ -55,19 +55,25 @@ docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -ki
 ```
 
 1. Open `/setup` at the configured browser origin. For production, use <https://morsel.narumi.dev/setup>. The setup form is available only before account setup is complete.
-2. Enter the token in the setup form within one hour and complete passkey registration. The WebAuthn flow expires after 10 minutes; the browser can end its prompt sooner. The token is single-use; setup works only for an empty deployment. The first account is an ordinary account, not a global administrator.
+2. Enter the token in the setup form within one hour and complete passkey registration. The WebAuthn flow expires after 10 minutes; the browser can end its prompt sooner. The token is single-use; setup works only for an empty deployment. Setup explicitly creates an `admin`. The role allows browser invitation issuance, not access to another account's shares.
 3. Add a backup passkey. Removal of the last passkey is rejected.
 4. Create named API keys and save each raw value in the appropriate client secret store when shown. It is shown only once; only its SHA-256 hash and metadata are stored.
 
 Before setup, health checks and the setup UI work, but privileged share operations are rejected. Existing public capability reads are unchanged.
 
-For each additional account, issue an invitation:
+For each additional account, an admin can use **Invitations** at `/manage/invitations`: select **Create invitation link**, complete fresh verification if requested, and use **Copy link** or the **Invitation link** textbox. Deliver the link manually through a secure messaging channel, then use **Dismiss invitation link**. The server requires an admin browser session, exact Origin, CSRF, and passkey verification within twelve hours; the current database role check and grant insert share one transaction. Admin-owned API keys alone cannot invite. Success returns 201 with a configured-origin fragment URL and database-derived expiry, no-store, and the account marker. Rate limits return 429 with `Retry-After` and insert no grant. Failed or uncertain issuance is not automatically replayed; an explicit retry creates an independent link.
+
+The trusted operator CLI remains available:
 
 ```sh
 docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind invite
 ```
 
-Deliver it through a secure channel. The recipient opens `/invite`, enters the token within one hour, and supplies an account display name separately from the passkey name. Invitation completion creates the account, first passkey, and session atomically. Invitations are independent; issuing one does not cancel another. Tokens are single-use. Display names need not be unique and do not authorize requests; the account UUID is the stable WebAuthn user handle. Existing passkeys remain valid. New invited accounts start with no shares. There is no public registration or application-level account enumeration.
+Deliver the raw token through a secure channel. The recipient opens `/invite`, enters **Invitation token** within one hour, supplies **Account name** and **Passkey name**, and explicitly selects **Create account**. An admin link prefills the same form. Every invitation, including operator invitations, creates a `user`, first passkey, and session atomically. Recipients cannot select a role. Invitations are independent, single-use, and forwardable: anyone holding an unused token can register before expiry. There is no SMTP, email binding, or person verification. No invitation list or revocation is provided; dismissal, issuer logout, and issuer recovery do not invalidate pending links. Existing valid grants remain compatible and retain only hashes, with no new plaintext grant storage.
+
+Opening `/invite` or fetching a preview does not consume the grant. The viewer removes the fragment immediately and keeps its token only in flow memory; explicit registration sends it only in the existing POST body. A signed-in recipient must log out or use a private window, then reopen the original link; there is no silent account switch or persistence across logout. Both invite begin and finish return `409 sign_out_required` for a valid signed-in session without consuming the grant or overwriting that session. Invalid/expired cookies may proceed; database errors fail closed. Cancellation does not consume the grant, but cancellation or reload can require reopening the link. Invalid, expired, used, or concurrently redeemed grants retain the generic invalid-grant response.
+
+Fragment cleanup cannot erase external messaging previews, URL rewriting, retained copies, or browser history copies made before cleanup. Keep invitation links out of logs and tickets. Display names need not be unique and do not authorize requests; the account UUID is the stable WebAuthn user handle. Existing passkeys remain valid. New invited accounts start with no shares. There is no public registration, role editing, invitations that create admins, user directory, or application-level account enumeration.
 
 If all passkeys are lost or compromised, an authorized operator can issue a recovery token:
 
@@ -77,13 +83,13 @@ docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -ki
 
 Obtain the UUID from the authenticated `/v1/account` response or the read-only operator query below. Never select a target by display name. The browser resolves recovery from the grant, not an owner argument. Issuing a replacement cancels older recovery grants for that account only.
 
-Enter the single-use token in the recovery form at `/recover` within one hour and enroll a replacement passkey. Recovery completion replaces that account's old credentials, advances its authentication generation, and invalidates its old sessions, bound authentication flows, verification grants, and recovery grants. Other accounts and their unbound login flows are unaffected. Shares keep their owner. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
+Enter the single-use token in the recovery form at `/recover` within one hour and enroll a replacement passkey. Recovery completion replaces that account's old credentials, advances its authentication generation, and invalidates its old sessions, bound authentication flows, verification grants, and recovery grants. Other accounts and their unbound login flows are unaffected. Shares keep their owner and the account keeps its role. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
 
-Sessions expire 30 days after login, without sliding renewal. Their persistent cookies survive browser restarts; logout and account recovery still revoke sessions immediately. Key creation, key revocation, share revocation, and passkey changes reuse passkey verification for 12 hours, then require verification again. The UI checks the current server session before each change. Production session cookies remain `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
+Sessions expire 30 days after login, without sliding renewal. Their persistent cookies survive browser restarts; logout and account recovery still revoke sessions immediately. Key creation, key revocation, share revocation, invitation issuance, and passkey changes reuse passkey verification for 12 hours, then require verification again. The UI checks the current server session before each change. Production session cookies remain `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
 
-Existing sessions keep their original database expiry and cookie lifetime. After deployment, log out and sign in again to receive a 30-day persistent session. Tokens already issued keep their stored expiry. Longer lifetimes increase the time that a stolen session or unused operator token can remain valid; revoke compromised sessions or issue a replacement operator token.
+Existing sessions keep their original database expiry and cookie lifetime. After deployment, log out and sign in again to receive a 30-day persistent session. Tokens already issued keep their stored expiry. Longer lifetimes increase the time that a stolen session or unused grant can remain valid. Revoke compromised sessions; a replacement recovery grant cancels earlier recovery grants for that account, but issuing a new invitation never revokes earlier invitations.
 
-Authentication POST requests have a fixed limit of 60 attempts per source address and ceremony kind per minute, plus a service-wide limit of 1000 per minute. Account-state reads and key-management requests do not consume ceremony limits. Forwarded client IP headers are not trusted; clients behind the same proxy share source-address limits. Apply per-client abuse controls at the existing trusted reverse proxy when needed. Login attempts have a separate budget from verification, setup, invitation, and recovery.
+Authentication POST requests have a fixed limit of 60 attempts per source address and ceremony kind per minute, plus a service-wide limit of 1000 per minute. Account-state reads and key-management requests do not consume ceremony limits. Forwarded client IP headers are not trusted; clients behind the same proxy share source-address limits. Apply per-client abuse controls at the existing trusted reverse proxy when needed. Login attempts have a separate budget from verification, setup, invitation, and recovery. Browser invitation issuance uses the existing limiter with a fixed issuance bucket and the same request-size protection; it is separate from invitation registration. No new limiter configuration is provided.
 
 ### Rotate or revoke client keys
 
@@ -110,7 +116,7 @@ The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, a
 
 **No production release or workflow dispatch is authorized by this implementation task.** The migration release uses manual `workflow_dispatch` only; push-to-main deployment is disabled. Do not deploy intermediate implementation commits. Keep this gate until required checks and the operator prerequisites below pass. Automatic deployment may resume only when every deployment and rollback path preserves account isolation.
 
-Migration 11 requires a coordinated outage. Stop **all** old instances and all writes before running the new migration. An old server can still perform global reads and revocation with the new schema present. Do not use mixed-version or zero-downtime deployment.
+Migrations 11 and 12 require a coordinated outage. Stop **all** old instances and all writes, including setup and invitation writers, before running the new migration. An old server can still perform global reads and revocation with the new schema present. Do not use mixed-version or zero-downtime deployment.
 
 ### Legacy preflight and ownership
 
@@ -136,6 +142,39 @@ Upgrade preflight checks these unsafe states before the runner writes a dirty ma
 
 The cutover clears pending authentication flows. It preserves content, share UUIDs, capability hashes and stored plaintext tokens, preview metadata, labels, timestamps, limits, counts, revocation state, passkeys, sessions, API keys, and existing grants with valid bindings. Existing sessions keep their stored expiry. No key rotation or passkey re-enrollment is required for migration 11. Historical environment-configured keys are not supported; they must already have been replaced with account-issued keys.
 
+### Admin role upgrade (migration 12)
+
+For a schema-11 deployment, migration 12 adds `accounts.role NOT NULL DEFAULT 'user'`, constrained to `admin` and `user`. It promotes exactly the oldest existing account ordered by `created_at, id`. All others become users. No existing accounts means no promotion; first setup must insert admin explicitly. Startup and login do not reassign roles. Recovery preserves the account role. Roles never bypass share ownership.
+
+Before migration, run this read-only schema-11 preflight on a restored production copy first. Verify that `version = 11` and `dirty = false`, then verify and record the selected UUID, not its display name. Compare it with the actual deployment before cutover:
+
+```sql
+BEGIN READ ONLY;
+SELECT version, dirty FROM schema_migrations;
+SELECT id AS selected_admin_account_id, display_name, created_at
+FROM accounts ORDER BY created_at, id LIMIT 1;
+SELECT id AS account_id, display_name, created_at
+FROM accounts ORDER BY created_at, id;
+COMMIT;
+```
+
+An empty result requires first setup after upgrade, not an inferred promotion. Stop if the selected UUID is not the intended admin; role editing and additional-admin provisioning are outside this phase. Do not substitute a display-name match or add an undocumented promotion endpoint.
+
+Migration 12 preserves shares, ownership, capability hashes/tokens, previews, counts, labels, passkeys, sessions, API keys, existing valid grants, authentication generation, and ordering. It adds no plaintext invitation storage. Stop every old instance before applying it, even on an empty database: an old setup writer omits the role and would create only a user after the empty bootstrap migration. Do not use a mixed-version bootstrap. Keep the existing guarded manual deployment sequence below unchanged; no automatic deployment or workflow dispatch is authorized here.
+
+After migration, verify clean schema 12 and roles before reopening service:
+
+```sql
+BEGIN READ ONLY;
+SELECT version, dirty FROM schema_migrations;
+SELECT id AS account_id, display_name, role, created_at
+FROM accounts ORDER BY created_at, id;
+SELECT role, count(*) FROM accounts GROUP BY role ORDER BY role;
+COMMIT;
+```
+
+Compare the admin UUID with the preflight result and verify that all other existing accounts are users. Test admin link issuance, user denial, and enrollment as user with fixture accounts. Verify targeted recovery preserves role and all existing account-isolation/public-capability checks still pass. Production account history, restore behavior, and migration lock duration require operator verification; local fixture timings are not production guarantees.
+
 ### Maintenance sequence
 
 1. Confirm required validation has passed. Retain immutable image references and a tested PostgreSQL backup. Rehearse restore, migration, ownership counts, failure handling, and downgrade guards on a restored copy. Backups contain plaintext capabilities; protect them as secrets. Measure production-scale backfill/index lock duration before selecting the window.
@@ -151,7 +190,7 @@ The cutover clears pending authentication flows. It preserves content, share UUI
    ```
 
    PostgreSQL must be healthy before migration. Migration must complete before the combined new API/viewer starts. Dependencies are not restarted during application startup. Any failure must leave the application stopped; never automatically restart the old image or downgrade. A local Compose stop does not replace stopping external replicas in step 3.
-5. Before reopening service, run the ownership checks below and compare the original account's count with the recorded legacy count. Verify the new API and viewer together, direct navigation to `/login`, `/setup`, `/invite`, `/recover`, `/account`, and both management sections, and unchanged public capability behavior.
+5. Before reopening service, run the ownership checks below and compare the original account's count with the recorded legacy count. Verify clean schema 12 and the selected admin UUID and user roles with the role queries above. Verify the new API and viewer together, direct navigation to `/login`, `/setup`, `/invite`, `/recover`, `/account`, `/manage/shares`, `/manage/api-keys`, and admin-only `/manage/invitations`, and unchanged public capability behavior.
 6. With operator-supplied real keys, check that two keys in A can manage A's shares, B cannot inspect or revoke A's UUID (uniform 404), and B's list/count/search excludes A. Check saved-link retrieval and verification, key revocation, identity switching, and v1/v2 cursor rejection with page-one reset. A valid public capability still permits reads from either account. Resume writes only after operator verification.
 
 After schema 11, these queries are read-only. The first query enumerates accounts **for operators only**; the application has no enumeration route. Display names are not unique selectors:
@@ -182,9 +221,21 @@ Both invalid-owner counts must be zero. The sole legacy account must own every l
   - Expected result: original shares retain the sole legacy owner, invited accounts start empty, and public capabilities retain their existing behavior without owner metadata.
   - Unverified behavior: production-scale backfill/index lock duration, live backup recovery, instance coordination, and real account-owner enrollment. Do not release until ownership, backup recovery, and old-instance shutdown are verified. Local checks authorize no production changes.
 - Account owners:
-  - Prerequisite: receive an operator invitation and the configured HTTPS origin.
+  - Prerequisite: receive an admin invitation link or operator invitation token and the configured HTTPS origin.
   - Action: enroll a passkey and backup; check login and account identity with supported physical authenticators. To switch, log out and choose the intended account's passkey.
   - Expected result: the chosen credential opens the correct account. Native passkey-picker behavior and physical authenticators remain unverified by virtual-authenticator tests; this is not an additional human approval gate.
+
+### External admin invitation handoff
+
+- Deployment operator:
+  - Prerequisite: required local checks and disposable rehearsal pass; immutable images and a tested backup are available. Verify the schema-11 selected-admin query on a restored production copy, then compare the UUID with the deployment.
+  - Action: arrange the maintenance window, stop every old instance and writer, use the existing guarded manual deployment, and confirm clean schema 12, the intended admin UUID, user roles, unchanged ownership/capabilities, and role-preserving recovery before reopening service.
+  - Expected result: only the intended legacy account is promoted; other accounts retain their data as users; all invitation recipients become users. No key rotation or passkey re-enrollment is required.
+  - Unverified behavior: actual production history, backup recovery, lock duration, and instance coordination. Do not release until admin selection, recovery, and old-instance shutdown are verified. This task authorizes no production writes, deployment, release, or workflow dispatch.
+- Admin and recipient:
+  - Prerequisite: an approved deployed API/viewer pair, the configured HTTPS origin, and a secure messaging channel.
+  - Action: manually send an invitation and test registration and backup enrollment with supported physical passkeys. If already signed in, log out or use a private window and reopen the original link.
+  - Expected result: one new user registers without cross-account management access. External messaging previews, rewriting, retained message/history copies, native clipboard completion after an already-started write, and physical passkey-picker behavior remain unverified; virtual browsers do not establish them. The application checks before clipboard invocation but cannot cancel a native write already started while authorized. No additional human approval gate is imposed for agent completion.
 
 ## Share management rollout and review
 
@@ -246,6 +297,24 @@ pg_restore --clean --if-exists --no-owner \
 ```
 
 Back up before every schema change and test migrations on a restored copy. Prefer a corrective migration and an isolation-capable release. The old migration runner rejects unknown versions even for additive schema changes. **Never run an old single-account application against multi-account data, even if schema 11 is retained.** Its global queries can disclose or revoke other accounts' shares. Never automatically roll back or downgrade.
+
+### Role-only rollback (down-12)
+
+Prefer an admin-capable corrective release. If a downgrade is necessary, stop all writes and application instances. Confirm migration 12 is the latest applied version and is clean before using the new runner for exactly one down step. Retain a tested backup and a protected role snapshot:
+
+```sql
+BEGIN READ ONLY;
+SELECT version, dirty FROM schema_migrations;
+SELECT id AS account_id, role, created_at
+FROM accounts ORDER BY created_at, id;
+SELECT id AS selected_admin_on_rollforward
+FROM accounts ORDER BY created_at, id LIMIT 1;
+COMMIT;
+```
+
+Down-12 removes role assignments only. Retain schema 11 and its ownership/authentication boundaries; never remove migration 11 to roll back invitations. Deploy only a paired isolation-capable schema-11 API/viewer and compatible CLI. That pair disables browser invitation issuance but keeps raw operator invitations and existing grants compatible. Old viewers do not autofill fragment links; use manual token entry instead of regenerating grants or public share tokens. Before rolling forward, compare the retained role snapshot and reverify the deterministic selected UUID on a restored copy. Migration 12 reruns its selection after down-12; do not assume removed assignments survive.
+
+Admin passkey loss uses targeted operator recovery, not role reassignment or automatic promotion at login. Recovery must preserve role. Do not restore the database just to remove this UI feature; a restore can discard later accounts and restore old authentication state. Reconcile all later account, share, key, and session changes before reopening service.
 
 The new runner rejects down-11 before dirty metadata changes when multiple accounts exist. A supported single-account downgrade must be rehearsed with the new executable and must preserve shares, original authentication records, and capabilities while safely clearing new temporary flow/grant variants. This guard does not make an old unscoped server a multi-account rollback target.
 

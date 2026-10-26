@@ -35,7 +35,7 @@ try {
 }
 ```
 
-Share ownership comes from the validated API key, not a request argument. All active keys in the same account can create and revoke that account's shares. Revocation of a foreign or missing share UUID returns the same `404 not_found`. Account recovery and key rotation do not change ownership. No account selector is needed in this client or the Markdown CLI.
+Share ownership comes from the validated API key, not a request argument. All active keys in the same account can create and revoke that account's shares. Revocation of a foreign or missing share UUID returns the same `404 not_found`. Account recovery and key rotation do not change ownership. No account selector is needed in this client or the Markdown CLI. The `admin` and `user` roles do not grant cross-account share access. An admin-owned API key cannot issue invitations; invitation creation requires an admin browser session with Origin, CSRF, and fresh passkey verification at `POST /v1/account/invitations`. This share client has no invitation or role-management method. Bearer request/response shapes and headers are unchanged; the browser-only `X-Morsel-Account-ID` marker is not added to share writes.
 
 To consume a share, pass the 43-character capability token (from the URL after `/s/` or `#/s/`) to `consumeShare(token)`. No API key is needed for reading. Anyone with a valid capability can read, including someone signed in to a different account. **Every successful call consumes one view**; the client never caches or retries a request. Each method accepts an optional `{ signal }` for cancellation.
 

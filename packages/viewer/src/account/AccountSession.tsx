@@ -26,7 +26,8 @@ import {
 type Session = {
   account: Account
   expectedAccount: ExpectedAccount
-  refresh: (signal: AbortSignal) => Promise<Account>
+  isAdminCurrent: () => boolean
+  refresh: (signal: AbortSignal, destination?: string) => Promise<Account>
   expire: () => void
   signedOut: () => void
   notice: string
@@ -44,10 +45,12 @@ export function AccountSession({
   pathname,
   search,
   children,
+  onAccountChange,
 }: {
   pathname: string
   search: string
   children: ReactNode
+  onAccountChange?: () => void
 }) {
   const [account, updateAccount] = useState<Account | null>(null)
   const current = useRef<Account | null>(null)
@@ -56,12 +59,23 @@ export function AccountSession({
   const [notice, setNotice] = useState("")
   const [revision, setRevision] = useState(0)
   const [logout, setLogout] = useState(false)
-  const setAccount = useCallback((next: Account | null) => {
-    current.current = next
-    updateAccount(next)
-  }, [])
+  const setAccount = useCallback(
+    (next: Account | null) => {
+      const previous = current.current
+      if (
+        previous &&
+        (!next ||
+          previous.account_id !== next.account_id ||
+          previous.authenticated !== next.authenticated)
+      )
+        onAccountChange?.()
+      current.current = next
+      updateAccount(next)
+    },
+    [onAccountChange],
+  )
   const refresh = useCallback(
-    async (signal: AbortSignal) => {
+    async (signal: AbortSignal, destination?: string) => {
       const order = ++requestOrder.current
       let next: Account
       try {
@@ -75,6 +89,12 @@ export function AccountSession({
       if (order !== requestOrder.current)
         throw new DOMException("Identity refresh superseded", "AbortError")
       setAccount(next)
+      // Complete navigation before an identity-keyed child can unmount.
+      if (destination && next.authenticated)
+        navigate(loginDestination(`?next=${encodeURIComponent(destination)}`), {
+          replace: true,
+          force: true,
+        })
       return next
     },
     [setAccount],
@@ -98,6 +118,10 @@ export function AccountSession({
     setNotice("")
     setRevision((value) => value + 1)
   }, [setAccount])
+  const isAdminCurrent = useCallback(
+    () => current.current?.authenticated === true && current.current.role === "admin",
+    [],
+  )
   const id = account?.account_id ?? ""
   const expectedAccount = useMemo<ExpectedAccount>(
     () => ({
@@ -172,7 +196,13 @@ export function AccountSession({
     if (logout) redirect = "/login"
     else if (account.setup_required && pathname !== "/setup")
       redirect = authenticationURL("setup", destination)
-    else if (!account.setup_required && account.authenticated && authRoute) redirect = destination
+    else if (
+      !account.setup_required &&
+      account.authenticated &&
+      authRoute &&
+      pathname !== "/invite"
+    )
+      redirect = destination
     else if (
       !account.setup_required &&
       !account.authenticated &&
@@ -209,6 +239,7 @@ export function AccountSession({
       value={{
         account,
         expectedAccount,
+        isAdminCurrent,
         refresh,
         expire,
         signedOut,

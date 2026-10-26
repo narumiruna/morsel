@@ -366,7 +366,7 @@ func waitForAccountLock(t *testing.T, pool interface {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		var count int
-		err := pool.QueryRow(t.Context(), `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%auth_generation FROM accounts WHERE id=%'`).Scan(&count)
+		err := pool.QueryRow(t.Context(), `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%auth_generation,role FROM accounts WHERE id=%'`).Scan(&count)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { type BrowserContext, type CDPSession, expect, type Page, test } from "@playwright/test"
@@ -73,7 +73,10 @@ async function account(page: Page) {
   if (state.authenticated) {
     expect(typeof state.account_id).toBe("string")
     expect(typeof state.display_name).toBe("string")
+    expect(["admin", "user"]).toContain(state.role)
     expect(response.headers()["x-morsel-account-id"]).toBe(state.account_id)
+  } else {
+    expect(state).not.toHaveProperty("role")
   }
   return state
 }
@@ -93,7 +96,7 @@ async function logOut(page: Page) {
   ).toBeVisible()
 }
 
-async function openSection(page: Page, name: "Shares" | "API keys" | "Security") {
+async function openSection(page: Page, name: "Shares" | "API keys" | "Security" | "Invitations") {
   const dismiss = page.getByRole("button", { name: "Dismiss API key", exact: true })
   if (await dismiss.isVisible()) await dismiss.click()
   await page.getByRole("link", { name, exact: true }).click()
@@ -119,6 +122,8 @@ async function login(page: Page, destination = "/account") {
 async function noBrowserSecret(page: Page, secret: string) {
   const persisted = await page.evaluate(async (raw) => {
     if (
+      location.href.includes(raw) ||
+      JSON.stringify(history.state).includes(raw) ||
       JSON.stringify(localStorage).includes(raw) ||
       JSON.stringify(sessionStorage).includes(raw)
     ) {
@@ -147,9 +152,80 @@ async function noBrowserSecret(page: Page, secret: string) {
     return false
   }, secret)
   expect(persisted).toBe(false)
+  const logs = await readFile(process.env.MORSEL_AUTH_TEST_SERVER_LOG as string, "utf8")
+  expect(logs.length).toBeGreaterThan(0)
+  expect(logs.includes(secret)).toBe(false)
+}
+
+function observeInvitationRequests(context: BrowserContext, tokens: Set<string>) {
+  let requests = 0
+  let leaked = false
+  context.on("request", (request) => {
+    requests += 1
+    const publicFields = `${request.url()} ${request.headers().referer ?? ""}`
+    for (const token of tokens) if (publicFields.includes(token)) leaked = true
+  })
+  return () => {
+    expect(requests).toBeGreaterThan(0)
+    expect(leaked).toBe(false)
+  }
+}
+
+async function createInvitation(page: Page, tokens: Set<string>) {
+  await page.bringToFront()
+  if (!page.url().endsWith("/manage/invitations")) await openSection(page, "Invitations")
+  await expect(page.getByRole("heading", { name: "Manage invitations", exact: true })).toBeVisible()
+  const completion = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/v1/account/invitations" &&
+      response.request().method() === "POST",
+  )
+  await page.getByRole("button", { name: "Create invitation link", exact: true }).click()
+  const response = await completion
+  expect(response.status()).toBe(201)
+  expect(response.request().postDataJSON()).toEqual({})
+  expect(new URL(response.url()).search).toBe("")
+  expect(response.headers()["cache-control"]).toContain("no-store")
+  expect(response.headers()["x-morsel-account-id"]).toBe((await account(page)).account_id)
+  const result = (await response.json()) as { invitation_url: string; expires_at: string }
+  const url = new URL(result.invitation_url)
+  expect(url.origin).toBe(new URL(page.url()).origin)
+  expect(url.pathname).toBe("/invite")
+  expect(url.search).toBe("")
+  expect(/^#token=[A-Za-z0-9_-]{43}$/.test(url.hash)).toBe(true)
+  const token = url.hash.slice("#token=".length)
+  tokens.add(token)
+  const remaining = Date.parse(result.expires_at) - Date.now()
+  expect(remaining).toBeGreaterThan(59 * 60 * 1000)
+  expect(remaining).toBeLessThanOrEqual(60 * 60 * 1000)
+  const textbox = page.getByRole("textbox", { name: "Invitation link", exact: true })
+  await expect(textbox).toBeVisible()
+  expect((await textbox.inputValue()) === result.invitation_url).toBe(true)
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  await page.evaluate(() => navigator.clipboard.writeText("invitation clipboard sentinel"))
+  await page.getByRole("button", { name: "Copy link", exact: true }).click()
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => navigator.clipboard.readText())) === result.invitation_url,
+    )
+    .toBe(true)
+  const helper = process.env.MORSEL_AUTH_TEST_HELPER as string
+  await command(helper, ["assert-invitation"], token)
+  await command(helper, ["assert-no-secret"], token)
+  await noBrowserSecret(page, token)
+  return { token, url: result.invitation_url }
+}
+
+async function dismissInvitation(page: Page, token: string) {
+  await page.getByRole("button", { name: "Dismiss invitation link", exact: true }).click()
+  await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(0)
+  expect(await page.evaluate((raw) => document.body.textContent?.includes(raw), token)).toBe(false)
+  await noBrowserSecret(page, token)
 }
 
 async function createKey(page: Page, name: string) {
+  await page.bringToFront()
   if (!page.url().endsWith("/manage/api-keys")) await openSection(page, "API keys")
   const dismiss = page.getByRole("button", { name: "Dismiss API key", exact: true })
   if (await dismiss.isVisible()) await dismiss.click()
@@ -197,6 +273,8 @@ test("required real-backend account and API key lifecycle", async ({
   let secondPage: Page
   let secondKey: { id: string; key: string; name: string }
   let legacyID = ""
+  const invitationTokens = new Set<string>()
+  const assertAdminRequestPrivacy = observeInvitationRequests(context, invitationTokens)
 
   await test.step("operator setup, secure session, and closed registration", async () => {
     const token = await command(accountCLI, ["-kind", "setup"])
@@ -208,11 +286,13 @@ test("required real-backend account and API key lifecycle", async ({
     await expect(page.getByRole("navigation", { name: "Management sections" })).toHaveCount(0)
     await page.getByLabel("Setup token", { exact: true }).fill(token)
     await page.getByLabel("Passkey name", { exact: true }).fill("Primary browser passkey")
+    await page.bringToFront()
     await page.getByRole("button", { name: "Set up account", exact: true }).click()
     await expectSignedIn(page)
     await expect(page).toHaveURL(/\/account$/)
     const state = await account(page)
     expect(state.authenticated).toBe(true)
+    expect(state.role).toBe("admin")
     accountA = state.account_id
     expect(state.setup_required).toBe(false)
     expect(state.verification_required).toBe(false)
@@ -233,10 +313,11 @@ test("required real-backend account and API key lifecycle", async ({
 
   await test.step("real legacy schema fixture upgrades to the enrolled sole owner", async () => {
     // No other context exists and no ceremony is pending during this test-only
-    // schema 11 -> 10 -> 11 transition. Wait until all management reads finish.
+    // schema 12 -> 10 -> 12 transition. Wait until all management reads finish.
     await page.waitForLoadState("networkidle")
     legacyID = await command(helper, ["seed-legacy-share", accountA])
     expect((await account(page)).account_id).toBe(accountA)
+    expect((await account(page)).role).toBe("admin")
   })
 
   await test.step("persistent login reuses verification without extra passkey prompts", async () => {
@@ -278,6 +359,7 @@ test("required real-backend account and API key lifecycle", async ({
     }
     await page.route("**/v1/auth/passkey/begin", switchDevice)
     await page.getByLabel("Passkey name", { exact: true }).fill("Backup browser passkey")
+    await page.bringToFront()
     await page.getByRole("button", { name: "Add passkey", exact: true }).click()
     await expect(
       page.getByRole("button", { name: "Remove passkey Backup browser passkey", exact: true }),
@@ -386,6 +468,11 @@ test("required real-backend account and API key lifecycle", async ({
       headers: { Authorization: `Bearer ${firstKey.key}`, Cookie: "" },
     })
     expect(bearerManagement.status()).toBe(401)
+    const bearerInvitation = await page.request.post("/v1/account/invitations", {
+      headers: { Authorization: `Bearer ${firstKey.key}`, Cookie: "", Origin: baseURL as string },
+      data: {},
+    })
+    expect(bearerInvitation.status()).toBe(401)
     const noCSRF = await page.request.post("/v1/api-keys", {
       headers: { Origin: baseURL as string },
       data: { name: "Missing CSRF must fail" },
@@ -555,32 +642,181 @@ test("required real-backend account and API key lifecycle", async ({
   })
 
   await test.step("invitation enrolls an independent account and authenticator", async () => {
-    const token = await command(accountCLI, ["-kind", "invite"])
+    const invitation = await createInvitation(page, invitationTokens)
+    const { token } = invitation
+    await dismissInvitation(page, token)
+    const expired = await createInvitation(page, invitationTokens)
+    expect(expired.token === token).toBe(false)
+    await dismissInvitation(page, expired.token)
+    await command(helper, ["assert-invitation"], token)
+    await command(helper, ["expire-invitation"], expired.token)
+
+    // An authenticated recipient must not silently switch or retain the link.
+    const sessionBefore = (await context.cookies()).find(
+      (cookie) => cookie.name === "morsel_session",
+    )
+    await page.goto(invitation.url)
+    await expect(page.getByText(/private window/i)).toBeVisible()
+    await expect(page.getByLabel("Invitation token", { exact: true })).toHaveCount(0)
+    await noBrowserSecret(page, token)
+    const signedIn = await page.request.post("/v1/auth/invite/begin", {
+      headers: { Origin: baseURL as string },
+      data: { token, name: "Must not replace admin", display_name: "Forbidden switch" },
+    })
+    expect(signedIn.status()).toBe(409)
+    expect((await signedIn.json()).code).toBe("sign_out_required")
+    expect((await context.cookies()).find((cookie) => cookie.name === "morsel_session")).toEqual(
+      sessionBefore,
+    )
+    expect((await account(page)).account_id).toBe(accountA)
+    await command(helper, ["assert-invitation"], token)
+    await page.goto("/manage/invitations")
+
     secondContext = await browser.newContext({ baseURL })
+    const assertRecipientRequestPrivacy = observeInvitationRequests(secondContext, invitationTokens)
     secondPage = await secondContext.newPage()
     const secondCDP = await secondContext.newCDPSession(secondPage)
     await secondCDP.send("WebAuthn.enable")
     await authenticator(secondCDP)
-    await secondPage.bringToFront()
-    await secondPage.goto("/invite")
-    await secondPage.getByLabel("Invitation token", { exact: true }).fill(token)
-    await secondPage.getByLabel("Account name", { exact: true }).fill("Independent account B")
-    await secondPage.getByLabel("Passkey name", { exact: true }).fill("Independent B passkey")
-    await secondPage.getByRole("button", { name: "Create account", exact: true }).click()
-    await expectSignedIn(secondPage)
-    const state = await account(secondPage)
-    accountB = state.account_id
-    expect(accountB).not.toBe(accountA)
-    expect(state.display_name).toBe("Independent account B")
-    await noBrowserSecret(secondPage, token)
-    await command(helper, ["assert-no-secret"], token)
-    const replay = await secondPage.request.post("/v1/auth/invite/begin", {
-      headers: { Origin: baseURL as string },
-      data: { token, name: "Replay", display_name: "Forbidden duplicate" },
+    // A link preview and a forwarded copy are ordinary GETs, not redemption.
+    const previewContext = await browser.newContext({ baseURL })
+    try {
+      const preview = await previewContext.request.get("/invite")
+      expect(preview.status()).toBe(200)
+      await command(helper, ["assert-invitation"], token)
+      const expiredBegin = await previewContext.request.post("/v1/auth/invite/begin", {
+        headers: { Origin: baseURL as string },
+        data: { token: expired.token, name: "Expired", display_name: "Must not enroll" },
+      })
+      expect(expiredBegin.status()).toBe(403)
+      const invalidGrant = await expiredBegin.json()
+
+      await secondPage.bringToFront()
+      await secondPage.goto("/invite")
+      await secondContext.grantPermissions(["clipboard-read", "clipboard-write"])
+      await secondPage.evaluate(() => navigator.clipboard.writeText("recipient clipboard sentinel"))
+      await secondPage.goto(invitation.url)
+      const tokenField = secondPage.getByLabel("Invitation token", { exact: true })
+      await expect(tokenField).toBeVisible()
+      await expect.poll(async () => (await tokenField.inputValue()) === token).toBe(true)
+      await expect(secondPage).toHaveURL(`${baseURL}/invite`)
+      await expect(secondPage.getByLabel("Role", { exact: true })).toHaveCount(0)
+      await expect(secondPage.locator("form").getByRole("combobox")).toHaveCount(0)
+      expect(await secondPage.evaluate(() => navigator.clipboard.readText())).toBe(
+        "recipient clipboard sentinel",
+      )
+      await noBrowserSecret(secondPage, token)
+      // Back/Forward cannot restore the fragment or navigation-state secret.
+      await secondPage.goto("/login")
+      await secondPage.goBack()
+      await expect(secondPage).toHaveURL(`${baseURL}/invite`)
+      await expect(tokenField).toHaveValue("")
+      await noBrowserSecret(secondPage, token)
+      await secondPage.goForward()
+      await expect(secondPage).toHaveURL(`${baseURL}/login`)
+      await secondPage.goBack()
+      await expect(tokenField).toHaveValue("")
+
+      // Beginning and cancelling a real ceremony does not spend the grant.
+      await secondPage.goto(invitation.url)
+      await secondPage.evaluate(() => {
+        Object.defineProperty(navigator.credentials, "create", {
+          configurable: true,
+          value: () => Promise.reject(new DOMException("Cancelled", "NotAllowedError")),
+        })
+      })
+      await secondPage.getByLabel("Account name", { exact: true }).fill("Cancelled recipient")
+      await secondPage.getByLabel("Passkey name", { exact: true }).fill("Cancelled passkey")
+      const begin = secondPage.waitForResponse((response) =>
+        response.url().endsWith("/v1/auth/invite/begin"),
+      )
+      await secondPage.bringToFront()
+      await secondPage.getByRole("button", { name: "Create account", exact: true }).click()
+      expect((await begin).status()).toBe(200)
+      await expect(secondPage.getByRole("alert")).toHaveText(/.+/)
+      await expect(tokenField).toHaveValue("")
+      expect((await account(secondPage)).authenticated).toBe(false)
+      await command(helper, ["assert-invitation"], token)
+      await noBrowserSecret(secondPage, token)
+      await secondPage.reload()
+      await expect(tokenField).toHaveValue("")
+
+      // The recipient reopens the original message, not a retained browser copy.
+      await secondPage.goto(invitation.url)
+      await expect.poll(async () => (await tokenField.inputValue()) === token).toBe(true)
+      await secondPage.getByLabel("Account name", { exact: true }).fill("Independent account B")
+      await secondPage.getByLabel("Passkey name", { exact: true }).fill("Independent B passkey")
+      const completed = secondPage.waitForResponse((response) =>
+        response.url().endsWith("/v1/auth/invite/finish"),
+      )
+      await secondPage.bringToFront()
+      await secondPage.getByRole("button", { name: "Create account", exact: true }).click()
+      const completion = await completed
+      expect(completion.status()).toBe(200)
+      expect(completion.request().postDataJSON()).not.toHaveProperty("role")
+      await expectSignedIn(secondPage)
+      const state = await account(secondPage)
+      accountB = state.account_id
+      expect(accountB).not.toBe(accountA)
+      expect(state.display_name).toBe("Independent account B")
+      expect(state.role).toBe("user")
+      await noBrowserSecret(secondPage, token)
+      await command(helper, ["assert-no-secret"], token)
+      const replay = await previewContext.request.post("/v1/auth/invite/begin", {
+        headers: { Origin: baseURL as string },
+        data: { token, name: "Replay", display_name: "Forbidden duplicate" },
+      })
+      expect(replay.status()).toBe(403)
+      expect(await replay.json()).toEqual(invalidGrant)
+    } finally {
+      await previewContext.close()
+    }
+    assertRecipientRequestPrivacy()
+    await expect(secondPage.getByRole("link", { name: "Invitations", exact: true })).toHaveCount(0)
+    const userState = await account(secondPage)
+    const denied = await secondPage.request.post("/v1/account/invitations", {
+      headers: { Origin: baseURL as string, "X-CSRF-Token": userState.csrf_token },
+      data: {},
     })
-    expect(replay.status() >= 400 && replay.status() < 500).toBe(true)
+    expect(denied.status()).toBe(403)
+    await secondPage.goto("/manage/invitations")
+    await expect(
+      secondPage.getByRole("button", { name: "Create invitation link", exact: true }),
+    ).toHaveCount(0)
+    await expect(secondPage.getByText(/access denied/i)).toBeVisible()
+    expect((await account(secondPage)).account_id).toBe(accountB)
     secondKey = await createKey(secondPage, "B integration key")
     expect((await account(page)).account_id).toBe(accountA)
+  })
+
+  await test.step("operator CLI invitation retains manual-token user registration", async () => {
+    const token = await command(accountCLI, ["-kind", "invite"])
+    expect(/^[A-Za-z0-9_-]{43}$/.test(token)).toBe(true)
+    invitationTokens.add(token)
+    const manualContext = await browser.newContext({ baseURL })
+    const assertManualRequestPrivacy = observeInvitationRequests(manualContext, invitationTokens)
+    try {
+      const manual = await manualContext.newPage()
+      const manualCDP = await manualContext.newCDPSession(manual)
+      await manualCDP.send("WebAuthn.enable")
+      await authenticator(manualCDP)
+      await manual.goto("/invite")
+      await manual.getByLabel("Invitation token", { exact: true }).fill(token)
+      await manual.getByLabel("Account name", { exact: true }).fill("Manual CLI recipient")
+      await manual.getByLabel("Passkey name", { exact: true }).fill("Manual CLI passkey")
+      await expect(manual.getByLabel("Role", { exact: true })).toHaveCount(0)
+      await manual.bringToFront()
+      await manual.getByRole("button", { name: "Create account", exact: true }).click()
+      await expectSignedIn(manual)
+      const state = await account(manual)
+      expect(state.role).toBe("user")
+      expect([accountA, accountB]).not.toContain(state.account_id)
+      await noBrowserSecret(manual, token)
+      await command(helper, ["assert-no-secret"], token)
+      assertManualRequestPrivacy()
+    } finally {
+      await manualContext.close()
+    }
   })
 
   await test.step("two-account share lists, counts, links, and revocation stay isolated", async () => {
@@ -732,11 +968,190 @@ test("required real-backend account and API key lifecycle", async ({
     await cliRevokeDenied(shareA.id, baseURL as string, secondKey.key)
   })
 
+  await test.step("invitation display clears on section exit, logout, and identity change", async () => {
+    const exited = await createInvitation(page, invitationTokens)
+    let warned = false
+    page.once("dialog", async (dialog) => {
+      warned = dialog.message().includes("invitation link")
+      await dialog.dismiss()
+    })
+    await page.getByRole("link", { name: "Security", exact: true }).click()
+    expect(warned).toBe(true)
+    await expect(page).toHaveURL(`${baseURL}/manage/invitations`)
+    expect(
+      (await page.getByRole("textbox", { name: "Invitation link", exact: true }).inputValue()) ===
+        exited.url,
+    ).toBe(true)
+    page.once("dialog", (dialog) => dialog.accept())
+    await openSection(page, "Security")
+    await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(0)
+    await openSection(page, "Invitations")
+    await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(0)
+    await command(helper, ["assert-invitation"], exited.token)
+
+    const loggedOut = await createInvitation(page, invitationTokens)
+    await logOut(page)
+    await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(0)
+    await noBrowserSecret(page, loggedOut.token)
+    await login(page, "/manage/invitations")
+    await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(0)
+    await command(helper, ["assert-invitation"], loggedOut.token)
+
+    const changed = await createInvitation(page, invitationTokens)
+    const aCookies = await context.cookies()
+    await context.addCookies(await secondContext.cookies())
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+    await expect(page.getByText("Account: Independent account B", { exact: true })).toBeVisible()
+    await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(0)
+    await expect(page.getByRole("link", { name: "Invitations", exact: true })).toHaveCount(0)
+    await noBrowserSecret(page, changed.token)
+    await context.addCookies(aCookies)
+    await page.goto("/manage/invitations")
+    await expect(page.getByText("Account: Owner", { exact: true })).toBeVisible()
+    await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(0)
+    await command(helper, ["assert-invitation"], changed.token)
+  })
+
+  await test.step("delayed invitation issuance cannot display or copy after account switch", async () => {
+    await page.bringToFront()
+    const aCookies = await context.cookies()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let received!: () => void
+    const issued = new Promise<void>((resolve) => {
+      received = resolve
+    })
+    let settled!: () => void
+    const settlement = new Promise<void>((resolve) => {
+      settled = resolve
+    })
+    let delayedToken = ""
+    let issuedStatus = 0
+    await page.route("**/v1/account/invitations", async (route) => {
+      try {
+        const response = await route.fetch()
+        issuedStatus = response.status()
+        if (issuedStatus === 201) {
+          const result = await response.json()
+          delayedToken = new URL(result.invitation_url).hash.slice("#token=".length)
+          invitationTokens.add(delayedToken)
+        }
+        received()
+        await gate
+        await route.fulfill({ response })
+      } finally {
+        settled()
+      }
+    })
+    try {
+      await page.evaluate(() => navigator.clipboard.writeText("delayed invitation sentinel"))
+      await page.getByRole("button", { name: "Create invitation link", exact: true }).click()
+      await issued
+      expect(issuedStatus).toBe(201)
+      expect(delayedToken.length).toBe(43)
+      await command(helper, ["assert-invitation"], delayedToken)
+      await context.addCookies(await secondContext.cookies())
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+      await expect(page.getByText("Account: Independent account B", { exact: true })).toBeVisible()
+      release()
+      await settlement
+      await page.waitForLoadState("networkidle")
+      await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(
+        0,
+      )
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+        "delayed invitation sentinel",
+      )
+      await noBrowserSecret(page, delayedToken)
+    } finally {
+      release()
+      await page.unroute("**/v1/account/invitations")
+      await context.addCookies(aCookies)
+      await page.goto("/manage/invitations")
+    }
+  })
+
+  await test.step("delayed invitation clipboard completion stays obsolete after account switch", async () => {
+    const invitation = await createInvitation(page, invitationTokens)
+    const aCookies = await context.cookies()
+    await page.evaluate(() => {
+      const state = window as typeof window & {
+        copyStarted?: boolean
+        copySettled?: boolean
+        releaseCopy?: () => void
+        writeClipboard?: (text: string) => Promise<void>
+      }
+      const write = navigator.clipboard.writeText.bind(navigator.clipboard)
+      state.writeClipboard = write
+      Object.defineProperty(navigator.clipboard, "writeText", {
+        configurable: true,
+        value: async (text: string) => {
+          await write(text)
+          state.copyStarted = true
+          await new Promise<void>((resolve) => {
+            state.releaseCopy = resolve
+          })
+          state.copySettled = true
+        },
+      })
+    })
+    await page.getByRole("button", { name: "Copy link", exact: true }).click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as typeof window & { copyStarted?: boolean }).copyStarted === true,
+        ),
+      )
+      .toBe(true)
+    // The clipboard write began while A was current. A late completion must
+    // not report success or overwrite a later clipboard value selected by B.
+    expect((await page.evaluate(() => navigator.clipboard.readText())) === invitation.url).toBe(
+      true,
+    )
+    await context.addCookies(await secondContext.cookies())
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+    await expect(page.getByText("Account: Independent account B", { exact: true })).toBeVisible()
+    await page.evaluate(async () => {
+      const state = window as typeof window & {
+        releaseCopy?: () => void
+        writeClipboard?: (text: string) => Promise<void>
+      }
+      await state.writeClipboard?.("B clipboard after invitation")
+      state.releaseCopy?.()
+    })
+    await page.waitForLoadState("networkidle")
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as typeof window & { copySettled?: boolean }).copySettled === true,
+        ),
+      )
+      .toBe(true)
+    // Wait two render frames after promise settlement, not just disappearance
+    // caused by the earlier account switch.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    )
+    await expect(page.getByRole("textbox", { name: "Invitation link", exact: true })).toHaveCount(0)
+    await expect(page.getByText("Invitation link copied.", { exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      "B clipboard after invitation",
+    )
+    await noBrowserSecret(page, invitation.token)
+    await context.addCookies(aCookies)
+    await page.goto("/manage/invitations")
+  })
+
   await test.step("real cross-tab invalidation and response-bound cookie switch", async () => {
     const observer = await context.newPage()
     try {
       await observer.goto("/account")
-      await expect(observer.getByText(accountA, { exact: true })).toBeVisible()
+      await expect(observer.getByText("Account: Owner", { exact: true })).toBeVisible()
       await createKey(page, "Cross-tab one-time key")
       await expect(page.getByLabel("New API key", { exact: true })).toBeVisible()
       await logOut(observer)
@@ -843,13 +1258,19 @@ test("required real-backend account and API key lifecycle", async ({
   })
 
   await test.step("all protected destinations return through dedicated login", async () => {
-    for (const destination of ["/manage/shares", "/manage/api-keys", "/account"]) {
+    for (const destination of [
+      "/manage/shares",
+      "/manage/api-keys",
+      "/manage/invitations",
+      "/account",
+    ]) {
       await logOut(page)
       await expect(page).toHaveURL(/\/login$/)
       await page.goto(destination)
       await expect(page).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(destination)}$`))
       await expect(page.getByRole("navigation", { name: "Management sections" })).toHaveCount(0)
       await page.reload()
+      await page.bringToFront()
       await page.getByRole("button", { name: "Sign in with passkey", exact: true }).click()
       await expectSignedIn(page)
       await expect(page).toHaveURL(new URL(destination, baseURL).href)
@@ -893,11 +1314,14 @@ test("required real-backend account and API key lifecycle", async ({
       await replacementPage
         .getByLabel("Replacement passkey name", { exact: true })
         .fill("Replacement passkey")
+      await replacementPage.bringToFront()
       await replacementPage.getByRole("button", { name: "Recover account", exact: true }).click()
       await expectSignedIn(replacementPage)
       await expect(replacementPage).toHaveURL(/\/account$/)
       expect((await account(page)).authenticated).toBe(false)
       expect((await account(replacementPage)).account_id).toBe(accountA)
+      expect((await account(replacementPage)).role).toBe("admin")
+      expect((await account(secondPage)).role).toBe("user")
       expect((await account(secondPage)).account_id).toBe(accountB)
       const bKeys = await secondPage.request.get("/v1/api-keys")
       expect(bKeys.headers()["x-morsel-account-id"]).toBe(accountB)
@@ -942,4 +1366,5 @@ test("required real-backend account and API key lifecycle", async ({
       await secondContext.close()
     }
   })
+  assertAdminRequestPrivacy()
 })

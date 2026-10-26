@@ -26,7 +26,7 @@ func TestMigrateRunsResumableLabelsOnlyForApplicableSchema(t *testing.T) {
 	if err := migrate(ctx, pool, migrations.Up, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(ctx, pool, migrations.Down, 4); err != nil {
+	if err := migrate(ctx, pool, migrations.Down, 5); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrate(ctx, pool, migrations.Down, 1); err != nil {

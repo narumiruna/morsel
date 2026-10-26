@@ -59,7 +59,7 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 		},
 	})
 	if cfg.Account != nil {
-		for _, path := range []string{"/v1/account", "/v1/account/shares", "/v1/account/shares/{id}", "/v1/account/shares/*", "/v1/auth/*", "/v1/passkeys", "/v1/passkeys/*", "/v1/api-keys", "/v1/api-keys/*"} {
+		for _, path := range []string{"/v1/account", "/v1/account/invitations", "/v1/account/shares", "/v1/account/shares/{id}", "/v1/account/shares/*", "/v1/auth/*", "/v1/passkeys", "/v1/passkeys/*", "/v1/api-keys", "/v1/api-keys/*"} {
 			router.Handle(path, cfg.Account)
 		}
 	}

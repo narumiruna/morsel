@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, open, rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -145,16 +145,25 @@ try {
     MORSEL_AUTH_TEST_HELPER: helper,
     MORSEL_AUTH_TEST_OUTPUT: join(directory, "test-results"),
     MORSEL_AUTH_TEST_ACCOUNT: join(directory, "account"),
+    MORSEL_AUTH_TEST_SERVER_LOG: join(directory, "server.log"),
   }
   delete env.MORSEL_API_KEY
   delete env.MORSEL_API_KEY_FILE
   await run(join(directory, "migrate"), [], { env, quiet: true })
-  const service = spawn(join(directory, "server"), [], {
-    cwd: root,
-    env,
-    detached: process.platform !== "win32",
-    stdio: "ignore",
-  })
+  // Inspect actual backend logs for secret disclosure without printing them.
+  // The private file is removed with the disposable database and test output.
+  const log = await open(env.MORSEL_AUTH_TEST_SERVER_LOG, "wx", 0o600)
+  let service
+  try {
+    service = spawn(join(directory, "server"), [], {
+      cwd: root,
+      env,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", log.fd, log.fd],
+    })
+  } finally {
+    await log.close()
+  }
   children.add(service)
   let serviceError = false
   service.once("error", () => {

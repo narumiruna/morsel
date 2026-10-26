@@ -12,6 +12,7 @@ import {
   type Passkey,
   supportsPasskeys,
 } from "../account/accountApi"
+import { InvitationManagement } from "../account/InvitationManagement"
 import {
   type AccountMutation,
   initialShareListState,
@@ -23,12 +24,13 @@ import { formatDate } from "../formatDate"
 import { useKeyDiscardWarning } from "../navigation"
 import { LoadingPage } from "./StatusPage"
 
-export type AccountSection = "security" | "shares" | "api-keys"
+export type AccountSection = "security" | "shares" | "api-keys" | "invitations"
 
 const sections = [
   { section: "shares", href: "/manage/shares", label: "Shares" },
   { section: "api-keys", href: "/manage/api-keys", label: "API keys" },
   { section: "security", href: "/account", label: "Security" },
+  { section: "invitations", href: "/manage/invitations", label: "Invitations" },
 ] as const
 
 export function AccountPage({ section = "security" }: { section?: AccountSection }) {
@@ -261,7 +263,9 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                   ? "Morsel account"
                   : section === "shares"
                     ? "Manage shares"
-                    : "Manage API keys"}
+                    : section === "invitations"
+                      ? "Manage invitations"
+                      : "Manage API keys"}
               </Heading>
               <Text as="span" size="2" className="management-identity">
                 Account: {account.display_name}
@@ -273,15 +277,17 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
               </Text>
             )}
             <nav className="management-navigation" aria-label="Management sections">
-              {sections.map((item) => (
-                <a
-                  key={item.section}
-                  href={item.href}
-                  aria-current={section === item.section ? "page" : undefined}
-                >
-                  {item.label}
-                </a>
-              ))}
+              {sections
+                .filter((item) => item.section !== "invitations" || account.role === "admin")
+                .map((item) => (
+                  <a
+                    key={item.section}
+                    href={item.href}
+                    aria-current={section === item.section ? "page" : undefined}
+                  >
+                    {item.label}
+                  </a>
+                ))}
             </nav>
             <div role="alert" className="account-error">
               {error}
@@ -295,6 +301,17 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                 or localhost.
               </Text>
             )}
+            {section === "invitations" &&
+              (account.role === "admin" ? (
+                !(busy && busyAction === "Signing out…") &&
+                controller.current && (
+                  <InvitationManagement sessionSignal={controller.current.signal} />
+                )
+              ) : (
+                <Text as="p" role="alert">
+                  Access denied. Only admins can manage invitations.
+                </Text>
+              ))}
             {section === "api-keys" && rawKey && (
               <Card className="account-secret">
                 <Heading as="h2" size="4" tabIndex={-1} ref={saveKeyHeading}>

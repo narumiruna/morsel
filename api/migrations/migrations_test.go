@@ -19,6 +19,10 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 		t.Fatalf("second up: %v", err)
 	}
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("down account roles migration: %v", err)
+	}
+	assertMigrationState(t, pool, 11)
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatalf("down account isolation migration: %v", err)
 	}
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {

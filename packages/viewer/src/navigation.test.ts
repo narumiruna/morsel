@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { authenticationURL, loginDestination } from "./navigation"
 
 describe("authentication destinations", () => {
-  it.each(["/manage/shares", "/manage/api-keys", "/account"])(
+  it.each(["/manage/shares", "/manage/api-keys", "/manage/invitations", "/account"])(
     "accepts only the exact destination %s",
     (path) => {
       expect(loginDestination(`?next=${encodeURIComponent(path)}`)).toBe(path)
@@ -24,6 +24,9 @@ describe("authentication destinations", () => {
     "?next=/s/secret",
     "?next=/login",
     "?next=/manage",
+    "?next=/manage/invitations/",
+    "?next=/manage/invitations?token=x",
+    "?next=/manage/invitations%23token=x",
     "?next=%2Faccount%00",
     "?next=%5C%5Cevil.example",
     "?next=javascript:alert(1)",

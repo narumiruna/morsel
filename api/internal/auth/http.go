@@ -107,6 +107,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/v1/account" && r.Method == "GET":
 		err = s.accountState(w, r)
+	case path == "/v1/account/invitations" && r.Method == "POST":
+		err = s.createInvitation(w, r)
 	case path == "/v1/account/shares" && r.Method == "GET":
 		err = s.listShares(w, r)
 	case strings.HasPrefix(path, "/v1/account/shares/") && strings.HasSuffix(path, "/link") && r.Method == "GET":
@@ -172,6 +174,7 @@ func (s *Service) accountState(w http.ResponseWriter, r *http.Request) error {
 			w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 			state["account_id"] = u.ID.String()
 			state["display_name"] = u.DisplayName
+			state["role"] = u.Role
 			state["authenticated"] = true
 			state["csrf_token"] = ss.CSRF
 			state["verification_required"] = !ss.Verified

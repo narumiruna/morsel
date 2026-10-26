@@ -48,6 +48,11 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request, kind string) err
 		return err
 	}
 	defer tx.Rollback(r.Context())
+	if kind == "invite" {
+		if err = s.requireSignedOut(r, tx); err != nil {
+			return err
+		}
+	}
 	f := flow{Kind: kind, Name: name, DisplayName: "Owner"}
 	var u *account
 	switch kind {
@@ -175,6 +180,19 @@ func (s *Service) consumeFlow(ctx context.Context, token, kind string) (*flow, e
 	return f, nil
 }
 func (s *Service) finish(w http.ResponseWriter, r *http.Request, kind string) error {
+	// Reject a signed-in recipient before spending its challenge. Check again
+	// in the registration transaction; no session may be silently replaced.
+	if kind == "invite" {
+		tx, err := s.pool.Begin(r.Context())
+		if err != nil {
+			return err
+		}
+		err = s.requireSignedOut(r, tx)
+		_ = tx.Rollback(r.Context())
+		if err != nil {
+			return err
+		}
+	}
 	f, err := s.consumeFlow(r.Context(), cookieValue(r, flowCookie), kind)
 	if err != nil {
 		return err
@@ -202,6 +220,11 @@ func (s *Service) finish(w http.ResponseWriter, r *http.Request, kind string) er
 	}
 	defer tx.Rollback(r.Context())
 	var u *account
+	if kind == "invite" {
+		if err = s.requireSignedOut(r, tx); err != nil {
+			return err
+		}
+	}
 	if kind == "setup" || kind == "invite" {
 		if kind == "setup" {
 			if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock($1)`, setupLock); err != nil {
@@ -218,7 +241,11 @@ func (s *Service) finish(w http.ResponseWriter, r *http.Request, kind string) er
 		if err = validGrant(r.Context(), tx, f.GrantHash, kind, nil, true); err != nil {
 			return err
 		}
-		u = &account{ID: f.AccountID, Generation: f.Generation, DisplayName: f.DisplayName}
+		role := "user"
+		if kind == "setup" {
+			role = "admin"
+		}
+		u = &account{ID: f.AccountID, Generation: f.Generation, DisplayName: f.DisplayName, Role: role}
 	} else if kind == "login" {
 		u, err = loginAccount(r.Context(), tx, assertion.RawID, assertion.Response.UserHandle, f.StartedOrder)
 		if err != nil {
@@ -271,7 +298,7 @@ func (s *Service) finish(w http.ResponseWriter, r *http.Request, kind string) er
 	var sessionToken string
 	switch kind {
 	case "setup", "invite":
-		if _, err = tx.Exec(r.Context(), `INSERT INTO accounts(id,auth_generation,display_name) VALUES($1,$2,$3)`, u.ID, u.Generation, u.DisplayName); err != nil {
+		if _, err = tx.Exec(r.Context(), `INSERT INTO accounts(id,auth_generation,display_name,role) VALUES($1,$2,$3,$4)`, u.ID, u.Generation, u.DisplayName, u.Role); err != nil {
 			return err
 		}
 		if err = saveCredential(r.Context(), tx, u, credential, f.Name); err != nil {

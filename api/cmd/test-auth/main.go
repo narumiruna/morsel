@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -102,7 +104,7 @@ func run(ctx context.Context, args []string) error {
 		if err != nil || accountID == uuid.Nil {
 			return errors.New("invalid account ID")
 		}
-	case "assert-no-secret":
+	case "assert-no-secret", "assert-invitation", "expire-invitation":
 		if len(args) != 1 {
 			return errors.New("unexpected arguments")
 		}
@@ -120,26 +122,27 @@ func run(ctx context.Context, args []string) error {
 	defer conn.Close(ctx)
 	if args[0] == "seed-legacy-share" {
 		// The browser must finish setup and settle all requests before this
-		// test-only transition. Never insert an ownerless row in schema 11.
-		// Use the real single-account downgrade, seed schema 10, then upgrade.
+		// test-only transition. Never insert an ownerless row in schema 11/12.
+		// Use the real single-account 12 -> 10 downgrade, then upgrade to 12.
+		// A sole user is not safe: upgrading would promote it to admin.
 		const id = "00000000-0000-4000-8000-000000000001"
 		var safe bool
 		if err := conn.QueryRow(ctx, `SELECT
-			(SELECT count(*)=11 AND max(version)=11 AND NOT bool_or(dirty) FROM schema_migrations)
+			(SELECT count(*)=12 AND min(version)=1 AND max(version)=12 AND NOT bool_or(dirty) FROM schema_migrations)
 			AND (SELECT count(*)=1 FROM accounts)
-			AND EXISTS(SELECT 1 FROM accounts WHERE id=$1)
+			AND EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND role='admin')
 			AND NOT EXISTS(SELECT 1 FROM auth_flows WHERE expires_at>clock_timestamp())`, accountID).Scan(&safe); err != nil {
 			return err
 		}
 		if !safe {
-			return errors.New("legacy fixture requires clean schema 11, sole matching owner, and no active flows")
+			return errors.New("legacy fixture requires clean schema 12, sole matching admin, and no active flows")
 		}
 		pool, err := pgxpool.New(ctx, os.Getenv("MORSEL_DATABASE_URL"))
 		if err != nil {
 			return err
 		}
 		defer pool.Close()
-		if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		if err := migrations.Run(ctx, pool, migrations.Down, 2); err != nil {
 			return err
 		}
 		if _, err := pool.Exec(ctx, `INSERT INTO shares (id, token_hash, content, created_at)
@@ -172,6 +175,34 @@ func run(ctx context.Context, args []string) error {
 	secret, err := io.ReadAll(io.LimitReader(os.Stdin, 4097))
 	if err != nil || len(secret) < 32 || len(secret) > 4096 {
 		return errors.New("invalid secret input")
+	}
+	raw := strings.TrimSpace(string(secret))
+	if args[0] == "assert-invitation" || args[0] == "expire-invitation" {
+		decoded, err := base64.RawURLEncoding.Strict().DecodeString(raw)
+		if err != nil || len(raw) != 43 || len(decoded) != 32 {
+			return errors.New("invalid invitation input")
+		}
+		hash := sha256.Sum256([]byte(raw))
+		if args[0] == "expire-invitation" {
+			tag, err := conn.Exec(ctx, `UPDATE auth_grants SET expires_at=clock_timestamp()-interval '1 second' WHERE token_hash=$1 AND kind='invite'`, hash[:])
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() != 1 {
+				return errors.New("invitation fixture missing")
+			}
+			return nil
+		}
+		var valid bool
+		if err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM auth_grants
+			WHERE token_hash=$1 AND kind='invite' AND account_id IS NULL AND generation IS NULL
+			AND expires_at>clock_timestamp() AND expires_at<=clock_timestamp()+interval '1 hour')`, hash[:]).Scan(&valid); err != nil {
+			return err
+		}
+		if !valid {
+			return errors.New("hashed one-hour invitation missing")
+		}
+		return nil
 	}
 	rows, err := conn.Query(ctx, `SELECT tablename FROM pg_tables WHERE schemaname=current_schema()`)
 	if err != nil {

@@ -73,7 +73,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/gist/" || r.URL.Path == "/account" || r.URL.Path == "/example" ||
-		r.URL.Path == "/manage/shares" || r.URL.Path == "/manage/api-keys" ||
+		r.URL.Path == "/manage/shares" || r.URL.Path == "/manage/api-keys" || r.URL.Path == "/manage/invitations" ||
 		r.URL.Path == "/login" || r.URL.Path == "/recover" || r.URL.Path == "/setup" || r.URL.Path == "/invite" {
 		h.serveApp(w, r)
 		return

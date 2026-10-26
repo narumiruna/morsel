@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"net/url"
 	"os"
@@ -113,7 +114,7 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 		t.Fatal("configure target database")
 	}
 	defer pool.Close()
-	if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Up, 11); err != nil {
 		t.Fatal("migrate target database")
 	}
 	var sentinel string
@@ -132,6 +133,45 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO accounts(id) VALUES($1)`, owner); err != nil {
 		t.Fatal("create sole fixture owner")
 	}
+	// Test the old latest-version boundary explicitly before adding roles.
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
+		t.Fatal("legacy fixture accepted schema 11")
+	}
+	if err := migrations.Run(ctx, pool, migrations.Up, 1); err != nil {
+		t.Fatal("migrate role fixture to schema 12")
+	}
+	if _, err := pool.Exec(ctx, `WITH retained AS (INSERT INTO auth_sessions(token_hash,account_id,generation,csrf_token,expires_at)
+		VALUES(decode(repeat('dd',32),'hex'),$1,1,'retained-csrf',clock_timestamp()+interval '1 hour') RETURNING account_id)
+		INSERT INTO api_keys(id,account_id,name,prefix,token_hash)
+		VALUES('00000000-0000-4000-8000-000000000003',$1,'Retained client','msk_retained',decode(repeat('ee',32),'hex'))`, owner); err != nil {
+		t.Fatal("create retained authorization fixture")
+	}
+	const snapshotSQL = `SELECT jsonb_build_object(
+		'account', (SELECT to_jsonb(a) FROM accounts a WHERE id=$1),
+		'sessions', (SELECT jsonb_agg(to_jsonb(s) ORDER BY token_hash) FROM auth_sessions s),
+		'keys', (SELECT jsonb_agg(to_jsonb(k) ORDER BY id) FROM api_keys k))::text`
+	var before string
+	if err := pool.QueryRow(ctx, snapshotSQL, owner).Scan(&before); err != nil {
+		t.Fatal("snapshot authorization fixture")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE accounts SET role='user' WHERE id=$1`, owner); err != nil {
+		t.Fatal("set sole user fixture")
+	}
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
+		t.Fatal("legacy fixture would promote a sole user")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE accounts SET role='admin' WHERE id=$1`, owner); err != nil {
+		t.Fatal("restore sole admin fixture")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty=true WHERE version=12`); err != nil {
+		t.Fatal("set dirty fixture")
+	}
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
+		t.Fatal("legacy fixture accepted dirty schema 12")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty=false WHERE version=12`); err != nil {
+		t.Fatal("restore clean fixture")
+	}
 	if err := run(ctx, []string{"seed-legacy-share", "10000000-0000-4000-8000-000000000099"}); err == nil {
 		t.Fatal("legacy fixture accepted a foreign owner")
 	}
@@ -148,6 +188,10 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	if err := run(ctx, []string{"seed-legacy-share", owner}); err != nil {
 		t.Fatal("seed legacy fixture in disposable target")
 	}
+	var after string
+	if err := pool.QueryRow(ctx, snapshotSQL, owner).Scan(&after); err != nil || after != before {
+		t.Fatal("legacy transition changed admin role, account identity, session, or key")
+	}
 	var content string
 	if err := pool.QueryRow(ctx, `SELECT content FROM shares WHERE id='00000000-0000-4000-8000-000000000001'`).Scan(&content); err != nil || content != "# Legacy before account" {
 		t.Fatal("legacy fixture missing")
@@ -161,12 +205,63 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 		t.Fatal("legacy fixture did not preserve the sole owner")
 	}
 	var targetMigrations int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 11 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 12 {
 		t.Fatal("target database was not fully migrated")
 	}
 	var actualOwner string
 	if err := pool.QueryRow(ctx, `SELECT account_id FROM shares WHERE id='00000000-0000-4000-8000-000000000001'`).Scan(&actualOwner); err != nil || actualOwner != owner {
 		t.Fatal("legacy share was not assigned to the sole owner")
+	}
+	// Grant helpers accept secrets only on stdin and select by hash. The
+	// expiry mutation must not affect another independent invitation.
+	withInput := func(command, token string) error {
+		t.Helper()
+		input, err := os.CreateTemp(t.TempDir(), "stdin-*")
+		if err != nil {
+			t.Fatal("create private helper input")
+		}
+		defer input.Close()
+		if _, err := input.WriteString(token); err != nil {
+			t.Fatal("write private helper input")
+		}
+		if _, err := input.Seek(0, 0); err != nil {
+			t.Fatal("rewind private helper input")
+		}
+		previous := os.Stdin
+		os.Stdin = input
+		defer func() { os.Stdin = previous }()
+		return run(ctx, []string{command})
+	}
+	const first = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	const independent = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA"
+	for _, token := range []string{first, independent} {
+		hash := sha256.Sum256([]byte(token))
+		if _, err := pool.Exec(ctx, `INSERT INTO auth_grants(token_hash,kind,expires_at)
+			VALUES($1,'invite',clock_timestamp()+interval '1 hour')`, hash[:]); err != nil {
+			t.Fatal("seed hashed invitation fixture")
+		}
+		if err := withInput("assert-invitation", token); err != nil {
+			t.Fatal("hashed invitation fixture not found")
+		}
+		if err := withInput("assert-no-secret", token); err != nil {
+			t.Fatal("raw invitation fixture persisted")
+		}
+	}
+	if err := withInput("expire-invitation", first); err != nil {
+		t.Fatal("expire target invitation")
+	}
+	if err := withInput("assert-invitation", first); err == nil {
+		t.Fatal("expired invitation remained valid")
+	}
+	if err := withInput("assert-invitation", independent); err != nil {
+		t.Fatal("expiry affected independent invitation")
+	}
+	for _, command := range []string{"assert-invitation", "expire-invitation"} {
+		for _, token := range []string{"too-short", first + "A", first[:42] + "/", first[:42] + "B"} {
+			if err := withInput(command, token); err == nil {
+				t.Fatal("grant helper accepted invalid input")
+			}
+		}
 	}
 	const other = "20000000-0000-4000-8000-000000000002"
 	if _, err := pool.Exec(ctx, `INSERT INTO accounts(id) VALUES($1)`, other); err != nil {
@@ -174,6 +269,9 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	}
 	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
 		t.Fatal("legacy fixture accepted multiple accounts")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM auth_sessions`); err != nil {
+		t.Fatal("remove retained session fixture")
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO auth_sessions(token_hash,account_id,generation,csrf_token,expires_at)
 		VALUES(decode(repeat('aa',32),'hex'),$1,1,'csrf-a',clock_timestamp()+interval '1 hour'),
@@ -217,12 +315,12 @@ func TestRejectUnsafeDatabaseNames(t *testing.T) {
 }
 
 func TestMutationRequiresDisposableDatabase(t *testing.T) {
-	for _, command := range []string{"expire-sessions", "expire-verification", "assert-no-secret", "seed-legacy-share"} {
+	for _, command := range []string{"expire-sessions", "expire-verification", "assert-no-secret", "assert-invitation", "expire-invitation", "seed-legacy-share"} {
 		for _, database := range []string{"production", "postgres", "morsel_test", "morsel_auth_e2e_invalid"} {
 			t.Run(command+"/"+database, func(t *testing.T) {
 				t.Setenv("MORSEL_DATABASE_URL", "postgres://operator:secret@127.0.0.1:1/"+database+"?connect_timeout=1")
 				args := []string{command}
-				if command != "assert-no-secret" {
+				if command != "assert-no-secret" && command != "assert-invitation" && command != "expire-invitation" {
 					args = append(args, "10000000-0000-4000-8000-000000000001")
 				}
 				err := run(context.Background(), args)
@@ -235,7 +333,7 @@ func TestMutationRequiresDisposableDatabase(t *testing.T) {
 }
 
 func TestRejectUnknownCommandsAndArguments(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions"}, {"expire-verification"}, {"seed-legacy-share"}, {"expire-sessions", "00000000-0000-0000-0000-000000000000"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}, {"seed-legacy-share", "extra"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions"}, {"expire-verification"}, {"seed-legacy-share"}, {"expire-sessions", "00000000-0000-0000-0000-000000000000"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}, {"assert-invitation", "extra"}, {"expire-invitation", "extra"}, {"seed-legacy-share", "extra"}} {
 		if err := run(context.Background(), args); err == nil {
 			t.Fatal("invalid command accepted")
 		}

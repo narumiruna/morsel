@@ -17,6 +17,7 @@ import (
 type account struct {
 	ID          uuid.UUID
 	DisplayName string
+	Role        string
 	Generation  int64
 	Credentials []webauthn.Credential
 }
@@ -28,7 +29,7 @@ func (u *account) WebAuthnCredentials() []webauthn.Credential { return u.Credent
 
 func lockAccount(ctx context.Context, tx pgx.Tx, id uuid.UUID, generation int64) (*account, error) {
 	u := &account{ID: id}
-	err := tx.QueryRow(ctx, `SELECT display_name,auth_generation FROM accounts WHERE id=$1 FOR UPDATE`, id).Scan(&u.DisplayName, &u.Generation)
+	err := tx.QueryRow(ctx, `SELECT display_name,auth_generation,role FROM accounts WHERE id=$1 FOR UPDATE`, id).Scan(&u.DisplayName, &u.Generation, &u.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errGeneration
 	}
@@ -78,7 +79,7 @@ func loginAccount(ctx context.Context, tx pgx.Tx, rawID, userHandle []byte, star
 		return nil, err
 	}
 	u := &account{ID: found}
-	err = tx.QueryRow(ctx, `SELECT display_name,auth_generation FROM accounts WHERE id=$1 FOR UPDATE`, found).Scan(&u.DisplayName, &u.Generation)
+	err = tx.QueryRow(ctx, `SELECT display_name,auth_generation,role FROM accounts WHERE id=$1 FOR UPDATE`, found).Scan(&u.DisplayName, &u.Generation, &u.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errCredential
 	}
@@ -217,8 +218,7 @@ func IssueGrant(ctx context.Context, pool *pgxpool.Pool, kind string, accountID 
 	if err != nil {
 		return "", err
 	}
-	token := randomToken()
-	_, err = tx.Exec(ctx, `INSERT INTO auth_grants(token_hash,kind,account_id,generation,expires_at) VALUES($1,$2,$3,$4,clock_timestamp()+make_interval(secs => $5))`, hashToken(token), kind, id, generation, grantLifetime.Seconds())
+	token, _, err := insertGrant(ctx, tx, kind, id, generation)
 	if err != nil {
 		return "", err
 	}
@@ -227,6 +227,16 @@ func IssueGrant(ctx context.Context, pool *pgxpool.Pool, kind string, accountID 
 	}
 	return token, nil
 }
+
+// insertGrant shares hash-only storage and database expiry with operator grants.
+// The caller holds all authorization locks until its transaction commits.
+func insertGrant(ctx context.Context, tx pgx.Tx, kind string, id *uuid.UUID, generation *int64) (string, time.Time, error) {
+	token := randomToken()
+	var expires time.Time
+	err := tx.QueryRow(ctx, `INSERT INTO auth_grants(token_hash,kind,account_id,generation,expires_at) VALUES($1,$2,$3,$4,clock_timestamp()+make_interval(secs => $5)) RETURNING expires_at`, hashToken(token), kind, id, generation, grantLifetime.Seconds()).Scan(&expires)
+	return token, expires, err
+}
+
 func validGrant(ctx context.Context, tx pgx.Tx, hash []byte, kind string, u *account, consume bool) error {
 	var valid bool
 	var id any

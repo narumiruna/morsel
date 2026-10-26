@@ -27,12 +27,18 @@ describe("parseRoute", () => {
   it("matches only explicit management and example routes", () => {
     expect(parseRoute("/manage/shares", "")).toEqual({ kind: "management", section: "shares" })
     expect(parseRoute("/manage/api-keys", "")).toEqual({ kind: "management", section: "api-keys" })
+    expect(parseRoute("/manage/invitations", "")).toEqual({
+      kind: "management",
+      section: "invitations",
+    })
     expect(parseRoute("/example", "")).toEqual({ kind: "example" })
     for (const path of [
       "/manage",
       "/manage/",
       "/manage/shares/",
       "/manage/security",
+      "/manage/invitations/",
+      "/manage/invitations/new",
       "/example/",
     ]) {
       expect(parseRoute(path, "")).toEqual({ kind: "not-found" })
