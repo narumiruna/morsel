@@ -185,6 +185,39 @@ Production data, physical passkey selection, and native operating-system focus b
 
 For backend query/backfill measurements, run `go test -v ./internal/share -run 'Test(LabelDiscovery|AdminQueryDiscovery|BackfillDiscovery)'` from `packages/server/` with `MORSEL_TEST_DATABASE_URL` set. These tests use generated fixtures and isolated schemas; their timings are not production guarantees.
 
+## Releases
+
+Morsel has one repository version in the root `package.json`. The initial value, `0.0.1`, matches the existing `v0.0.1` Git tag. Server, viewer, and client changes all use this release target. Workspace package versions are not updated or published by this process.
+
+Add a changeset with the change:
+
+```sh
+npm run changeset -- add patch "Fix share rendering."
+npm run changeset -- status
+```
+
+Use `minor` for a feature or `major` for a breaking change. Each generated `.changeset/*.md` file targets only `@narumitw/morsel`. Commit the file with the code change. Changesets are not required for changes that need no release.
+
+The **Publish** workflow runs on pushes to `main` and through manual dispatch:
+
+1. With pending changesets, `changesets/action@v2` creates or updates a version pull request using `npm run release:version`.
+   - The command uses the highest pending bump, updates the root version, root lockfile version metadata, and root `CHANGELOG.md`, and removes the consumed changesets.
+   - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
+2. After the version pull request is merged and no changesets remain, `npm run release` creates and pushes one `vX.Y.Z` tag from the checked-out `main` commit.
+   - The workflow publishes the container from that tag, then creates the GitHub release. GitHub release notes use generated commit notes; Changesets summaries remain in the root changelog.
+   - A completed version is a no-op on later pushes. An older version or a missing changelog entry fails before tagging.
+3. If container publication or GitHub release creation fails after tagging, manually rerun **Publish** on `main`.
+   - The workflow recovers the same unreleased tag without moving it or creating another version.
+   - If `main` already contains a newer prepared version, rerun **Publish** after recovery to publish that version.
+
+GitHub Actions must have permission to create pull requests in the repository's **Actions > General** settings. CI runs for a version pull request created with the default GitHub token can require **Approve workflows to run**. Approve and verify the required checks before merging.
+
+To review a version change locally, run `npm run release:version` on a branch, then `npm run ci` and inspect the diff. This version command does not commit, tag, publish, or deploy. In contrast, `npm run release` is a CI publication command that can push a remote tag; do not use it to preview a release.
+
+Use the repository commands rather than the stock `npx changeset` CLI, which discovers individual npm workspaces. The action uses the custom root-only version command; its built-in npm publisher, package tags, and GitHub releases are disabled. Repository tag publication runs before the action can check out its version branch. No npm registry URL, npm token, or OIDC permission is needed. Run `npm run test:release` for isolated tests.
+
+Deployment remains a separate manual workflow subject to the [maintenance requirements](deployment.md#multi-account-maintenance-upgrade). Publishing a container or GitHub release does not deploy services or apply migrations.
+
 ## Repository layout
 
 ```text

@@ -72,6 +72,19 @@ jobs:
           push: false
           tags: morsel:test
 
+  release-tooling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run test:release
+      - run: npm run changeset -- status
+
   auth-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
