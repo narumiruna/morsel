@@ -16,6 +16,7 @@ import { delimiter, join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { runChangeset } from "./changeset.mjs"
+import { publishRepository } from "./release.mjs"
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url))
 const name = "@narumitw/morsel"
@@ -217,96 +218,230 @@ test("CLI invocation from a workspace still targets the repository root", async 
   assert.deepEqual(await readdir(join(root, "packages/viewer")), ["package.json"])
 })
 
-async function calculateTag(t, root, state = {}) {
-  const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
-  const step = workflow
-    .split("      - name: Calculate version\n")[1]
-    .split("      - name: Tag version\n")[0]
-  const script = step
-    .split("        run: |\n")[1]
-    .split("\n")
-    .map((line) => line.slice(10))
-    .join("\n")
+async function publication(t, root, state = {}) {
   const bin = await mkdtemp(join(tmpdir(), "morsel-release-commands-"))
   t.after(() => rm(bin, { recursive: true, force: true }))
-  const stub = `#!/usr/bin/env node
-const { basename } = require("node:path")
-const state = JSON.parse(process.env.RELEASE_TEST_STATE)
-const args = process.argv.slice(2)
-if (basename(process.argv[1]) === "gh") process.exit(state.unreleased ? 1 : 0)
-if (args[0] === "tag" && args[1] === "--list") console.log(state.latestTag)
-else if (args[0] === "rev-list") console.log(state.sameCommit ? "head" : "previous")
-else if (args[0] === "rev-parse") console.log("head")
-else if (args[0] === "merge-base") process.exit(state.foreignTag ? 1 : 0)
-else if (args[0] === "show-ref") process.exit(args[3] === "refs/tags/" + state.latestTag ? 0 : 1)
-else { console.error("Unexpected git command", args); process.exit(90) }
-`
-  for (const command of ["git", "gh"]) {
+  const log = join(bin, "commands.jsonl")
+  await writeFile(log, "")
+  const stub = [
+    "#!/usr/bin/env node",
+    'const { appendFileSync } = require("node:fs")',
+    'const { basename } = require("node:path")',
+    "const state = JSON.parse(process.env.RELEASE_TEST_STATE)",
+    "const command = basename(process.argv[1])",
+    "const args = process.argv.slice(2)",
+    'appendFileSync(process.env.RELEASE_TEST_LOG, JSON.stringify([command, ...args]) + "\\n")',
+    'if (command === "gh" && args[0] === "api") {',
+    '  if (state.apiFailure) { console.error("GitHub API failed"); process.exit(1) }',
+    '  console.log(state.releasedTags.join("\\n"))',
+    '} else if (command === "git" && args[0] === "tag" && args[1] === "--list") {',
+    '  console.log(state.tags.join("\\n"))',
+    '} else if (command === "git" && args[0] === "merge-base") process.exit(state.foreignTag ? 1 : 0)',
+    'else if (command === "git" && args[0] === "tag") process.exit(state.tagFailure ? 1 : 0)',
+    'else if (command === "git" && args[0] === "push") process.exit(state.pushFailure ? 1 : 0)',
+    'else { console.error("Unexpected release command", command, args); process.exit(90) }',
+  ].join("\n")
+  for (const command of ["git", "gh", "npm"]) {
     await writeFile(join(bin, command), stub)
     await chmod(join(bin, command), 0o700)
   }
-  const output = join(bin, "output")
-  await writeFile(output, "")
-  const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", script], {
-    cwd: root,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      PATH: `${bin}${delimiter}${process.env.PATH}`,
-      GITHUB_OUTPUT: output,
-      RELEASE_TEST_STATE: JSON.stringify({ latestTag: "v0.0.1", ...state }),
-    },
-  })
-  return { ...result, output: await readFile(output, "utf8") }
+  const env = {
+    ...process.env,
+    PATH: `${bin}${delimiter}${process.env.PATH}`,
+    RELEASE_TEST_LOG: log,
+    RELEASE_TEST_STATE: JSON.stringify({
+      tags: ["v0.0.1"],
+      releasedTags: ["v0.0.1"],
+      ...state,
+    }),
+  }
+  const calls = async () =>
+    (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+  return {
+    env,
+    run: () => publishRepository(root, env),
+    calls,
+    writes: async () =>
+      (await calls()).filter(
+        ([command, operation, argument]) =>
+          command === "git" &&
+          (operation === "push" || (operation === "tag" && argument !== "--list")),
+      ),
+  }
 }
 
-test("manual release uses the root version rather than workspace versions", async (t) => {
+test("publication creates only the root tag without changing package versions", async (t) => {
   const root = await fixture(t, "0.0.2")
-  const result = await calculateTag(t, root)
-  assert.equal(result.status, 0, result.stderr)
-  assert.equal(result.output, "tag=v0.0.2\ntag_exists=false\n")
-  const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
-  assert.match(workflow, /on:\n {2}workflow_dispatch:\n\n/)
-  assert.doesNotMatch(workflow, /inputs\.bump|npm publish|changeset publish/)
+  const command = await publication(t, root)
+  assert.equal(await command.run(), "v0.0.2")
+  assert.deepEqual(await command.writes(), [
+    ["git", "tag", "v0.0.2"],
+    ["git", "push", "origin", "refs/tags/v0.0.2"],
+  ])
+  assert.equal(git(root, "status", "--porcelain"), "")
+  for (const workspace of workspaceNames) {
+    assert.equal((await json(join(root, "packages", workspace, "package.json"))).version, "0.1.0")
+  }
+})
+
+test("publication supports a repository with no stable tags", async (t) => {
+  const root = await fixture(t, "0.0.2")
+  const command = await publication(t, root, {
+    tags: ["v1.0.0-beta.1"],
+    releasedTags: [],
+  })
+  assert.equal(await command.run(), "v0.0.2")
+  assert.equal((await command.writes()).length, 2)
+})
+
+test("completed publication is a no-op, including repeated main pushes", async (t) => {
+  const root = await fixture(t)
+  const command = await publication(t, root)
+  assert.equal(await command.run(), null)
+  assert.equal(await command.run(), null)
+  assert.deepEqual(await command.writes(), [])
+})
+
+test("pending changesets are left for the action's version PR", async (t) => {
+  const root = await fixture(t)
+  await add(root, "minor")
+  const before = git(root, "status", "--porcelain")
+  const command = await publication(t, root)
+  assert.equal(await command.run(), null)
+  assert.deepEqual(await command.writes(), [])
+  assert.equal(git(root, "status", "--porcelain"), before)
+  assert.equal((await json(join(root, "package.json"))).version, "0.0.1")
+})
+
+test("a retry recovers an unreleased tag before processing newer changesets", async (t) => {
+  const root = await fixture(t, "0.0.3")
+  await add(root, "minor")
+  const before = await readdir(join(root, ".changeset"))
+  const command = await publication(t, root, { tags: ["v0.0.2", "v0.0.1"] })
+  assert.equal(await command.run(), "v0.0.2")
+  assert.deepEqual(await command.writes(), [])
+  assert.deepEqual(
+    (await command.calls()).find(
+      ([command, operation]) => command === "git" && operation === "merge-base",
+    ),
+    ["git", "merge-base", "--is-ancestor", "v0.0.2^{commit}", "HEAD"],
+  )
+  assert.deepEqual(await readdir(join(root, ".changeset")), before)
+})
+
+test("recovery still permits a root-only version PR for pending changesets", async (t) => {
+  const root = await fixture(t, "0.0.2")
+  await add(root, "minor")
+  git(root, "add", "--", ".changeset")
+  git(root, "commit", "--quiet", "-m", "test: add pending release during recovery")
+  const command = await publication(t, root, { tags: ["v0.0.2", "v0.0.1"] })
+  const tag = await command.run()
+  assert.equal(tag, "v0.0.2")
+  assert.equal(await runChangeset(["version"], root), "Versioned repository: v0.1.0")
+  assert.equal((await json(join(root, "package.json"))).version, "0.1.0")
+  assert.deepEqual(await command.writes(), [])
+  assert.deepEqual((await readdir(join(root, ".changeset"))).sort(), ["README.md", "config.json"])
 })
 
 for (const [description, version, state, expected] of [
-  ["already tagged", "0.0.2", { latestTag: "v0.0.2" }, /already tagged/],
-  ["older", "0.0.1", { latestTag: "v0.0.2" }, /must be newer/],
+  ["older version", "0.0.1", { tags: ["v0.0.2"], releasedTags: ["v0.0.2"] }, /must be newer/],
   ["prerelease", "0.0.2-beta.1", {}, /stable semantic version/],
-  ["no new commits", "0.0.2", { sameCommit: true }, /No commits since/],
-  ["foreign unreleased tag", "0.0.2", { unreleased: true, foreignTag: true }, /is not on main/],
+  ["foreign unreleased tag", "0.0.2", { tags: ["v0.0.2"], foreignTag: true }, /is not on main/],
+  ["GitHub API failure", "0.0.2", { apiFailure: true }, /GitHub API failed/],
 ]) {
-  test(`manual release rejects ${description}`, async (t) => {
+  test(`publication rejects ${description} without tagging`, async (t) => {
     const root = await fixture(t, version)
-    const result = await calculateTag(t, root, state)
-    assert.notEqual(result.status, 0)
-    assert.match(result.stderr, expected)
-    assert.equal(result.output, "")
+    const command = await publication(t, root, state)
+    await assert.rejects(command.run(), expected)
+    assert.deepEqual(await command.writes(), [])
   })
 }
 
-test("manual release requires consumed changesets and a matching changelog entry", async (t) => {
+test("publication requires a matching root changelog entry", async (t) => {
   const root = await fixture(t, "0.0.2")
-  await add(root, "patch")
-  let result = await calculateTag(t, root)
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /npm run release:version/)
-  for (const path of await readdir(join(root, ".changeset"))) {
-    if (path.endsWith(".md") && path !== "README.md") await rm(join(root, ".changeset", path))
-  }
   await writeFile(join(root, "CHANGELOG.md"), "# Morsel\n\n## 0.0.1\n")
-  result = await calculateTag(t, root)
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /CHANGELOG.md must contain/)
+  const command = await publication(t, root)
+  await assert.rejects(command.run(), /CHANGELOG.md must contain/)
+  assert.deepEqual(await command.writes(), [])
 })
 
-test("release retry recovers the existing tag without consuming pending changesets", async (t) => {
+test("publication rejects workspace changesets without creating tags", async (t) => {
   const root = await fixture(t, "0.0.2")
-  await add(root, "minor")
-  const before = await readdir(join(root, ".changeset"))
-  const result = await calculateTag(t, root, { latestTag: "v0.0.2", unreleased: true })
-  assert.equal(result.status, 0, result.stderr)
-  assert.equal(result.output, "tag=v0.0.2\ntag_exists=true\n")
-  assert.deepEqual(await readdir(join(root, ".changeset")), before)
+  await writeFile(
+    join(root, ".changeset/invalid.md"),
+    '---\n"@narumitw/morsel-client": patch\n---\n\nWrong release target.\n',
+  )
+  const command = await publication(t, root)
+  await assert.rejects(command.run(), /must target only @narumitw\/morsel/)
+  assert.deepEqual(await command.writes(), [])
+})
+
+for (const [description, state, writes] of [
+  ["tag creation", { tagFailure: true }, [["git", "tag", "v0.0.2"]]],
+  [
+    "tag push",
+    { pushFailure: true },
+    [
+      ["git", "tag", "v0.0.2"],
+      ["git", "push", "origin", "refs/tags/v0.0.2"],
+    ],
+  ],
+]) {
+  test(`publication stops on failed ${description}`, async (t) => {
+    const root = await fixture(t, "0.0.2")
+    const command = await publication(t, root, state)
+    await assert.rejects(command.run(), /Command failed/)
+    assert.deepEqual(await command.writes(), writes)
+  })
+}
+
+for (const [version, expected] of [
+  ["0.0.2", "tag=v0.0.2\n"],
+  ["0.0.1", ""],
+]) {
+  test(`release CLI emits the correct job output for ${version}`, async (t) => {
+    const root = await fixture(t, version)
+    await mkdir(join(root, "scripts"))
+    for (const filename of ["release.mjs", "changeset.mjs"]) {
+      await copyFile(join(repositoryRoot, "scripts", filename), join(root, "scripts", filename))
+    }
+    await symlink(join(repositoryRoot, "node_modules"), join(root, "node_modules"), "dir")
+    const command = await publication(t, root)
+    const output = join(root, "output")
+    await writeFile(output, "")
+    const result = spawnSync(process.execPath, [join(root, "scripts/release.mjs")], {
+      cwd: join(root, "packages/viewer"),
+      env: { ...command.env, GITHUB_OUTPUT: output },
+      encoding: "utf8",
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(await readFile(output, "utf8"), expected)
+  })
+}
+
+test("workflow uses the action only for root version PRs and keeps manual deployment", async () => {
+  const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
+  assert.ok(workflow.includes("  workflow_dispatch:\n"))
+  assert.ok(workflow.includes("  push:\n    branches: [main]\n"))
+  assert.ok(workflow.includes("node-version: 26"))
+  assert.ok(workflow.includes("pull-requests: write"))
+  assert.ok(workflow.includes("uses: changesets/action@v2"))
+  assert.ok(workflow.includes("version-script: npm run release:version"))
+  assert.ok(workflow.includes("create-github-releases: false"))
+  assert.ok(workflow.includes("push-git-tags: false"))
+  assert.match(workflow, /name: Prepare version PR\n\s+uses: changesets\/action@v2/)
+  assert.ok(
+    workflow.indexOf("run: npm run release\n") < workflow.indexOf("uses: changesets/action@v2"),
+  )
+  assert.ok(workflow.includes("if: needs.publish.outputs.tag != ''"))
+  assert.ok(workflow.includes("uses: ./.github/workflows/container.yml"))
+  assert.ok(workflow.includes("needs: [publish, container]"))
+  assert.doesNotMatch(workflow, /publish-script:|npm publish|registry-url:|id-token:/)
+  const deploy = await readFile(join(repositoryRoot, ".github/workflows/deploy.yml"), "utf8")
+  assert.ok(deploy.includes("  workflow_dispatch:\n"))
+  assert.ok(!deploy.includes("  push:"))
 })

@@ -187,7 +187,7 @@ For backend query/backfill measurements, run `go test -v ./internal/share -run '
 
 ## Releases
 
-Morsel has one repository version in the root `package.json`. The initial value, `0.0.1`, matches the existing `v0.0.1` Git tag. The server, viewer, and client changes all use this release target. Workspace package versions are not updated or published by this process.
+Morsel has one repository version in the root `package.json`. The initial value, `0.0.1`, matches the existing `v0.0.1` Git tag. Server, viewer, and client changes all use this release target. Workspace package versions are not updated or published by this process.
 
 Add a changeset with the change:
 
@@ -198,19 +198,25 @@ npm run changeset -- status
 
 Use `minor` for a feature or `major` for a breaking change. Each generated `.changeset/*.md` file targets only `@narumitw/morsel`. Commit the file with the code change. Changesets are not required for changes that need no release.
 
-Prepare a version change on a branch after the changesets reach `main`:
+The **Publish** workflow runs on pushes to `main` and through manual dispatch:
 
-```sh
-npm run release:version
-npm run ci
-git diff
-```
+1. With pending changesets, `changesets/action@v2` creates or updates a version pull request using `npm run release:version`.
+   - The command uses the highest pending bump, updates the root version, root lockfile version metadata, and root `CHANGELOG.md`, and removes the consumed changesets.
+   - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
+2. After the version pull request is merged and no changesets remain, `npm run release` creates and pushes one `vX.Y.Z` tag from the checked-out `main` commit.
+   - The workflow publishes the container from that tag, then creates the GitHub release. GitHub release notes use generated commit notes; Changesets summaries remain in the root changelog.
+   - A completed version is a no-op on later pushes. An older version or a missing changelog entry fails before tagging.
+3. If container publication or GitHub release creation fails after tagging, manually rerun **Publish** on `main`.
+   - The workflow recovers the same unreleased tag without moving it or creating another version.
+   - If `main` already contains a newer prepared version, rerun **Publish** after recovery to publish that version.
 
-The version command uses the highest pending bump. It updates only the root `package.json` version, root version metadata in `package-lock.json`, and root `CHANGELOG.md`, then removes the consumed changesets. It does not commit, tag, publish, or deploy. Review and merge these changes through a pull request.
+GitHub Actions must have permission to create pull requests in the repository's **Actions > General** settings. CI runs for a version pull request created with the default GitHub token can require **Approve workflows to run**. Approve and verify the required checks before merging.
 
-After the version pull request is merged, manually run the **Release** workflow on `main`. The workflow rejects pending changesets, missing changelog entries, and existing or older versions. It creates one `vX.Y.Z` tag from the root version, publishes the container, and creates the GitHub release. GitHub release notes still use GitHub's generated commit notes; Changesets summaries are in the root changelog. If container publishing or GitHub release creation fails after tagging, rerun the workflow to recover the same unreleased tag without another bump. Deployment remains a separate manual workflow subject to the [maintenance requirements](deployment.md#multi-account-maintenance-upgrade).
+To review a version change locally, run `npm run release:version` on a branch, then `npm run ci` and inspect the diff. This version command does not commit, tag, publish, or deploy. In contrast, `npm run release` is a CI publication command that can push a remote tag; do not use it to preview a release.
 
-Use the repository commands rather than `npx changeset` or `changesets/action`. The stock CLI discovers individual npm workspaces. The repository wrapper uses the public Changesets APIs with only the root package. Run `npm run test:release` for isolated release-tooling tests.
+Use the repository commands rather than the stock `npx changeset` CLI, which discovers individual npm workspaces. The action uses the custom root-only version command; its built-in npm publisher, package tags, and GitHub releases are disabled. Repository tag publication runs before the action can check out its version branch. No npm registry URL, npm token, or OIDC permission is needed. Run `npm run test:release` for isolated tests.
+
+Deployment remains a separate manual workflow subject to the [maintenance requirements](deployment.md#multi-account-maintenance-upgrade). Publishing a container or GitHub release does not deploy services or apply migrations.
 
 ## Repository layout
 

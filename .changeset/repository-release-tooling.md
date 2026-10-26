@@ -2,4 +2,4 @@
 "@narumitw/morsel": patch
 ---
 
-Add Changesets support for one repository version and changelog without versioning or publishing npm workspaces.
+Automatically prepare Changesets version pull requests and publish one repository tag, container, and GitHub release without versioning or publishing npm workspaces.

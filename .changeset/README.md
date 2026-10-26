@@ -11,8 +11,8 @@ npm run changeset -- status
 
 Use `minor` for a feature or `major` for a breaking change. Commit the generated Markdown file with the change.
 
-Before release, run `npm run release:version`, review and merge the generated root version, lockfile, changelog, and consumed changesets. Then manually run the **Release** workflow on `main`.
+After changesets reach `main`, the **Publish** workflow uses `changesets/action@v2` with the custom root-only version command to create or update a version pull request. Review and merge that pull request to publish the repository tag, container, and GitHub release automatically. Deployment remains manual.
 
-Use the repository commands, not `npx changeset` or `changesets/action`. The stock CLI discovers npm workspaces and does not implement this root-only release policy. No command publishes npm packages or creates package tags.
+Use the repository commands, not the stock `npx changeset` CLI. The stock CLI discovers individual npm workspaces. The workflow disables the action's built-in publisher and package tags. `npm run release:version` only changes local version files; `npm run release` is a CI command that can push a repository tag. No command publishes npm packages or creates workspace package tags.
 
 See [release preparation](../docs/development.md#releases) for the complete process.

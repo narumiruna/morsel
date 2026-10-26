@@ -1,112 +1,74 @@
-name: Release
+name: Publish
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
-  group: release
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  tag:
+  publish:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
-      tag: ${{ steps.version.outputs.tag }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
+          cache: npm
+      - run: npm ci
       - name: Verify latest main
         run: |
           git fetch origin main --tags
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
-      - name: Calculate version
-        id: version
+      # The action checks out its version branch. Tag only the main commit before that.
+      - name: Publish repository tag
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          latest_tag="$(git tag --list 'v*' --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
-
-          if [[ -n "$latest_tag" ]] && ! gh release view "$latest_tag" >/dev/null 2>&1; then
-            if ! git merge-base --is-ancestor "$latest_tag^{commit}" HEAD; then
-              echo "Unreleased tag $latest_tag is not on main" >&2
-              exit 1
-            fi
-            echo "Recovering unreleased tag $latest_tag"
-            echo "tag=$latest_tag" >> "$GITHUB_OUTPUT"
-            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ -n "$latest_tag" ]] && [[ "$(git rev-list -n 1 "$latest_tag")" == "$(git rev-parse HEAD)" ]]; then
-            echo "No commits since $latest_tag" >&2
-            exit 1
-          fi
-
-          tag="$(node --input-type=module <<'NODE'
-          import { readFileSync, readdirSync } from "node:fs"
-
-          const pending = readdirSync(".changeset").filter(
-            (name) => name.endsWith(".md") && name !== "README.md",
-          )
-          if (pending.length > 0) {
-            throw new Error("Run npm run release:version and merge the version changes before release.")
-          }
-          const { version } = JSON.parse(readFileSync("package.json", "utf8"))
-          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
-            throw new Error("The repository version must be a stable semantic version.")
-          }
-          const changelog = readFileSync("CHANGELOG.md", "utf8")
-          if (!changelog.split("\n").includes(`## ${version}`)) {
-            throw new Error("CHANGELOG.md must contain the repository version.")
-          }
-          console.log(`v${version}`)
-          NODE
-          )"
-
-          if git show-ref --verify --quiet "refs/tags/$tag"; then
-            echo "Version $tag is already tagged; prepare the next version with Changesets." >&2
-            exit 1
-          fi
-          if [[ -n "$latest_tag" ]] && [[ "$(printf '%s\n' "$latest_tag" "$tag" | sort --version-sort | tail -n 1)" != "$tag" ]]; then
-            echo "Version $tag must be newer than $latest_tag." >&2
-            exit 1
-          fi
-
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "tag_exists=false" >> "$GITHUB_OUTPUT"
-      - name: Tag version
-        if: steps.version.outputs.tag_exists == 'false'
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag --annotate "$TAG" --message "$TAG"
-          git push origin "refs/tags/$TAG"
+        run: npm run release
+      - name: Prepare version PR
+        uses: changesets/action@v2
+        with:
+          version-script: npm run release:version
+          commit-message: "chore(release): version repository"
+          pr-title: "chore(release): version repository"
+          create-github-releases: false
+          push-git-tags: false
 
   container:
-    needs: tag
+    needs: publish
+    if: needs.publish.outputs.tag != ''
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/container.yml
     with:
-      tag: ${{ needs.tag.outputs.tag }}
+      tag: ${{ needs.publish.outputs.tag }}
     secrets: inherit
 
   release:
-    needs: [tag, container]
+    needs: [publish, container]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Create GitHub release
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.tag.outputs.tag }}
+          TAG: ${{ needs.publish.outputs.tag }}
         run: gh release create "$TAG" --verify-tag --generate-notes --fail-on-no-commits --title "$TAG"

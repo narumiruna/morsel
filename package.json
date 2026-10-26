@@ -13,6 +13,7 @@
     "dev": "npm run dev --workspace @narumitw/morsel-viewer",
     "ci": "biome ci . && npm run test:deploy && npm run test:release && npm run changeset -- status && npm run ci --workspaces",
     "changeset": "node scripts/changeset.mjs",
+    "release": "node scripts/release.mjs",
     "release:version": "node scripts/changeset.mjs version",
     "test:release": "node --test scripts/test-release.mjs",
     "test:deploy": "node --test scripts/test-deploy.mjs",
@@ -34,6 +35,7 @@
     "@changesets/write": "1.0.1",
     "@manypkg/tools": "2.1.2",
     "husky": "^9.1.7",
+    "semver": "7.8.5",
     "vitest": "^5.0.5"
   }
 }

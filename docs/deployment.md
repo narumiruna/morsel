@@ -114,7 +114,7 @@ The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, a
 
 ## Multi-account maintenance upgrade
 
-**No production release or workflow dispatch is authorized by this implementation task.** The migration release uses manual `workflow_dispatch` only; push-to-main deployment is disabled. Do not deploy intermediate implementation commits. Keep this gate until required checks and the operator prerequisites below pass. Automatic deployment may resume only when every deployment and rollback path preserves account isolation.
+**No production release or workflow dispatch is authorized by this implementation task.** The **Deploy** workflow uses manual `workflow_dispatch` only; push-to-main deployment is disabled. The **Publish** workflow can create release artifacts automatically; it does not deploy services or apply migrations. Do not deploy intermediate implementation commits. Keep this gate until required checks and the operator prerequisites below pass. Automatic deployment may resume only when every deployment and rollback path preserves account isolation.
 
 Migrations 11 and 12 require a coordinated outage. Stop **all** old instances and all writes, including setup and invitation writers, before running the new migration. An old server can still perform global reads and revocation with the new schema present. Do not use mixed-version or zero-downtime deployment.
 
