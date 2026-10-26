@@ -42,7 +42,7 @@
     "vega-lite": "6.5.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.2",
     "@playwright/test": "1.64.1",
     "@redocly/cli": "2.66.0",
     "@testing-library/jest-dom": "7.0.1",
