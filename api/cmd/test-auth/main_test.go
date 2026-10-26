@@ -125,7 +125,27 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 		t.Fatal("target migrations touched administrator database")
 	}
 	t.Setenv("MORSEL_DATABASE_URL", targetURL)
-	if err := run(ctx, []string{"seed-legacy-share"}); err != nil {
+	const owner = "10000000-0000-4000-8000-000000000001"
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
+		t.Fatal("legacy fixture accepted an ownerless database")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts(id) VALUES($1)`, owner); err != nil {
+		t.Fatal("create sole fixture owner")
+	}
+	if err := run(ctx, []string{"seed-legacy-share", "10000000-0000-4000-8000-000000000099"}); err == nil {
+		t.Fatal("legacy fixture accepted a foreign owner")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO auth_flows(token_hash,kind,name,session_data,expires_at)
+		VALUES(decode(repeat('cc',32),'hex'),'login','','{}',clock_timestamp()+interval '1 hour')`); err != nil {
+		t.Fatal("create active fixture ceremony")
+	}
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
+		t.Fatal("legacy fixture accepted an active ceremony")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM auth_flows`); err != nil {
+		t.Fatal("remove fixture ceremony")
+	}
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err != nil {
 		t.Fatal("seed legacy fixture in disposable target")
 	}
 	var content string
@@ -137,12 +157,40 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 		t.Fatal("legacy fixture backfill missing")
 	}
 	var accountCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM accounts`).Scan(&accountCount); err != nil || accountCount != 0 {
-		t.Fatal("legacy fixture requires an account")
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM accounts`).Scan(&accountCount); err != nil || accountCount != 1 {
+		t.Fatal("legacy fixture did not preserve the sole owner")
 	}
 	var targetMigrations int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 10 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 11 {
 		t.Fatal("target database was not fully migrated")
+	}
+	var actualOwner string
+	if err := pool.QueryRow(ctx, `SELECT account_id FROM shares WHERE id='00000000-0000-4000-8000-000000000001'`).Scan(&actualOwner); err != nil || actualOwner != owner {
+		t.Fatal("legacy share was not assigned to the sole owner")
+	}
+	const other = "20000000-0000-4000-8000-000000000002"
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts(id) VALUES($1)`, other); err != nil {
+		t.Fatal("create second fixture owner")
+	}
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
+		t.Fatal("legacy fixture accepted multiple accounts")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO auth_sessions(token_hash,account_id,generation,csrf_token,expires_at)
+		VALUES(decode(repeat('aa',32),'hex'),$1,1,'csrf-a',clock_timestamp()+interval '1 hour'),
+		(decode(repeat('bb',32),'hex'),$2,1,'csrf-b',clock_timestamp()+interval '1 hour')`, owner, other); err != nil {
+		t.Fatal("create independent sessions")
+	}
+	if err := run(ctx, []string{"expire-verification", owner}); err != nil {
+		t.Fatal("expire owner verification")
+	}
+	if err := run(ctx, []string{"expire-sessions", owner}); err != nil {
+		t.Fatal("expire owner sessions")
+	}
+	var isolated bool
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT expires_at<clock_timestamp() AND verified_at=to_timestamp(0) FROM auth_sessions WHERE account_id=$1)
+		AND (SELECT expires_at>clock_timestamp() AND verified_at>to_timestamp(0) FROM auth_sessions WHERE account_id=$2)`, owner, other).Scan(&isolated); err != nil || !isolated {
+		t.Fatal("session expiry changed another account")
 	}
 }
 
@@ -173,7 +221,11 @@ func TestMutationRequiresDisposableDatabase(t *testing.T) {
 		for _, database := range []string{"production", "postgres", "morsel_test", "morsel_auth_e2e_invalid"} {
 			t.Run(command+"/"+database, func(t *testing.T) {
 				t.Setenv("MORSEL_DATABASE_URL", "postgres://operator:secret@127.0.0.1:1/"+database+"?connect_timeout=1")
-				err := run(context.Background(), []string{command})
+				args := []string{command}
+				if command != "assert-no-secret" {
+					args = append(args, "10000000-0000-4000-8000-000000000001")
+				}
+				err := run(context.Background(), args)
 				if err == nil || err.Error() != "operation requires disposable database" {
 					t.Fatal("non-test database did not fail before database connection")
 				}
@@ -183,7 +235,7 @@ func TestMutationRequiresDisposableDatabase(t *testing.T) {
 }
 
 func TestRejectUnknownCommandsAndArguments(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}, {"seed-legacy-share", "extra"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions"}, {"expire-verification"}, {"seed-legacy-share"}, {"expire-sessions", "00000000-0000-0000-0000-000000000000"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}, {"seed-legacy-share", "extra"}} {
 		if err := run(context.Background(), args); err == nil {
 			t.Fatal("invalid command accepted")
 		}

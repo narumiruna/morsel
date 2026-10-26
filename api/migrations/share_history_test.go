@@ -11,11 +11,8 @@ import (
 )
 
 func TestShareHistoryIndexPreservesLegacyRows(t *testing.T) {
-	pool := testdb.Open(t)
+	pool := testdb.OpenVersion(t, 6)
 	ctx := t.Context()
-	if err := migrations.Run(ctx, pool, migrations.Down, 4); err != nil {
-		t.Fatal(err)
-	}
 	assertAuthTables(t, pool, true)
 	id := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO shares
@@ -57,7 +54,7 @@ func TestShareHistoryIndexPreservesLegacyRows(t *testing.T) {
 			t.Fatal("index rollback changed a legacy row")
 		}
 	}
-	if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Up, 4); err != nil {
 		t.Fatal(err)
 	}
 }

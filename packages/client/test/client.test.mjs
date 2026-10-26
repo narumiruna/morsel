@@ -135,6 +135,60 @@ test("API errors preserve status, code and message", async () => {
   })
 })
 
+test("foreign and missing share revocations preserve the same server 404 without retry", async () => {
+  const ids = ["b0000000-0000-4000-8000-000000000000", "ffffffff-ffff-4fff-8fff-ffffffffffff"]
+  const calls = []
+  const client = new MorselClient({
+    baseUrl: origin,
+    apiKey: "account-a-key",
+    fetch: async (url, options) => {
+      calls.push([url, options])
+      return json({ code: "not_found", message: "share not found" }, 404)
+    },
+  })
+  for (const id of ids) {
+    await assert.rejects(client.revokeShare(id), (error) => {
+      assert.ok(error instanceof MorselApiError)
+      assert.equal(error.status, 404)
+      assert.equal(error.code, "not_found")
+      assert.equal(error.message, "share not found")
+      return true
+    })
+  }
+  assert.equal(calls.length, 2)
+  assert.deepEqual(
+    calls.map(([url]) => url),
+    ids.map((id) => `${origin}/v1/shares/${id}`),
+  )
+})
+
+test("account keys use the same write contract without a client-supplied owner", async () => {
+  const calls = []
+  for (const apiKey of ["account-a-key-1", "account-a-key-2", "account-b-key-1"]) {
+    const client = new MorselClient({
+      baseUrl: origin,
+      apiKey,
+      fetch: async (url, options) => {
+        calls.push([url, options])
+        return json(
+          { id: "a0000000-0000-4000-8000-000000000000", share_url: `${origin}/s/${token}` },
+          201,
+        )
+      },
+    })
+    await client.createShare({ content: "# Same contract" })
+  }
+  assert.equal(calls.length, 3)
+  for (const [url, options] of calls) {
+    assert.equal(url, `${origin}/v1/shares`)
+    assert.deepEqual(JSON.parse(options.body), { content: "# Same contract" })
+    assert.equal(
+      Object.keys(options.headers).some((name) => /account|owner/i.test(name)),
+      false,
+    )
+  }
+})
+
 test("proxy and malformed responses produce useful errors without leaking keys", async () => {
   const client = new MorselClient({
     baseUrl: origin,

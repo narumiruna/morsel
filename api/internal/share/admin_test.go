@@ -15,16 +15,17 @@ import (
 
 func TestAdminPaginationAndNonConsumingDetails(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	ctx := t.Context()
-	// These rows predate account setup and have identical timestamps.
-	if _, err := pool.Exec(ctx, `INSERT INTO shares (id,token_hash,content,created_at)
-		SELECT md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'private Markdown '||n,'2020-01-01Z'
+	// These owned rows have identical timestamps.
+	if _, err := pool.Exec(ctx, `INSERT INTO shares (account_id,id,token_hash,content,created_at)
+		SELECT (SELECT id FROM accounts), md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'private Markdown '||n,'2020-01-01Z'
 		FROM generate_series(1,107) n`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content,created_at) VALUES
-		('00000000-0000-0000-0000-000000000000',sha256('old'::bytea),'oldest','2010-01-01Z'),
-		('ffffffff-ffff-ffff-ffff-ffffffffffff',sha256('new'::bytea),'newest','2030-01-01Z')`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content,created_at) VALUES
+		((SELECT id FROM accounts),'00000000-0000-0000-0000-000000000000',sha256('old'::bytea),'oldest','2010-01-01Z'),
+		((SELECT id FROM accounts),'ffffffff-ffff-ffff-ffff-ffffffffffff',sha256('new'::bytea),'newest','2030-01-01Z')`); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -37,7 +38,7 @@ func TestAdminPaginationAndNonConsumingDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	r := NewAdminRepository(tx)
+	r := NewAdminRepository(tx, testdb.AccountID(t, pool))
 	page, err := r.List(ctx, AdminListParams{})
 	if err != nil || len(page.Items) != 25 || page.NextCursor == "" || page.Items[0].Label != "newest" {
 		t.Fatalf("default page: %+v %v", page, err)
@@ -85,6 +86,7 @@ func TestAdminPaginationAndNonConsumingDetails(t *testing.T) {
 
 func TestAdminStatusesLabelsAndUnavailableDetails(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	ctx := t.Context()
 	type fixture struct {
 		status, content, title, label string
@@ -104,8 +106,8 @@ func TestAdminStatusesLabelsAndUnavailableDetails(t *testing.T) {
 	for i, f := range fixtures {
 		ids[i] = uuid.New()
 		if _, err := pool.Exec(ctx, `INSERT INTO shares
-			(id,token_hash,content,preview_title,preview_description,expires_at,max_views,view_count,revoked_at)
-			VALUES ($1,$2,$3,NULLIF($4,''),CASE WHEN $4='' THEN NULL ELSE 'description' END,
+			(account_id,id,token_hash,content,preview_title,preview_description,expires_at,max_views,view_count,revoked_at)
+			VALUES ((SELECT id FROM accounts),$1,$2,$3,NULLIF($4,''),CASE WHEN $4='' THEN NULL ELSE 'description' END,
 			CASE WHEN $5 THEN statement_timestamp()-interval '1 second' ELSE NULL END,
 			CASE WHEN $6 THEN 1 ELSE NULL END, CASE WHEN $6 THEN 1 ELSE 0 END,
 			CASE WHEN $7 THEN statement_timestamp() ELSE NULL END)`, ids[i], []byte(fmt.Sprintf("%032d", i)), f.content, f.title, f.expired, f.exhausted, f.revoked); err != nil {
@@ -120,7 +122,7 @@ func TestAdminStatusesLabelsAndUnavailableDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	r := NewAdminRepository(tx)
+	r := NewAdminRepository(tx, testdb.AccountID(t, pool))
 	for i, f := range fixtures {
 		detail, err := r.Detail(ctx, ids[i])
 		if err != nil || detail.Status != f.status || detail.Label != f.label || detail.Content != f.content || utf8.RuneCountInString(detail.Label) > 80 {
@@ -176,12 +178,13 @@ func TestAdminStatusesLabelsAndUnavailableDetails(t *testing.T) {
 
 func TestAdminCursorValidation(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	tx, err := pool.Begin(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(t.Context())
-	r := NewAdminRepository(tx)
+	r := NewAdminRepository(tx, testdb.AccountID(t, pool))
 	encode := func(value string) string { return base64.RawURLEncoding.EncodeToString([]byte(value)) }
 	for _, params := range []AdminListParams{
 		{Status: "unknown"}, {Limit: -1}, {Limit: 101},
@@ -209,6 +212,7 @@ func TestAdminCursorValidation(t *testing.T) {
 
 func TestAdminStatusUsesStatementTime(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	ctx := t.Context()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -216,13 +220,13 @@ func TestAdminStatusUsesStatementTime(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	id := uuid.New()
-	if _, err := tx.Exec(ctx, `INSERT INTO shares(id,token_hash,content,admin_label,expires_at) VALUES($1,$2,'timed','timed',statement_timestamp()+interval '50 milliseconds')`, id, []byte(strings.Repeat("a", 32))); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content,admin_label,expires_at) VALUES((SELECT id FROM accounts),$1,$2,'timed','timed',statement_timestamp()+interval '50 milliseconds')`, id, []byte(strings.Repeat("a", 32))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `SELECT pg_sleep(0.06)`); err != nil {
 		t.Fatal(err)
 	}
-	detail, err := NewAdminRepository(tx).Detail(ctx, id)
+	detail, err := NewAdminRepository(tx, testdb.AccountID(t, pool)).Detail(ctx, id)
 	if err != nil || detail.Status != "expired" {
 		t.Fatalf("status used transaction or application time: %+v %v", detail, err)
 	}

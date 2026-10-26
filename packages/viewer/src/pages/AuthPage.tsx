@@ -14,12 +14,13 @@ export function AuthPage({
   mode,
   search,
 }: {
-  mode: "login" | "recover" | "setup"
+  mode: "login" | "recover" | "setup" | "invite"
   search: string
 }) {
   const session = useAccountSession()
   const [token, setToken] = useState("")
   const [name, setName] = useState("")
+  const [displayName, setDisplayName] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [supported] = useState(supportsPasskeys)
@@ -27,7 +28,13 @@ export function AuthPage({
   const heading = useRef<HTMLHeadingElement>(null)
   const next = loginDestination(search)
   const title =
-    mode === "login" ? "Sign in" : mode === "setup" ? "Set up account" : "Recover account"
+    mode === "login"
+      ? "Sign in"
+      : mode === "setup"
+        ? "Set up account"
+        : mode === "invite"
+          ? "Create account"
+          : "Recover account"
   useEffect(() => {
     heading.current?.focus()
     return () => request.current?.abort()
@@ -38,7 +45,14 @@ export function AuthPage({
     const controller = new AbortController()
     request.current = controller
     const { signal } = controller
-    const body = mode === "login" ? {} : { token, name: name.trim() }
+    const body =
+      mode === "login"
+        ? {}
+        : {
+            token,
+            name: name.trim(),
+            ...(mode === "invite" ? { display_name: displayName.trim() } : {}),
+          }
     setToken("")
     setBusy(true)
     setError("")
@@ -101,6 +115,9 @@ export function AuthPage({
                 <Text as="p">
                   <a href={authenticationURL("recover", next)}>Recover account</a>
                 </Text>
+                <Text as="p">
+                  <a href={authenticationURL("invite", next)}>Use an invitation</a>
+                </Text>
               </>
             ) : (
               <form
@@ -112,11 +129,17 @@ export function AuthPage({
                 <Text as="p">
                   {mode === "setup"
                     ? "Use the one-time setup token from the operator command to register your first passkey."
-                    : "Use a one-time operator recovery token. Recovery replaces all passkeys and signs out other sessions. Existing API keys stay active. Review and revoke keys after recovery if you suspect compromise."}
+                    : mode === "invite"
+                      ? "Use the one-time invitation token from the operator to create a separate account."
+                      : "Use a one-time operator recovery token. Recovery replaces all passkeys and signs out other sessions. Existing API keys stay active. Review and revoke keys after recovery if you suspect compromise."}
                 </Text>
                 <fieldset disabled={busy || !supported}>
                   <label htmlFor="auth-token">
-                    {mode === "setup" ? "Setup token" : "Recovery token"}
+                    {mode === "setup"
+                      ? "Setup token"
+                      : mode === "invite"
+                        ? "Invitation token"
+                        : "Recovery token"}
                   </label>
                   <input
                     id="auth-token"
@@ -126,8 +149,20 @@ export function AuthPage({
                     value={token}
                     onChange={(event) => setToken(event.target.value)}
                   />
+                  {mode === "invite" && (
+                    <>
+                      <label htmlFor="auth-account-name">Account name</label>
+                      <input
+                        id="auth-account-name"
+                        required
+                        maxLength={200}
+                        value={displayName}
+                        onChange={(event) => setDisplayName(event.target.value)}
+                      />
+                    </>
+                  )}
                   <label htmlFor="auth-passkey-name">
-                    {mode === "setup" ? "Passkey name" : "Replacement passkey name"}
+                    {mode === "recover" ? "Replacement passkey name" : "Passkey name"}
                   </label>
                   <input
                     id="auth-passkey-name"
@@ -136,11 +171,20 @@ export function AuthPage({
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                   />
-                  <Button type="submit" disabled={!token.trim() || !name.trim()}>
+                  <Button
+                    type="submit"
+                    disabled={
+                      !token.trim() ||
+                      !name.trim() ||
+                      (mode === "invite" &&
+                        (!displayName.trim() ||
+                          new TextEncoder().encode(displayName.trim()).length > 200))
+                    }
+                  >
                     {title}
                   </Button>
                 </fieldset>
-                {mode === "recover" && (
+                {(mode === "recover" || mode === "invite") && (
                   <Text as="p">
                     <a href={authenticationURL("login", next)}>Back to sign in</a>
                   </Text>

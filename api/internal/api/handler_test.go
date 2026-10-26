@@ -25,8 +25,13 @@ type authenticatorStub struct {
 	err error
 }
 
-func (a authenticatorStub) Valid(_ context.Context, header string) (bool, error) {
-	return header == "Bearer "+testAPIKey, a.err
+var testAccountID = uuid.New()
+
+func (a authenticatorStub) Authenticate(_ context.Context, header string) (uuid.UUID, error) {
+	if header == "Bearer "+testAPIKey {
+		return testAccountID, a.err
+	}
+	return uuid.Nil, a.err
 }
 
 type repositoryStub struct {
@@ -68,7 +73,7 @@ func (r *repositoryStub) Consume(context.Context, [32]byte) (share.Share, error)
 func (r *repositoryStub) Preview(context.Context, [32]byte) (share.Share, error) {
 	return r.previewResult, r.previewError
 }
-func (r *repositoryStub) Revoke(context.Context, uuid.UUID) (bool, error) {
+func (r *repositoryStub) Revoke(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return r.revokeFound, r.revokeError
 }
 func (r *repositoryStub) Ping(context.Context) error { return r.pingError }

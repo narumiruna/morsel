@@ -10,13 +10,37 @@ import {
 export type Account = {
   setup_required: boolean
   authenticated: boolean
+  account_id?: string
+  display_name?: string
   csrf_token?: string
   verification_required?: boolean
 }
 
 export type Passkey = { id: string; name: string; created_at: string }
 export type APIKey = Passkey & { prefix: string; revoked_at: string | null }
-export type AuthOperation = "setup" | "login" | "recover" | "verify" | "passkey"
+export type AuthOperation = "setup" | "invite" | "login" | "recover" | "verify" | "passkey"
+
+export type ExpectedAccount = {
+  id: string
+  isCurrent: () => boolean
+  invalidate: () => void
+}
+
+// No identity, token, or private data is sent to other tabs.
+export const accountChannel = "morsel:account-invalidation"
+export function broadcastAccountChange() {
+  window.dispatchEvent(new Event(accountChannel))
+}
+
+export function checkAccount(expected: ExpectedAccount, marker = expected.id) {
+  if (marker === expected.id && expected.isCurrent()) return
+  expected.invalidate()
+  throw new AccountError(
+    409,
+    "account_changed",
+    "The account changed. Review the current account and try again.",
+  )
+}
 
 export class AccountError extends Error {
   constructor(
@@ -35,13 +59,17 @@ export async function accountRequest<T>(
     body,
     csrf,
     signal,
+    expectedAccount,
   }: {
     method?: "GET" | "POST" | "DELETE"
     body?: unknown
     csrf?: string
     signal?: AbortSignal
+    expectedAccount?: ExpectedAccount
   } = {},
 ): Promise<T> {
+  signal?.throwIfAborted()
+  if (expectedAccount) checkAccount(expectedAccount)
   const headers: Record<string, string> = { Accept: "application/json" }
   if (method !== "GET") headers["Content-Type"] = "application/json"
   if (csrf) headers["X-CSRF-Token"] = csrf
@@ -53,8 +81,19 @@ export async function accountRequest<T>(
     signal,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
+  signal?.throwIfAborted()
+  const check = () => {
+    signal?.throwIfAborted()
+    if (expectedAccount) {
+      // Errors can occur before authorization. Success must always identify its authorized account.
+      const marker = response.headers.get("X-Morsel-Account-ID")
+      checkAccount(expectedAccount, marker ?? (response.ok ? "" : expectedAccount.id))
+    }
+  }
+  check()
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null)
+    check()
     const error = body && typeof body === "object" ? body : {}
     throw new AccountError(
       response.status,
@@ -65,7 +104,23 @@ export async function accountRequest<T>(
     )
   }
   if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  const result: unknown = await response.json()
+  check()
+  if (path === "account") {
+    const account = result as Account
+    if (
+      account.authenticated &&
+      (!account.account_id ||
+        !account.display_name ||
+        response.headers.get("X-Morsel-Account-ID") !== account.account_id)
+    )
+      throw new AccountError(
+        409,
+        "account_changed",
+        "Could not verify the account identity. Try again.",
+      )
+  }
+  return result as T
 }
 
 export function supportsPasskeys(): boolean {
@@ -74,13 +129,14 @@ export function supportsPasskeys(): boolean {
 
 export async function authenticate(
   operation: AuthOperation,
-  body: { token?: string; name?: string },
+  body: { token?: string; name?: string; display_name?: string },
   csrf?: string,
   signal?: AbortSignal,
+  expectedAccount?: ExpectedAccount,
 ): Promise<void> {
   if (!supportsPasskeys()) throw new Error("This browser does not support passkeys.")
   const path = `auth/${operation}`
-  const options = { method: "POST" as const, csrf, signal }
+  const options = { method: "POST" as const, csrf, signal, expectedAccount }
   const prompt = async <T>(start: () => Promise<T>): Promise<T> => {
     signal?.throwIfAborted()
     const cancel = () => WebAuthnAbortService.cancelCeremony()
@@ -106,6 +162,7 @@ export async function authenticate(
   // A page that was left during the browser prompt must not complete the flow.
   signal?.throwIfAborted()
   await accountRequest(`${path}/finish`, { ...options, body: credential })
+  if (["login", "setup", "invite", "recover"].includes(operation)) broadcastAccountChange()
 }
 
 export function accountErrorMessage(error: unknown): string {

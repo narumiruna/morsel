@@ -43,7 +43,12 @@ let fail:
   | undefined
 
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status })
+  const id = account?.account_id ?? "10000000-0000-4000-8000-000000000001"
+  const value =
+    body && typeof body === "object" && "authenticated" in body && body.authenticated
+      ? { account_id: id, display_name: "Owner", ...body }
+      : body
+  return new Response(JSON.stringify(value), { status, headers: { "X-Morsel-Account-ID": id } })
 }
 
 function AccountPage({ section = "security" }: { section?: AccountSection }) {
@@ -106,7 +111,10 @@ beforeEach(() => {
     }
     if (path === "auth/logout") {
       account = { setup_required: false, authenticated: false }
-      return new Response(null, { status: 204 })
+      return new Response(null, {
+        status: 204,
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+      })
     }
     if (path === "api-keys" && init?.method === "POST") {
       const key = {
@@ -121,13 +129,19 @@ beforeEach(() => {
     }
     if (path.startsWith("api-keys/") && init?.method === "DELETE") {
       keys = keys.map((key) => ({ ...key, revoked_at: created }))
-      return new Response(null, { status: 204 })
+      return new Response(null, {
+        status: 204,
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+      })
     }
     if (path.startsWith("passkeys/") && init?.method === "DELETE") {
       passkeys = passkeys.filter(
         (key) => key.id !== decodeURIComponent(path.slice("passkeys/".length)),
       )
-      return new Response(null, { status: 204 })
+      return new Response(null, {
+        status: 204,
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+      })
     }
     throw new Error(`Unexpected test request: ${path}`)
   })

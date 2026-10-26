@@ -7,16 +7,35 @@ async function mockAccount(page: Page, state = { authenticated: false, setup_req
     const path = new URL(route.request().url()).pathname
     if (path === "/v1/account") {
       await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         status: fail ? 503 : 200,
         contentType: "application/json",
-        body: JSON.stringify(fail ? { message: "Account service unavailable." } : state),
+        body: JSON.stringify(
+          fail
+            ? { message: "Account service unavailable." }
+            : {
+                account_id: "10000000-0000-4000-8000-000000000001",
+                display_name: "Owner",
+                ...state,
+              },
+        ),
       })
     } else if (path === "/v1/account/shares") {
-      await route.fulfill({ json: { items: [], matching_count: 0 } })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        json: { items: [], matching_count: 0 },
+      })
     } else if (path === "/v1/passkeys" || path === "/v1/api-keys") {
-      await route.fulfill({ json: [] })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        json: [],
+      })
     } else {
-      await route.fulfill({ status: 500, json: { message: "Unexpected request." } })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        status: 500,
+        json: { message: "Unexpected request." },
+      })
     }
   })
   return {
@@ -83,7 +102,7 @@ test("account failures show retry rather than login and recover without losing t
 
 test("authenticated authentication routes honor only safe destinations", async ({ page }) => {
   await mockAccount(page, { authenticated: true, setup_required: false })
-  for (const mode of ["login", "recover", "setup"]) {
+  for (const mode of ["login", "recover", "setup", "invite"]) {
     await page.goto(`/${mode}?next=%2Faccount`)
     await expect(page).toHaveURL(/\/account$/)
     await expect(page.getByRole("heading", { name: "Passkeys", exact: true })).toBeVisible()
@@ -95,20 +114,33 @@ test("authenticated authentication routes honor only safe destinations", async (
   }
 })
 
-for (const mode of ["login", "recover", "setup"]) {
+for (const mode of ["login", "recover", "setup", "invite"]) {
   test(`${mode} is accessible and usable at 320px`, async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 })
     await mockAccount(page, { authenticated: false, setup_required: mode === "setup" })
     await page.goto(`/${mode}`)
     const title =
-      mode === "login" ? "Sign in" : mode === "recover" ? "Recover account" : "Set up account"
+      mode === "login"
+        ? "Sign in"
+        : mode === "recover"
+          ? "Recover account"
+          : mode === "invite"
+            ? "Create account"
+            : "Set up account"
     await expect(page.getByRole("heading", { name: title, exact: true })).toBeFocused()
     await page.keyboard.press("Tab")
     if (mode === "login") {
       await expect(page.getByRole("button", { name: "Sign in with passkey" })).toBeFocused()
     } else {
       await expect(
-        page.getByLabel(mode === "setup" ? "Setup token" : "Recovery token", { exact: true }),
+        page.getByLabel(
+          mode === "setup"
+            ? "Setup token"
+            : mode === "invite"
+              ? "Invitation token"
+              : "Recovery token",
+          { exact: true },
+        ),
       ).toBeFocused()
     }
     expect(

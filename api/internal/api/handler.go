@@ -54,6 +54,10 @@ func (h *Service) GetReadiness(ctx context.Context, _ GetReadinessRequestObject)
 }
 
 func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObject) (CreateShareResponseObject, error) {
+	accountID := authorizedAccount(ctx)
+	if accountID == uuid.Nil {
+		return CreateShare401JSONResponse{UnauthorizedJSONResponse: unauthorizedResponse()}, nil
+	}
 	if request.Body == nil {
 		return createBadRequest("request body is required"), nil
 	}
@@ -95,7 +99,7 @@ func (h *Service) CreateShare(ctx context.Context, request CreateShareRequestObj
 			return createInternalError(), nil
 		}
 		created, err := h.repository.Create(ctx, share.CreateParams{
-			ID: id, TokenHash: tokenHash, LinkToken: token, Content: body.Content,
+			AccountID: accountID, ID: id, TokenHash: tokenHash, LinkToken: token, Content: body.Content,
 			ExpiresIn: body.ExpiresIn, MaxViews: body.MaxViews, Preview: preview,
 			TelegramInstantView: telegramInstantView,
 		})
@@ -225,8 +229,12 @@ func (h *Service) ConsumeShare(ctx context.Context, request ConsumeShareRequestO
 }
 
 func (h *Service) RevokeShare(ctx context.Context, request RevokeShareRequestObject) (RevokeShareResponseObject, error) {
+	accountID := authorizedAccount(ctx)
+	if accountID == uuid.Nil {
+		return RevokeShare401JSONResponse{UnauthorizedJSONResponse: unauthorizedResponse()}, nil
+	}
 	telemetry.SetShareID(ctx, request.Share.String())
-	found, err := h.repository.Revoke(ctx, request.Share)
+	found, err := h.repository.Revoke(ctx, accountID, request.Share)
 	if err != nil {
 		h.logError(ctx, "revoke share", err)
 		return RevokeShare500JSONResponse{InternalErrorJSONResponse: InternalErrorJSONResponse(errorResponse(ErrorCodeInternalError, "internal server error"))}, nil
@@ -247,6 +255,11 @@ func (h *Service) logError(ctx context.Context, message string, err error) {
 
 func errorResponse(code ErrorCode, message string) Error {
 	return Error{Code: code, Message: message}
+}
+
+func unauthorizedResponse() UnauthorizedJSONResponse {
+	challenge := `Bearer realm="morsel"`
+	return UnauthorizedJSONResponse{Body: errorResponse(ErrorCodeUnauthorized, "valid API key required"), Headers: UnauthorizedResponseHeaders{WWWAuthenticate: &challenge}}
 }
 
 func createBadRequest(message string) CreateShare400JSONResponse {

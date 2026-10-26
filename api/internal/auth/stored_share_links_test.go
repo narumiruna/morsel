@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/narumiruna/morsel/api/internal/share"
+	"github.com/narumiruna/morsel/api/internal/testdb"
 )
 
 func TestStoredAccountShareLink(t *testing.T) {
@@ -24,7 +25,7 @@ func TestStoredAccountShareLink(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := uuid.New()
-		params := share.CreateParams{ID: id, TokenHash: hash, LinkToken: token, Content: "# Stored link"}
+		params := share.CreateParams{AccountID: testdb.AccountID(t, pool), ID: id, TokenHash: hash, LinkToken: token, Content: "# Stored link"}
 		if preview {
 			params.Preview = &share.PreviewMetadata{Title: "Stored link", Description: "Description"}
 		}
@@ -78,7 +79,7 @@ func TestStoredAccountShareLink(t *testing.T) {
 		// A retained token must match the share's public authorization hash.
 		otherID := uuid.New()
 		_, otherHash, _ := (share.TokenGenerator{}).Generate()
-		if _, err := repository.Create(ctx, share.CreateParams{ID: otherID, TokenHash: otherHash, LinkToken: token}); err != nil {
+		if _, err := repository.Create(ctx, share.CreateParams{AccountID: testdb.AccountID(t, pool), ID: otherID, TokenHash: otherHash, LinkToken: token}); err != nil {
 			t.Fatal(err)
 		}
 		w = b.request("GET", "/v1/account/shares/"+otherID.String()+"/link", nil)

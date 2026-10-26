@@ -1,9 +1,8 @@
 name: Deploy
 
+# Manual dispatch only: migration 11 requires a verified maintenance window.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -24,7 +23,7 @@ jobs:
           persist-credentials: false
       - name: Build image
         run: docker build --pull --tag "${MORSEL_IMAGE}" .
-      - name: Start services
+      - name: Deploy in verified maintenance window
         shell: bash
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -33,4 +32,4 @@ jobs:
           MORSEL_PORT: ${{ secrets.MORSEL_PORT || '12647' }}
         run: |
           : "${MORSEL_URL:?set MORSEL_URL secret}"
-          docker compose up --detach --wait --wait-timeout 120
+          bash scripts/deploy.sh

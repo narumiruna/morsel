@@ -34,6 +34,104 @@ beforeEach(() => {
 })
 
 describe("accountRequest", () => {
+  it.each([
+    [403, "verification_required"],
+    [403, "csrf_invalid"],
+    [404, "link_unavailable"],
+    [404, "not_found"],
+  ] as const)(
+    "preserves unmarked %s %s errors from pre-authorization failures",
+    async (status, code) => {
+      const invalidate = vi.fn()
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ code, message: "Request rejected." }), { status }),
+      )
+      await expect(
+        accountRequest("account/shares/id/link", {
+          expectedAccount: { id: "A", isCurrent: () => true, invalidate },
+        }),
+      ).rejects.toMatchObject({ status, code })
+      expect(invalidate).not.toHaveBeenCalled()
+    },
+  )
+
+  it("rejects an unmarked error after the current identity changes", async () => {
+    const invalidate = vi.fn()
+    let current = true
+    fetchMock.mockImplementationOnce(async () => {
+      current = false
+      return new Response(JSON.stringify({ code: "not_found" }), { status: 404 })
+    })
+    await expect(
+      accountRequest("passkeys", {
+        expectedAccount: { id: "A", isCurrent: () => current, invalidate },
+      }),
+    ).rejects.toMatchObject({ code: "account_changed" })
+    expect(invalidate).toHaveBeenCalledOnce()
+  })
+
+  it.each([null, "other-account"])(
+    "rejects a private response with marker %s without replay",
+    async (marker) => {
+      const invalidate = vi.fn()
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ key: "private-key" }), {
+          headers: marker ? { "X-Morsel-Account-ID": marker } : {},
+        }),
+      )
+      await expect(
+        accountRequest("api-keys", {
+          method: "POST",
+          body: { name: "CLI" },
+          expectedAccount: { id: "expected-account", isCurrent: () => true, invalidate },
+        }),
+      ).rejects.toMatchObject({ code: "account_changed" })
+      expect(invalidate).toHaveBeenCalledOnce()
+      expect(fetchMock).toHaveBeenCalledOnce()
+    },
+  )
+
+  it("checks current identity again after the response body completes", async () => {
+    let current = true
+    const invalidate = vi.fn()
+    const response = new Response("{}", { headers: { "X-Morsel-Account-ID": "A" } })
+    vi.spyOn(response, "json").mockImplementationOnce(async () => {
+      current = false
+      return { key: "must-not-return" }
+    })
+    fetchMock.mockResolvedValueOnce(response)
+    await expect(
+      accountRequest("api-keys", {
+        expectedAccount: { id: "A", isCurrent: () => current, invalidate },
+      }),
+    ).rejects.toMatchObject({ code: "account_changed" })
+    expect(invalidate).toHaveBeenCalledOnce()
+  })
+
+  it("does not send a request from an obsolete identity", async () => {
+    const invalidate = vi.fn()
+    await expect(
+      accountRequest("passkeys", {
+        expectedAccount: { id: "A", isCurrent: () => false, invalidate },
+      }),
+    ).rejects.toMatchObject({ code: "account_changed" })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects authenticated account bodies without a matching identity marker", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authenticated: true,
+          setup_required: false,
+          account_id: "A",
+          display_name: "Alpha",
+        }),
+      ),
+    )
+    await expect(accountRequest("account")).rejects.toMatchObject({ code: "account_changed" })
+  })
+
   it("uses same-origin cookies and no cache, without bearer authentication", async () => {
     await accountRequest("account")
     expect(fetchMock).toHaveBeenCalledWith(
@@ -93,7 +191,27 @@ describe("accountRequest", () => {
 })
 
 describe("authenticate", () => {
-  it.each(["setup", "recover", "passkey"] as const)(
+  it.each(["login", "setup", "invite", "recover"] as const)(
+    "invalidates other tabs after successful %s without sending secrets",
+    async (operation) => {
+      const invalidated = vi.fn()
+      window.addEventListener("morsel:account-invalidation", invalidated)
+      try {
+        await authenticate(operation, {
+          token: "private-grant",
+          display_name: "Private account name",
+        })
+        expect(invalidated).toHaveBeenCalledOnce()
+        const event = invalidated.mock.calls[0]?.[0]
+        expect(event).toBeInstanceOf(Event)
+        expect(event).not.toHaveProperty("detail")
+      } finally {
+        window.removeEventListener("morsel:account-invalidation", invalidated)
+      }
+    },
+  )
+
+  it.each(["setup", "invite", "recover", "passkey"] as const)(
     "uses registration for %s and passes raw credential JSON",
     async (operation) => {
       const signal = new AbortController().signal

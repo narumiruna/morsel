@@ -147,7 +147,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 func validKind(k string) bool {
 	switch k {
-	case "setup", "login", "recover", "verify", "passkey":
+	case "setup", "invite", "login", "recover", "verify", "passkey":
 		return true
 	}
 	return false
@@ -167,8 +167,11 @@ func (s *Service) accountState(w http.ResponseWriter, r *http.Request) error {
 	}
 	state := map[string]any{"setup_required": !exists, "authenticated": false}
 	if cookieValue(r, sessionCookie) != "" {
-		_, ss, e := s.requestAuth(r, tx, false, false)
+		u, ss, e := s.requestAuth(r, tx, false, false)
 		if e == nil {
+			w.Header().Set("X-Morsel-Account-ID", u.ID.String())
+			state["account_id"] = u.ID.String()
+			state["display_name"] = u.DisplayName
 			state["authenticated"] = true
 			state["csrf_token"] = ss.CSRF
 			state["verification_required"] = !ss.Verified
@@ -190,7 +193,7 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	_, ss, err := s.requestAuth(r, tx, true, false)
+	u, ss, err := s.requestAuth(r, tx, true, false)
 	if err != nil {
 		return err
 	}
@@ -201,6 +204,7 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.cookie(w, sessionCookie, "", true)
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 204, nil)
 	return nil
 }
@@ -251,6 +255,7 @@ func (s *Service) listKeys(w http.ResponseWriter, r *http.Request) error {
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 200, keys)
 	return nil
 }
@@ -283,6 +288,7 @@ func (s *Service) createKey(w http.ResponseWriter, r *http.Request) error {
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 201, struct {
 		keyMetadata
 		Key string `json:"key"`
@@ -308,6 +314,7 @@ func (s *Service) revokeKey(w http.ResponseWriter, r *http.Request, id string) e
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 204, nil)
 	return nil
 }
@@ -349,6 +356,7 @@ func (s *Service) listPasskeys(w http.ResponseWriter, r *http.Request) error {
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 200, keys)
 	return nil
 }
@@ -379,6 +387,7 @@ func (s *Service) deletePasskey(w http.ResponseWriter, r *http.Request, id strin
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 204, nil)
 	return nil
 }

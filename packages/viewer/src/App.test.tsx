@@ -54,6 +54,8 @@ function managementFetch(initiallySignedIn = true) {
     if (path === "account")
       body = {
         authenticated,
+        account_id: "10000000-0000-4000-8000-000000000001",
+        display_name: "Owner",
         setup_required: false,
         csrf_token: "csrf",
         verification_required: false,
@@ -68,7 +70,9 @@ function managementFetch(initiallySignedIn = true) {
       authenticated = true
       body = {}
     } else throw new Error(`Unexpected request: ${path}`)
-    return new Response(JSON.stringify(body))
+    return new Response(JSON.stringify(body), {
+      headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+    })
   })
   vi.stubGlobal("fetch", fetchMock)
   return fetchMock

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -183,7 +184,7 @@ func (b *browser) state(t *testing.T) map[string]any {
 func TestGrantStorageAndSingleUse(t *testing.T) {
 	s, pool := testService(t)
 	ctx := context.Background()
-	token, err := IssueGrant(ctx, pool, "setup")
+	token, err := IssueGrant(ctx, pool, "setup", uuid.Nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +198,7 @@ func TestGrantStorageAndSingleUse(t *testing.T) {
 	if !bytes.Equal(stored, hashToken(token)) || bytes.Contains(stored, []byte(token)) {
 		t.Fatal("grant not hash only")
 	}
-	replacement, err := IssueGrant(ctx, pool, "setup")
+	replacement, err := IssueGrant(ctx, pool, "setup", uuid.Nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,10 +210,10 @@ func TestGrantStorageAndSingleUse(t *testing.T) {
 	requireStatus(t, b.request("POST", "/v1/auth/setup/begin", []byte(`{"token":"`+replacement+`"}`)), 200)
 	requireStatus(t, b.request("POST", "/v1/auth/setup/finish", []byte(`{}`)), 400)
 	requireStatus(t, b.request("POST", "/v1/auth/setup/finish", []byte(`{}`)), 400)
-	if _, err = IssueGrant(ctx, pool, "wrong"); err == nil {
+	if _, err = IssueGrant(ctx, pool, "wrong", uuid.Nil); err == nil {
 		t.Fatal("accepted invalid grant kind")
 	}
-	if _, err = IssueGrant(ctx, pool, "recover"); err == nil {
+	if _, err = IssueGrant(ctx, pool, "recover", uuid.New()); err == nil {
 		t.Fatal("issued recovery before setup")
 	}
 }

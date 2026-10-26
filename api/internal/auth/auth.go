@@ -19,6 +19,8 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -83,15 +85,22 @@ func randomBytes(n int) []byte {
 }
 func hashToken(token string) []byte { h := sha256.Sum256([]byte(token)); return h[:] }
 
-// Valid checks PostgreSQL on every request. Database errors never authorize requests.
-func (s *Service) Valid(ctx context.Context, header string) (bool, error) {
+// Authenticate checks PostgreSQL on every request. Invalid keys return uuid.Nil;
+// database errors never return an authorized identity.
+func (s *Service) Authenticate(ctx context.Context, header string) (uuid.UUID, error) {
 	parts := strings.Split(header, " ")
 	if len(parts) != 2 || parts[0] != "Bearer" || len(parts[1]) < 32 || len(parts[1]) > 256 {
-		return false, nil
+		return uuid.Nil, nil
 	}
-	var valid bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM api_keys WHERE token_hash=$1 AND revoked_at IS NULL)`, hashToken(parts[1])).Scan(&valid)
-	return valid, err
+	var id uuid.UUID
+	err := s.pool.QueryRow(ctx, `SELECT account_id FROM api_keys WHERE token_hash=$1 AND revoked_at IS NULL`, hashToken(parts[1])).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
 }
 
 type apiError struct {
@@ -105,6 +114,7 @@ func failure(status int, code, message string) error { return &apiError{status, 
 var (
 	errUnauthorized = failure(401, "unauthorized", "browser session required")
 	errFlow         = failure(400, "invalid_flow", "authentication flow expired or invalid")
+	errCredential   = failure(400, "invalid_credential", "passkey verification failed")
 	errGrant        = failure(403, "invalid_grant", "operator grant expired or invalid")
 	errGeneration   = failure(401, "authentication_changed", "authentication changed; sign in again")
 	errFresh        = failure(403, "verification_required", "fresh passkey verification required")

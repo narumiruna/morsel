@@ -41,6 +41,7 @@ type Share struct {
 }
 
 type CreateParams struct {
+	AccountID           uuid.UUID
 	ID                  uuid.UUID
 	TokenHash           [32]byte
 	LinkToken           string
@@ -55,7 +56,7 @@ type Repository interface {
 	Create(context.Context, CreateParams) (Share, error)
 	Consume(context.Context, [32]byte) (Share, error)
 	Preview(context.Context, [32]byte) (Share, error)
-	Revoke(context.Context, uuid.UUID) (bool, error)
+	Revoke(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 	Ping(context.Context) error
 }
 
@@ -72,12 +73,15 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 }
 
 func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share, error) {
+	if p.AccountID == uuid.Nil {
+		return Share{}, errors.New("share account is required")
+	}
 	const query = `
 		INSERT INTO shares (id, token_hash, content, expires_at, max_views, preview_title, preview_description,
-			preview_image, preview_locale, telegram_instant_view, admin_label, link_token)
+			preview_image, preview_locale, telegram_instant_view, admin_label, link_token, account_id)
 		VALUES ($1, $2, $3,
 			CASE WHEN $4::bigint IS NULL THEN NULL ELSE statement_timestamp() + make_interval(secs => $4::double precision) END,
-			$5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''))
+			$5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13)
 		RETURNING id, content, created_at, expires_at, max_views, view_count, revoked_at,
 			preview_title, preview_description, preview_image, preview_locale, telegram_instant_view`
 	var previewTitle, previewDescription, previewImage, previewLocale *string
@@ -93,7 +97,7 @@ func (r *PostgresRepository) Create(ctx context.Context, p CreateParams) (Share,
 	}
 	var result Share
 	err := r.pool.QueryRow(ctx, query, p.ID, p.TokenHash[:], p.Content, p.ExpiresIn, p.MaxViews,
-		previewTitle, previewDescription, previewImage, previewLocale, p.TelegramInstantView, NormalizeLabel(p.Content, previewTitle), p.LinkToken).Scan(
+		previewTitle, previewDescription, previewImage, previewLocale, p.TelegramInstantView, NormalizeLabel(p.Content, previewTitle), p.LinkToken, p.AccountID).Scan(
 		&result.ID, &result.Content, &result.CreatedAt, &result.ExpiresAt, &result.MaxViews,
 		&result.ViewCount, &result.RevokedAt, &previewTitle, &previewDescription, &previewImage, &previewLocale,
 		&result.TelegramInstantView,
@@ -197,17 +201,20 @@ func (r *PostgresRepository) diagnose(ctx context.Context, tokenHash [32]byte) e
 	}
 }
 
-func (r *PostgresRepository) Revoke(ctx context.Context, id uuid.UUID) (bool, error) {
-	return revoke(ctx, r.pool, id)
+func (r *PostgresRepository) Revoke(ctx context.Context, accountID, id uuid.UUID) (bool, error) {
+	return revoke(ctx, r.pool, accountID, id)
 }
 
 func revoke(ctx context.Context, db interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
-}, id uuid.UUID) (bool, error) {
+}, accountID, id uuid.UUID) (bool, error) {
+	if accountID == uuid.Nil {
+		return false, errors.New("share account is required")
+	}
 	const query = `UPDATE shares SET revoked_at = COALESCE(revoked_at, statement_timestamp())
-		WHERE id = $1 RETURNING revoked_at`
+		WHERE id = $1 AND account_id = $2 RETURNING revoked_at`
 	var revokedAt time.Time
-	if err := db.QueryRow(ctx, query, id).Scan(&revokedAt); err != nil {
+	if err := db.QueryRow(ctx, query, id, accountID).Scan(&revokedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}

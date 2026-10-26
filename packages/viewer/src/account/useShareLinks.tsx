@@ -1,13 +1,21 @@
 import { Button, Flex, Text } from "@radix-ui/themes"
 import { useEffect, useRef, useState } from "react"
-import { AccountError, accountErrorMessage, accountRequest } from "./accountApi"
+import {
+  AccountError,
+  accountErrorMessage,
+  accountRequest,
+  checkAccount,
+  type ExpectedAccount,
+} from "./accountApi"
 import type { ShareMetadata } from "./ShareManagement"
 
 // Capabilities stay in this mounted section only, never in browser storage or history.
 export function useShareLinks({
+  expectedAccount,
   onSessionExpired,
   restoreFocus,
 }: {
+  expectedAccount: ExpectedAccount
   onSessionExpired: () => void
   restoreFocus: (trigger: HTMLElement | null) => void
 }) {
@@ -23,13 +31,14 @@ export function useShareLinks({
   const request = useRef<AbortController | null>(null)
   const urlInput = useRef<HTMLTextAreaElement>(null)
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: account identity changes must clear capability memory and abort pending reads.
   useEffect(() => {
     const cache = links.current
     return () => {
       request.current?.abort()
       cache.clear()
     }
-  }, [])
+  }, [expectedAccount])
 
   useEffect(() => {
     if (selected && url) {
@@ -63,14 +72,20 @@ export function useShareLinks({
   }
 
   const load = async (share: ShareMetadata, signal: AbortSignal) => {
-    const cached = links.current.get(share.id)
+    // A cookie can change without a local event. Check before using a saved capability.
+    await accountRequest("account", { signal, expectedAccount })
+    signal.throwIfAborted()
+    checkAccount(expectedAccount)
+    const cacheID = `${expectedAccount.id}:${share.id}`
+    const cached = links.current.get(cacheID)
     if (cached) return cached
     const result = await accountRequest<{ share_url: string }>(
       `account/shares/${encodeURIComponent(share.id)}/link`,
-      { signal },
+      { signal, expectedAccount },
     )
     signal.throwIfAborted()
-    links.current.set(share.id, result.share_url)
+    checkAccount(expectedAccount)
+    links.current.set(cacheID, result.share_url)
     return result.share_url
   }
 
@@ -103,7 +118,7 @@ export function useShareLinks({
   }
 
   const copyLink = async (share: ShareMetadata, element: HTMLElement | null) => {
-    const cached = links.current.get(share.id)
+    const cached = links.current.get(`${expectedAccount.id}:${share.id}`)
     const signal = begin(share, element)
     const pending = load(share, signal)
     // A clipboard rejection can occur before the network request settles.
@@ -111,12 +126,17 @@ export function useShareLinks({
     try {
       if (!cached && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
         // Start the write during the click, before fetching, to preserve Safari user activation.
-        const text = pending.then((value) => new Blob([value], { type: "text/plain" }))
+        const text = pending.then((value) => {
+          signal.throwIfAborted()
+          checkAccount(expectedAccount)
+          return new Blob([value], { type: "text/plain" })
+        })
         void text.catch(() => {})
         await navigator.clipboard.write([new ClipboardItem({ "text/plain": text })])
       } else {
-        const value = cached ?? (await pending)
+        const value = await pending
         signal.throwIfAborted()
+        checkAccount(expectedAccount)
         await navigator.clipboard.writeText(value)
       }
       if (!signal.aborted) {
@@ -128,6 +148,7 @@ export function useShareLinks({
       try {
         const value = await pending
         if (signal.aborted) return
+        checkAccount(expectedAccount)
         setSelected(share)
         setURL(value)
         setFeedback("Could not copy link. Select and copy the displayed URL.")

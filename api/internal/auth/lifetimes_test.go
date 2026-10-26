@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"github.com/google/uuid"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func TestVerificationReuseAndExpiry(t *testing.T) {
 
 func TestExtendedGrantAndFlowLifetimes(t *testing.T) {
 	s, pool := testService(t)
-	token, err := IssueGrant(t.Context(), pool, "setup")
+	token, err := IssueGrant(t.Context(), pool, "setup", uuid.Nil)
 	if err != nil {
 		t.Fatal(err)
 	}

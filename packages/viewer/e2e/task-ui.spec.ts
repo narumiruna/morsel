@@ -59,8 +59,11 @@ async function mockManagement(page: Page, backupPasskey = false) {
     }
     if (path === "/v1/account") {
       await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         json: {
           authenticated,
+          account_id: "10000000-0000-4000-8000-000000000001",
+          display_name: "Owner",
           setup_required: false,
           csrf_token: "fixture-csrf",
           verification_required: false,
@@ -69,20 +72,34 @@ async function mockManagement(page: Page, backupPasskey = false) {
       return
     }
     if (!authenticated) {
-      await route.fulfill({ status: 401, json: { code: "session_expired" } })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        status: 401,
+        json: { code: "session_expired" },
+      })
       return
     }
     if (path === `/v1/${failedList}` && request.method() === "GET") {
-      await route.fulfill({ status: 503, json: { message: "Fixture list unavailable." } })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        status: 503,
+        json: { message: "Fixture list unavailable." },
+      })
     } else if (path === "/v1/passkeys") {
-      await route.fulfill({ json: passkeys })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        json: passkeys,
+      })
     } else if (path.startsWith("/v1/passkeys/") && request.method() === "DELETE") {
       mutations.push(path)
       passkeys.splice(
         passkeys.findIndex((passkey) => path.endsWith(passkey.id)),
         1,
       )
-      await route.fulfill({ status: 204 })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        status: 204,
+      })
     } else if (path === "/v1/api-keys" && request.method() === "POST") {
       creations += 1
       const key = {
@@ -94,11 +111,15 @@ async function mockManagement(page: Page, backupPasskey = false) {
       }
       keys.push(key)
       await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         status: 201,
         json: { ...key, key: "one-time-fixture-value-not-a-real-api-key" },
       })
     } else if (path === "/v1/api-keys") {
-      await route.fulfill({ json: keys })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        json: keys,
+      })
     } else if (path === "/v1/account/shares") {
       const status = url.searchParams.get("status") ?? "all"
       const query = (url.searchParams.get("q") ?? "").toLowerCase()
@@ -113,6 +134,7 @@ async function mockManagement(page: Page, backupPasskey = false) {
       )
       const offset = url.searchParams.has("cursor") ? 25 : 0
       await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         json: {
           items: matching.slice(offset, offset + 25),
           matching_count: matching.length,
@@ -120,17 +142,29 @@ async function mockManagement(page: Page, backupPasskey = false) {
         },
       })
     } else if (path.endsWith("/link") && request.method() === "GET") {
-      await route.fulfill({ json: { share_url: `${url.origin}/#/s/${token}` } })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        json: { share_url: `${url.origin}/#/s/${token}` },
+      })
     } else if (path.startsWith("/v1/account/shares/")) {
       const item = items.find((candidate) => path.endsWith(candidate.id))
-      if (!item) return route.fulfill({ status: 404, json: { code: "not_found" } })
+      if (!item)
+        return route.fulfill({
+          headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+          status: 404,
+          json: { code: "not_found" },
+        })
       if (request.method() === "DELETE") {
         mutations.push(path)
         item.revoked_at = created
         item.status = "revoked"
-        await route.fulfill({ status: 204 })
+        await route.fulfill({
+          headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+          status: 204,
+        })
       } else {
         await route.fulfill({
+          headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
           json: {
             ...item,
             content: `# Preview content\n\n![not fetched](/v1/shares/${token})\n\n\`\`\`mermaid\nflowchart TD\nA@{ img: "/v1/shares/${token}", label: "test", h: 60 }\n\`\`\``,
@@ -141,10 +175,16 @@ async function mockManagement(page: Page, backupPasskey = false) {
       mutations.push(path)
       const key = keys.find((key) => path.endsWith(key.id))
       if (key) key.revoked_at = created
-      await route.fulfill({ status: 204 })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        status: 204,
+      })
     } else if (path === "/v1/auth/logout") {
       authenticated = false
-      await route.fulfill({ status: 204 })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        status: 204,
+      })
     } else {
       throw new Error(`Unexpected fixture request: ${request.method()} ${path}`)
     }
@@ -478,6 +518,7 @@ test("Escape exits an expanded preview chart before closing its parent dialog", 
   await mockManagement(page)
   await page.route("**/v1/account/shares/*", (route) =>
     route.fulfill({
+      headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
       json: {
         id: "chart-fixture",
         label: "Project note 30",

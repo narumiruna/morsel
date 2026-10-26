@@ -11,11 +11,8 @@ import (
 )
 
 func TestAdminLabelsAdditiveRollbackAndRecovery(t *testing.T) {
-	pool := testdb.Open(t)
+	pool := testdb.OpenVersion(t, 7)
 	ctx := t.Context()
-	if err := migrations.Run(ctx, pool, migrations.Down, 3); err != nil {
-		t.Fatal(err)
-	}
 	id := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content,preview_title,preview_description,max_views,view_count,revoked_at)
   VALUES($1,$2,'# source remains **unchanged**','**Plain authored title**','Description',7,2,'2020-01-01Z')`, id, make([]byte, 32)); err != nil {
@@ -30,7 +27,7 @@ func TestAdminLabelsAdditiveRollbackAndRecovery(t *testing.T) {
 	}
 	before := snapshot()
 	for range 2 {
-		if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+		if err := migrations.Run(ctx, pool, migrations.Up, 3); err != nil {
 			t.Fatal(err)
 		}
 		if n := testdb.Count(t, pool, `SELECT count(*) FROM shares WHERE admin_label IS NULL`); n != 1 {
@@ -64,7 +61,7 @@ func TestAdminLabelsAdditiveRollbackAndRecovery(t *testing.T) {
 			t.Fatal("rollback changed legacy data")
 		}
 	}
-	if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Up, 3); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := share.BackfillLabels(ctx, pool, 1); err != nil {

@@ -16,6 +16,7 @@ import (
 )
 
 func TestAdminViewSortCursorValidation(t *testing.T) {
+	accountID := uuid.New()
 	encode := func(raw string) string { return base64.RawURLEncoding.EncodeToString([]byte(raw)) }
 	for _, sort := range []string{"most_views", "least_views"} {
 		t.Run(sort, func(t *testing.T) {
@@ -23,15 +24,15 @@ func TestAdminViewSortCursorValidation(t *testing.T) {
 			if err != nil || p.Q != "target" {
 				t.Fatalf("normalize: %+v %v", p, err)
 			}
-			base := fmt.Sprintf(`{"v":2,"status":"active","created_at":"2020-01-01T00:00:00Z","id":"00000000-0000-0000-0000-000000000001","sort":%q,"search_hash":%q`, sort, searchHash(p.Q))
+			base := fmt.Sprintf(`{"v":3,"account_id":%q,"status":"active","created_at":"2020-01-01T00:00:00Z","id":"00000000-0000-0000-0000-000000000001","sort":%q,"search_hash":%q`, accountID, sort, searchHash(p.Q))
 			for _, count := range []string{"0", "42", "9223372036854775807"} {
-				cursor, err := decodeAdminCursor(encode(base+`,"view_count":`+count+`}`), p)
+				cursor, err := decodeAdminCursor(encode(base+`,"view_count":`+count+`}`), p, accountID)
 				if err != nil || cursor.ViewCount == nil {
 					t.Fatalf("valid count %s: %+v %v", count, cursor, err)
 				}
 			}
 			for _, suffix := range []string{`}`, `,"view_count":null}`, `,"view_count":-1}`, `,"view_count":1.5}`, `,"view_count":"1"}`, `,"view_count":true}`, `,"view_count":[]}`, `,"view_count":9223372036854775808}`} {
-				if _, err := decodeAdminCursor(encode(base+suffix), p); !errors.Is(err, ErrInvalidAdminParams) {
+				if _, err := decodeAdminCursor(encode(base+suffix), p, accountID); !errors.Is(err, ErrInvalidAdminParams) {
 					t.Fatalf("accepted %s: %v", suffix, err)
 				}
 			}
@@ -43,14 +44,14 @@ func TestAdminViewSortCursorValidation(t *testing.T) {
 				{Status: p.Status, Sort: "oldest", Q: p.Q},
 				{Status: p.Status, Sort: map[string]string{"most_views": "least_views", "least_views": "most_views"}[sort], Q: p.Q},
 			} {
-				if _, err := decodeAdminCursor(valid, changed); !errors.Is(err, ErrInvalidAdminParams) {
+				if _, err := decodeAdminCursor(valid, changed, accountID); !errors.Is(err, ErrInvalidAdminParams) {
 					t.Fatalf("accepted mismatch %+v: %v", changed, err)
 				}
 			}
 			// Creation cursors cannot be used to start a view-count continuation.
 			for _, version := range []int{1, 2} {
 				raw := fmt.Sprintf(`{"v":%d,"status":"active","created_at":"2020-01-01T00:00:00Z","id":"00000000-0000-0000-0000-000000000001"}`, version)
-				if _, err := decodeAdminCursor(encode(raw), p); !errors.Is(err, ErrInvalidAdminParams) {
+				if _, err := decodeAdminCursor(encode(raw), p, accountID); !errors.Is(err, ErrInvalidAdminParams) {
 					t.Fatalf("accepted creation v%d: %v", version, err)
 				}
 			}
@@ -60,18 +61,16 @@ func TestAdminViewSortCursorValidation(t *testing.T) {
 
 func TestAdminCreationCursorCompatibility(t *testing.T) {
 	id := uuid.New()
+	accountID := uuid.New()
 	for _, sort := range []string{"newest", "oldest"} {
-		for _, version := range []int{1, 2} {
-			if version == 1 && sort != "newest" {
-				continue
-			}
+		for _, version := range []int{1, 2, 3} {
 			p, _ := NormalizeAdminQuery(AdminListParams{Sort: sort})
-			cursor := adminCursor{Version: version, Status: p.Status, CreatedAt: time.Now(), ID: &id}
-			if version == 2 {
+			cursor := adminCursor{Version: version, AccountID: accountID, Status: p.Status, CreatedAt: time.Now(), ID: &id}
+			if version >= 2 {
 				cursor.Sort, cursor.SearchHash = sort, searchHash(p.Q)
 			}
 			b, _ := json.Marshal(cursor)
-			if _, err := decodeAdminCursor(base64.RawURLEncoding.EncodeToString(b), p); err != nil {
+			if _, err := decodeAdminCursor(base64.RawURLEncoding.EncodeToString(b), p, accountID); (version == 3 && err != nil) || (version < 3 && !errors.Is(err, ErrInvalidAdminParams)) {
 				t.Fatalf("creation %s v%d: %v", sort, version, err)
 			}
 		}
@@ -80,6 +79,7 @@ func TestAdminCreationCursorCompatibility(t *testing.T) {
 
 func TestAdminViewSortPaginationFiltersAndCounts(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	ctx := t.Context()
 	var fixtures []AdminMetadata
 	for n := 1; n <= 137; n++ {
@@ -111,8 +111,8 @@ func TestAdminViewSortPaginationFiltersAndCounts(t *testing.T) {
 			maxViews := item.ViewCount
 			item.MaxViews = &maxViews
 		}
-		_, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content,admin_label,created_at,view_count,revoked_at,expires_at,max_views)
- VALUES($1,$2,'content',$3,$4,$5,$6,$7,$8)`, item.ID, []byte(fmt.Sprintf("%032d", n)), item.Label, item.CreatedAt, item.ViewCount, item.RevokedAt, item.ExpiresAt, item.MaxViews)
+		_, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content,admin_label,created_at,view_count,revoked_at,expires_at,max_views)
+ VALUES((SELECT id FROM accounts),$1,$2,'content',$3,$4,$5,$6,$7,$8)`, item.ID, []byte(fmt.Sprintf("%032d", n)), item.Label, item.CreatedAt, item.ViewCount, item.RevokedAt, item.ExpiresAt, item.MaxViews)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -123,7 +123,7 @@ func TestAdminViewSortPaginationFiltersAndCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	r := NewAdminRepository(tx)
+	r := NewAdminRepository(tx, testdb.AccountID(t, pool))
 	for _, sort := range []string{"most_views", "least_views"} {
 		for _, status := range []string{"all", "active", "revoked", "expired", "view_limit_exhausted"} {
 			for _, q := range []string{"", " tArGeT ", "absent"} {

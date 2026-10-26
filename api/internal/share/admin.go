@@ -54,6 +54,7 @@ type AdminListParams struct {
 }
 
 type adminCursor struct {
+	AccountID  uuid.UUID  `json:"account_id"`
 	Version    int        `json:"v"`
 	Status     string     `json:"status"`
 	CreatedAt  time.Time  `json:"created_at"`
@@ -71,7 +72,7 @@ func ValidAdminStatus(status string) bool {
 	return false
 }
 
-func decodeAdminCursor(value string, p AdminListParams) (*adminCursor, error) {
+func decodeAdminCursor(value string, p AdminListParams, accountID uuid.UUID) (*adminCursor, error) {
 	if value == "" {
 		return nil, nil
 	}
@@ -95,11 +96,10 @@ func decodeAdminCursor(value string, p AdminListParams) (*adminCursor, error) {
 		return nil, ErrInvalidAdminParams
 	}
 	switch cursor.Version {
-	case 1:
-		if p.Q != "" || p.Sort != "newest" || cursor.Sort != "" || cursor.SearchHash != "" || cursor.ViewCount != nil {
+	case 3:
+		if accountID == uuid.Nil || cursor.AccountID != accountID {
 			return nil, ErrInvalidAdminParams
 		}
-	case 2:
 		if cursor.Sort != p.Sort || cursor.SearchHash != searchHash(p.Q) {
 			return nil, ErrInvalidAdminParams
 		}
@@ -119,10 +119,13 @@ func decodeAdminCursor(value string, p AdminListParams) (*adminCursor, error) {
 // AdminRepository uses the caller's authorization transaction. The caller must
 // hold the account and session locks until this transaction commits.
 type AdminRepository struct {
-	tx pgx.Tx
+	tx        pgx.Tx
+	accountID uuid.UUID
 }
 
-func NewAdminRepository(tx pgx.Tx) *AdminRepository { return &AdminRepository{tx: tx} }
+func NewAdminRepository(tx pgx.Tx, accountID uuid.UUID) *AdminRepository {
+	return &AdminRepository{tx: tx, accountID: accountID}
+}
 
 // Status uses database time and the same precedence as public diagnostics.
 const adminStatusSQL = `CASE
@@ -159,12 +162,15 @@ func NormalizeAdminQuery(p AdminListParams) (AdminListParams, error) {
 }
 
 func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPage, error) {
+	if r.accountID == uuid.Nil {
+		return AdminPage{}, ErrInvalidAdminParams
+	}
 	var err error
 	p, err = NormalizeAdminQuery(p)
 	if err != nil {
 		return AdminPage{}, err
 	}
-	cursor, err := decodeAdminCursor(p.Cursor, p)
+	cursor, err := decodeAdminCursor(p.Cursor, p, r.accountID)
 	if err != nil {
 		return AdminPage{}, err
 	}
@@ -180,7 +186,7 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 	if strings.ContainsRune(p.Q, '\x00') {
 		search = nil
 	}
-	args := []any{p.Status, beforeTime, beforeID, p.Limit + 1, search}
+	args := []any{p.Status, beforeTime, beforeID, p.Limit + 1, search, r.accountID}
 	if adminViewSort(p.Sort) {
 		var beforeCount *int64
 		if cursor != nil {
@@ -213,7 +219,7 @@ func (r *AdminRepository) List(ctx context.Context, p AdminListParams) (AdminPag
 	if len(page.Items) > p.Limit {
 		page.Items = page.Items[:p.Limit]
 		last := page.Items[len(page.Items)-1]
-		next := adminCursor{Version: 2, Status: p.Status, CreatedAt: last.CreatedAt, ID: &last.ID, Sort: p.Sort, SearchHash: searchHash(p.Q)}
+		next := adminCursor{Version: 3, AccountID: r.accountID, Status: p.Status, CreatedAt: last.CreatedAt, ID: &last.ID, Sort: p.Sort, SearchHash: searchHash(p.Q)}
 		if adminViewSort(p.Sort) {
 			next.ViewCount = &last.ViewCount
 		}
@@ -237,16 +243,16 @@ func adminListSQL(sort string) string {
 	keys, position := "(created_at,id)", "($2,$3::uuid)"
 	order := "created_at " + direction + ", id " + direction
 	if adminViewSort(sort) {
-		keys, position = "(view_count,created_at,id)", "($6::bigint,$2,$3::uuid)"
+		keys, position = "(view_count,created_at,id)", "($7::bigint,$2,$3::uuid)"
 		order = "view_count " + direction + ", " + order
 	}
 	return `WITH matching AS NOT MATERIALIZED (
   SELECT ` + adminColumnsSQL + ` FROM shares
-  WHERE ($1 = 'all' OR (` + adminStatusSQL + `) = $1)
+  WHERE account_id = $6 AND ($1 = 'all' OR (` + adminStatusSQL + `) = $1)
   AND strpos(lower(admin_label), lower($5)) > 0
  ), totals AS (
   SELECT count(*) AS matching_count,
-   EXISTS(SELECT 1 FROM shares WHERE admin_label IS NULL) AS pending FROM matching
+   EXISTS(SELECT 1 FROM shares WHERE account_id = $6 AND admin_label IS NULL) AS pending FROM matching
  ) SELECT totals.matching_count, totals.pending,
   COALESCE(page.id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(page.label, ''), COALESCE(page.created_at, statement_timestamp()),
@@ -263,8 +269,11 @@ func scanAdmin(row pgx.Row, item *AdminMetadata, extra ...any) error {
 }
 
 func (r *AdminRepository) Detail(ctx context.Context, id uuid.UUID) (AdminDetail, error) {
+	if r.accountID == uuid.Nil {
+		return AdminDetail{}, ErrNotFound
+	}
 	var detail AdminDetail
-	err := scanAdmin(r.tx.QueryRow(ctx, `SELECT `+adminColumnsSQL+`, content FROM shares WHERE id = $1`, id), &detail.AdminMetadata, &detail.Content)
+	err := scanAdmin(r.tx.QueryRow(ctx, `SELECT `+adminColumnsSQL+`, content FROM shares WHERE id = $1 AND account_id = $2`, id, r.accountID), &detail.AdminMetadata, &detail.Content)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AdminDetail{}, ErrNotFound
 	}
@@ -279,10 +288,13 @@ func (r *AdminRepository) Detail(ctx context.Context, id uuid.UUID) (AdminDetail
 
 // Link returns retained capability data only inside the owner's authorization transaction.
 func (r *AdminRepository) Link(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	if r.accountID == uuid.Nil {
+		return "", false, ErrNotFound
+	}
 	var token *string
 	var storedHash []byte
 	var preview bool
-	err := r.tx.QueryRow(ctx, `SELECT link_token, token_hash, preview_title IS NOT NULL FROM shares WHERE id=$1`, id).Scan(&token, &storedHash, &preview)
+	err := r.tx.QueryRow(ctx, `SELECT link_token, token_hash, preview_title IS NOT NULL FROM shares WHERE id=$1 AND account_id=$2`, id, r.accountID).Scan(&token, &storedHash, &preview)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, ErrNotFound
 	}
@@ -301,8 +313,11 @@ func (r *AdminRepository) Link(ctx context.Context, id uuid.UUID) (string, bool,
 
 // VerifyToken matches an owner-supplied capability without consuming or changing a share.
 func (r *AdminRepository) VerifyToken(ctx context.Context, id uuid.UUID, hash [32]byte) (bool, error) {
+	if r.accountID == uuid.Nil {
+		return false, ErrNotFound
+	}
 	var preview bool
-	err := r.tx.QueryRow(ctx, `SELECT preview_title IS NOT NULL FROM shares WHERE id=$1 AND token_hash=$2`, id, hash[:]).Scan(&preview)
+	err := r.tx.QueryRow(ctx, `SELECT preview_title IS NOT NULL FROM shares WHERE id=$1 AND token_hash=$2 AND account_id=$3`, id, hash[:], r.accountID).Scan(&preview)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrNotFound
 	}
@@ -313,5 +328,5 @@ func (r *AdminRepository) VerifyToken(ctx context.Context, id uuid.UUID, hash [3
 }
 
 func (r *AdminRepository) Revoke(ctx context.Context, id uuid.UUID) (bool, error) {
-	return revoke(ctx, r.tx, id)
+	return revoke(ctx, r.tx, r.accountID, id)
 }

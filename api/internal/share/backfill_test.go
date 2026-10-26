@@ -13,10 +13,11 @@ import (
 
 func TestBackfillBoundedInterruptionResumeAndPreservation(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	ctx := t.Context()
 	for _, suffix := range []string{"1", "2", "3"} {
-		if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content,created_at,expires_at,max_views,view_count,revoked_at)
-   VALUES(('00000000-0000-0000-0000-00000000000'||$1)::uuid,sha256(convert_to($1,'UTF8')),
+		if _, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content,created_at,expires_at,max_views,view_count,revoked_at)
+   VALUES((SELECT id FROM accounts),('00000000-0000-0000-0000-00000000000'||$1)::uuid,sha256(convert_to($1,'UTF8')),
    '# **Legacy** [界](https://example.com)','2020-01-01Z','2021-01-01Z',7,3,'2020-12-01Z')`, suffix); err != nil {
 			t.Fatal(err)
 		}
@@ -85,7 +86,7 @@ func TestBackfillBoundedInterruptionResumeAndPreservation(t *testing.T) {
 	}
 	// A later older writer is detected rather than omitted from any search.
 	id := uuid.New()
-	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content) VALUES($1,$2,'# Late legacy')`, id, []byte(strings.Repeat("x", 32))); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content) VALUES((SELECT id FROM accounts),$1,$2,'# Late legacy')`, id, []byte(strings.Repeat("x", 32))); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
@@ -93,10 +94,10 @@ func TestBackfillBoundedInterruptionResumeAndPreservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := NewAdminRepository(tx).List(ctx, AdminListParams{Q: "nothing"}); !errors.Is(err, ErrLabelBackfillRequired) {
+	if _, err := NewAdminRepository(tx, testdb.AccountID(t, pool)).List(ctx, AdminListParams{Q: "nothing"}); !errors.Is(err, ErrLabelBackfillRequired) {
 		t.Fatalf("omitted older writer: %v", err)
 	}
-	if _, err := NewAdminRepository(tx).Detail(ctx, id); !errors.Is(err, ErrLabelBackfillRequired) {
+	if _, err := NewAdminRepository(tx, testdb.AccountID(t, pool)).Detail(ctx, id); !errors.Is(err, ErrLabelBackfillRequired) {
 		t.Fatalf("pending detail: %v", err)
 	}
 }

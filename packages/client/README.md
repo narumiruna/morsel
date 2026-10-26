@@ -35,6 +35,8 @@ try {
 }
 ```
 
-To consume a share, pass the 43-character capability token (from the URL after `/s/` or `#/s/`) to `consumeShare(token)`. No API key is needed for reading. **Every successful call consumes one view**; the client never caches or retries a request. Each method accepts an optional `{ signal }` for cancellation.
+Share ownership comes from the validated API key, not a request argument. All active keys in the same account can create and revoke that account's shares. Revocation of a foreign or missing share UUID returns the same `404 not_found`. Account recovery and key rotation do not change ownership. No account selector is needed in this client or the Markdown CLI.
+
+To consume a share, pass the 43-character capability token (from the URL after `/s/` or `#/s/`) to `consumeShare(token)`. No API key is needed for reading. Anyone with a valid capability can read, including someone signed in to a different account. **Every successful call consumes one view**; the client never caches or retries a request. Each method accepts an optional `{ signal }` for cancellation.
 
 The package lives in `packages/client/` and is not published automatically. From the repository root, run `npm ci && npm run ci --workspace @narumitw/morsel-client` and inspect `npm pack --workspace @narumitw/morsel-client --dry-run` before publishing. The request and response types follow the [OpenAPI contract](https://github.com/narumiruna/morsel/blob/main/api/openapi.yaml).

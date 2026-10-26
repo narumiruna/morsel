@@ -46,26 +46,42 @@ async function mockAccount(page: Page) {
     const path = url.pathname
     if (path.startsWith("/v1/shares")) {
       publicRequests += 1
-      await route.fulfill({ status: 500, body: "Public reads are forbidden in this scenario." })
+      await route.fulfill({
+        status: 500,
+        body: "Public reads are forbidden in this scenario.",
+      })
       return
     }
     if (expiredSession && path.startsWith("/v1/account")) {
-      await route.fulfill({ status: 401, json: { code: "session_expired" } })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        status: 401,
+        json: { code: "session_expired" },
+      })
       return
     }
     if (path === "/v1/account") {
       await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         json: {
           authenticated: true,
+          account_id: "10000000-0000-4000-8000-000000000001",
+          display_name: "Owner",
           setup_required: false,
           csrf_token: "current-csrf",
           verification_required: false,
         },
       })
     } else if (path === "/v1/passkeys") {
-      await route.fulfill({ json: [{ id: "passkey", name: "Laptop", created_at: created }] })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        json: [{ id: "passkey", name: "Laptop", created_at: created }],
+      })
     } else if (path === "/v1/api-keys") {
-      await route.fulfill({ json: [] })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        json: [],
+      })
     } else if (path === "/v1/account/shares") {
       listQueries.push(url.searchParams)
       const status = url.searchParams.get("status")
@@ -75,6 +91,7 @@ async function mockAccount(page: Page) {
         const items =
           url.searchParams.get("sort") === "most_views" ? [second, first()] : [first(), second]
         await route.fulfill({
+          headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
           json: cursor
             ? { items: [items[1]], matching_count: 2 }
             : { items: [items[0]], next_cursor: "opaque/+=", matching_count: 2 },
@@ -82,6 +99,7 @@ async function mockAccount(page: Page) {
       } else {
         expect(cursor).toBeNull()
         await route.fulfill({
+          headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
           json: {
             items: [first(), second].filter((share) => share.status === status),
             matching_count: [first(), second].filter((share) => share.status === status).length,
@@ -91,16 +109,21 @@ async function mockAccount(page: Page) {
     } else if (path.endsWith("/link") && request.method() === "GET") {
       const token = path.includes(secondID) ? secondToken : firstToken
       await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         json: { share_url: `${url.origin}/${path.includes(secondID) ? "s/" : "#/s/"}${token}` },
       })
     } else if (path === `/v1/account/shares/${firstID}` && request.method() === "DELETE") {
       expect(request.headers()["x-csrf-token"]).toBe("current-csrf")
       deletions.push(path)
       revoked = true
-      await route.fulfill({ status: 204 })
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        status: 204,
+      })
     } else if (path.startsWith("/v1/account/shares/")) {
       const metadata = path.endsWith(secondID) ? second : first()
       await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         json: {
           ...metadata,
           content: `# Private content\n\n**Administrative read**\n\n![no consuming image](/v1/shares/${"A".repeat(43)})\n\n\`\`\`mermaid\nflowchart TD\nA@{ img: "/v1/shares/${"A".repeat(43)}", label: "test", h: 60 }\n\`\`\`\n\n<script>window.unsafe = true</script>\n\n[unsafe](javascript:alert(1))`,

@@ -12,11 +12,12 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/narumiruna/morsel/api/internal/telemetry"
 )
 
 type BearerAuthenticator interface {
-	Valid(context.Context, string) (bool, error)
+	Authenticate(context.Context, string) (uuid.UUID, error)
 }
 
 type RouterConfig struct {
@@ -172,23 +173,35 @@ func requireBearer(authenticator BearerAuthenticator) func(http.Handler) http.Ha
 				next.ServeHTTP(w, r)
 				return
 			}
-			var valid bool
+			var accountID uuid.UUID
 			var err error
 			if authenticator != nil {
-				valid, err = authenticator.Valid(r.Context(), r.Header.Get("Authorization"))
+				accountID, err = authenticator.Authenticate(r.Context(), r.Header.Get("Authorization"))
 			}
 			if err != nil {
 				writePublicError(w, http.StatusServiceUnavailable, ErrorCodeServiceUnavailable, "authentication is unavailable")
 				return
 			}
-			if !valid {
+			if accountID == uuid.Nil {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="morsel"`)
 				writePublicError(w, http.StatusUnauthorized, ErrorCodeUnauthorized, "valid API key required")
 				return
 			}
+			r = r.WithContext(context.WithValue(r.Context(), principalKey{}, trustedPrincipal{accountID: accountID}))
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+type principalKey struct{}
+
+type trustedPrincipal struct {
+	accountID uuid.UUID
+}
+
+func authorizedAccount(ctx context.Context) uuid.UUID {
+	principal, _ := ctx.Value(principalKey{}).(trustedPrincipal)
+	return principal.accountID
 }
 
 func isProtected(r *http.Request) bool {

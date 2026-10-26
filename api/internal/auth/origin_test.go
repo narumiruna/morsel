@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"github.com/google/uuid"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -27,7 +28,7 @@ func TestCanonicalOriginHTTPChecks(t *testing.T) {
 				w := httptest.NewRecorder()
 				s.ServeHTTP(w, r)
 				if origin == test.origin {
-					requireStatus(t, w, 409)
+					requireStatus(t, w, 200)
 				} else {
 					requireStatus(t, w, 403)
 				}
@@ -45,7 +46,7 @@ func TestCanonicalOriginHTTPChecks(t *testing.T) {
 
 func TestRegistrationRejectsWrongRPID(t *testing.T) {
 	s, pool := testService(t)
-	token, err := IssueGrant(t.Context(), pool, "setup")
+	token, err := IssueGrant(t.Context(), pool, "setup", uuid.Nil)
 	if err != nil {
 		t.Fatal(err)
 	}

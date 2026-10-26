@@ -10,7 +10,8 @@
   },
   "scripts": {
     "dev": "npm run dev --workspace @narumitw/morsel-viewer",
-    "ci": "biome ci . && npm run ci --workspaces",
+    "ci": "biome ci . && npm run test:deploy && npm run ci --workspaces",
+    "test:deploy": "node --test scripts/test-deploy.mjs",
     "test": "vitest run",
     "test:browser": "npm run test:browser --workspace @narumitw/morsel-viewer",
     "test:auth:browser": "node scripts/test-auth-browser.mjs",

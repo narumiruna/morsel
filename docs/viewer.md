@@ -6,13 +6,17 @@ Morsel renders GitHub Flavored Markdown, syntax highlighting, KaTeX, Mermaid, an
 
 Management uses three authenticated routes: `/manage/shares`, `/manage/api-keys`, and `/account` (Security). Signed-out visits go to `/login`; management navigation is hidden until sign-in completes. Login shows a Passkey button and a link to `/recover`, not a recovery form.
 
-Initial setup uses `/setup` only while the server reports that setup is required. Recovery uses an operator token and a replacement Passkey. It replaces existing Passkeys and invalidates other sessions, but does not revoke API keys.
+Initial setup uses `/setup` only while the server reports that setup is required. Later accounts register at `/invite` with a one-use operator invitation. Account display name and passkey name are separate fields. Display names need not be unique; the account UUID is the stable identity. The first account has no access to other accounts' management data. Recovery at `/recover` uses an account-targeted operator token and a replacement passkey. It replaces that account's passkeys and invalidates its other sessions, but does not revoke its API keys or affect other accounts.
 
-Authentication links preserve the destination in `?next=`. Only the three exact management paths above are accepted. Missing, repeated, or invalid values use `/manage/shares`. Setup and recovery also return to this destination. Tokens and credentials belong in forms, never in URLs.
+Authentication links preserve the destination in `?next=`. Only the three exact management paths above are accepted. Missing, repeated, or invalid values use `/manage/shares`. Setup, invitation registration, and recovery also return to this destination. Tokens and credentials belong in forms, never in URLs.
 
 Automatic redirects replace the current history entry. Session expiry clears private UI state and sends the user to login with the current management destination. Successful logout goes to `/login` with Shares as the default destination. Failed logout reports an error without claiming success. Network failures during the initial account check show a retry control rather than a login form.
 
-The Go server serves all three authentication paths on direct visits and refreshes. Configure reverse proxies to bypass caching for these paths, including query-string variants, as for management pages.
+The Go server serves all four authentication paths on direct visits and refreshes. Configure reverse proxies to bypass caching for these paths, including query-string variants, as for management pages.
+
+The account menu shows the current account identity. To switch accounts, log out, then select the intended passkey at login. A server-derived `X-Morsel-Account-ID` marker on successful private browser responses binds data to the authorized account; it is not a request selector. Missing or mismatched markers discard the response and refresh identity without replaying a mutation. Identity changes clear share lists, Markdown details, saved links, cursors, filters, confirmations, pending operations, and one-time keys. Secret-free `BroadcastChannel` events invalidate other tabs after login, registration, recovery, and logout. Focus and visibility restoration also refresh identity. These checks supplement server authorization and CSRF validation; they do not replace them.
+
+Management shows only the current account's shares. Public capability reads, previews, and Instant View remain available to anyone with a valid capability, regardless of the signed-in account. Public responses contain no account identity.
 
 ## Mermaid diagram controls
 
