@@ -1,4 +1,4 @@
-// Request and response names match the public OpenAPI contract in api/openapi.yaml.
+// Request and response names match the public OpenAPI contract in packages/server/openapi.yaml.
 export interface PreviewMetadata {
   title: string
   description: string

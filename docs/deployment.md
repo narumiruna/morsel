@@ -10,7 +10,7 @@ The API reads these environment variables:
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
 | `MORSEL_URL` | yes | — | Public origin for share links, invitation links, and WebAuthn. Non-root paths, queries, fragments, and credentials are rejected. |
-| `MORSEL_VIEWER_DIR` | no | `../packages/viewer/dist` | Viewer directory, relative to the usual `api/` working directory. The container uses `/srv/viewer`. |
+| `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Viewer directory, relative to the usual `packages/server/` working directory. The container uses `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
 | `MORSEL_MAX_DOCUMENT_BYTES` | no | `1048576` | UTF-8 Markdown byte limit. |
@@ -46,7 +46,7 @@ Historical migration-10 compatibility: older single-account applications used th
 
 ## Operator setup and recovery
 
-The image contains the static `/usr/local/bin/account` executable. It reads only `MORSEL_DATABASE_URL`; it does not require viewer or public-origin configuration. From source, run `cd api` and use `GOTOOLCHAIN=go1.26.10 go run ./cmd/account` with `-kind setup`, `-kind invite`, or `-kind recover -account-id ACCOUNT_UUID`. Each command prints one raw token; only its hash is stored. Treat the output as a secret. Keep setup and recovery tokens out of all URLs. Invitation tokens alone may use the configured-origin `/invite#token=<43-character base64url token>` format; never put any grant secret in a query or path, log, ticket, or shell trace. CLI output remains a raw token; manual form entry remains supported.
+The image contains the static `/usr/local/bin/account` executable. It reads only `MORSEL_DATABASE_URL`; it does not require viewer or public-origin configuration. From source, run `cd packages/server` and use `GOTOOLCHAIN=go1.26.10 go run ./cmd/account` with `-kind setup`, `-kind invite`, or `-kind recover -account-id ACCOUNT_UUID`. Each command prints one raw token; only its hash is stored. Treat the output as a secret. Keep setup and recovery tokens out of all URLs. Invitation tokens alone may use the configured-origin `/invite#token=<43-character base64url token>` format; never put any grant secret in a query or path, log, ticket, or shell trace. CLI output remains a raw token; manual form entry remains supported.
 
 For Compose, use the same environment, image, project, and database as the target deployment. Start PostgreSQL and complete migrations first. The image is distroless and has no shell; use the executable directly:
 
@@ -255,7 +255,7 @@ Historical sorting-only rollback used matching previous API/viewer versions with
 
 1. Retain the previous immutable image and a tested backup. Test migration, backfill, interruption/resume, and rollback on a restored database. Confirm the write window before production.
 2. Pause old-version share creation before the final backfill and application cutover. Historically, older writers could insert NULL labels. For migration 11, stop all old instances and writes before migration, not merely creation before backfill.
-3. Run the **new release's** migration executable with `-direction up`, using the existing migration service or `GOTOOLCHAIN=go1.26.10 go run ./cmd/migrate -direction up` from `api/`. The command applies schema changes, then processes up to 16 pending documents per loop. Each document is read and committed separately, outside account/session locks; only one source is parsed at a time.
+3. Run the **new release's** migration executable with `-direction up`, using the existing migration service or `GOTOOLCHAIN=go1.26.10 go run ./cmd/migrate -direction up` from `packages/server/`. The command applies schema changes, then processes up to 16 pending documents per loop. Each document is read and committed separately, outside account/session locks; only one source is parsed at a time.
 4. If interrupted or cancelled, rerun the same up command. Applied schema migrations stay recorded; completed labels are not rewritten. The command exits unsuccessfully when backfill fails or is cancelled, so do not treat schema version 8 alone as completion.
 5. Before opening management, verify `SELECT count(*) FROM shares WHERE admin_label IS NULL` returns zero, with old writers still paused. Deploy the new API and viewer together, then resume client writes.
 

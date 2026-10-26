@@ -26,7 +26,7 @@ Production has no separate viewer deployment or build-time API hostname. The roo
 Start PostgreSQL and apply [migrations](#migrations). In one terminal, run the API with a development origin that matches Vite:
 
 ```sh
-cd api
+cd packages/server
 export MORSEL_DATABASE_URL='postgres://morsel:LOCAL_PASSWORD@127.0.0.1:5432/morsel?sslmode=disable'
 export MORSEL_ENVIRONMENT=development
 export MORSEL_URL=http://localhost:5173
@@ -39,7 +39,7 @@ In another terminal, start Vite with the command above. Open <http://localhost:5
 With the same local database variable set, generate a setup token:
 
 ```sh
-cd api
+cd packages/server
 GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind setup
 ```
 
@@ -65,7 +65,7 @@ The separate required authentication CI job provisions PostgreSQL, Go, Node.js, 
 Requirements: Go 1.26.10+ in the 1.26 line, or Go 1.27.3+; PostgreSQL 17; and Docker for integration tests. Go 1.27.0–1.27.2 are affected by GO-2026-6809 in the WebAuthn certificate verification path.
 
 ```sh
-cd api
+cd packages/server
 export GOTOOLCHAIN=go1.26.10
 go generate ./...
 gofmt -w .
@@ -82,7 +82,7 @@ docker run --rm -d --name morsel-test-postgres \
   -e POSTGRES_PASSWORD=test-only-password \
   -p 5432:5432 postgres:17.6-alpine3.22
 export MORSEL_TEST_DATABASE_URL='postgres://morsel:test-only-password@127.0.0.1:5432/morsel_test?sslmode=disable'
-cd api
+cd packages/server
 go test -race ./...
 go test -race -count=10 ./internal/share \
   -run TestPostgresRepositoryConcurrentFinalViews
@@ -94,22 +94,22 @@ docker stop morsel-test-postgres
 Validate the complete OpenAPI contract, including manually implemented account routes:
 
 ```sh
-npx --yes @redocly/cli@2.53.2 lint --config api/redocly.yaml api/openapi.yaml
-(cd api && export GOTOOLCHAIN=go1.26.10 && \
+npx --yes @redocly/cli@2.53.2 lint --config packages/server/redocly.yaml packages/server/openapi.yaml
+(cd packages/server && export GOTOOLCHAIN=go1.26.10 && \
   go generate ./... && \
   before="$(sha256sum internal/api/openapi.gen.go)" && \
   go generate ./... && \
   test "$before" = "$(sha256sum internal/api/openapi.gen.go)")
 ```
 
-`api/oapi-codegen.yaml` includes only health and public/Bearer share operations. Account, invitation, verification, passkey, and saved-link routes are manual handlers; update their contract and viewer types explicitly. Share-write shapes in the TypeScript client and Markdown CLI have no ownership argument.
+`packages/server/oapi-codegen.yaml` includes only health and public/Bearer share operations. Account, invitation, verification, passkey, and saved-link routes are manual handlers; update their contract and viewer types explicitly. Share-write shapes in the TypeScript client and Markdown CLI have no ownership argument.
 
 ## Migrations
 
 Migrations are embedded in the migration executable and protected by a PostgreSQL advisory lock.
 
 ```sh
-cd api
+cd packages/server
 GOTOOLCHAIN=go1.26.10 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction up
 GOTOOLCHAIN=go1.26.10 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction down -steps 1
 ```
@@ -183,12 +183,12 @@ Local validation on 2026-10-26 used Go 1.26.10, Node.js 26, disposable PostgreSQ
 
 Production data, physical passkey selection, and native operating-system focus behavior remain unverified. The [operator and account-owner handoff](deployment.md#external-multi-account-handoff) retains these limits. No production release workflow was dispatched.
 
-For backend query/backfill measurements, run `go test -v ./internal/share -run 'Test(LabelDiscovery|AdminQueryDiscovery|BackfillDiscovery)'` from `api/` with `MORSEL_TEST_DATABASE_URL` set. These tests use generated fixtures and isolated schemas; their timings are not production guarantees.
+For backend query/backfill measurements, run `go test -v ./internal/share -run 'Test(LabelDiscovery|AdminQueryDiscovery|BackfillDiscovery)'` from `packages/server/` with `MORSEL_TEST_DATABASE_URL` set. These tests use generated fixtures and isolated schemas; their timings are not production guarantees.
 
 ## Repository layout
 
 ```text
-api/             Go API, static-file serving, OpenAPI contract, and migrations
+packages/server/ Go server, static-file serving, OpenAPI contract, and migrations
 packages/viewer/ React viewer source and build-time tests
 packages/client/ Publishable TypeScript client for the share API
 package.json     npm workspace scripts and shared overrides

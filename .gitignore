@@ -4,8 +4,8 @@
 !.env.example
 
 # Go
-api/coverage.out
-api/bin/
+packages/server/coverage.out
+packages/server/bin/
 
 # Node / Vite / test artifacts
 node_modules/

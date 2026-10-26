@@ -122,7 +122,7 @@ try {
   for (const name of ["server", "migrate", "account", "test-auth"]) {
     if (stopping) throw new Error("Test interrupted")
     await run("go", ["build", "-o", join(directory, name), `./cmd/${name}`], {
-      cwd: join(root, "api"),
+      cwd: join(root, "packages/server"),
     })
   }
   databaseAttempted = true

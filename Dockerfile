@@ -9,10 +9,10 @@ COPY packages/viewer/ packages/viewer/
 RUN npm run build --workspace @narumitw/morsel-viewer
 
 FROM golang:1.27.3-alpine3.23 AS api-build
-WORKDIR /src/api
-COPY api/go.mod api/go.sum ./
+WORKDIR /src/packages/server
+COPY packages/server/go.mod packages/server/go.sum ./
 RUN go mod download
-COPY api/ ./
+COPY packages/server/ ./
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server && \

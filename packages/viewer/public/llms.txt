@@ -16,7 +16,7 @@ Important usage notes:
 ## Documentation
 
 - [Morsel documentation](https://raw.githubusercontent.com/narumiruna/morsel/main/README.md): Setup, API examples, retrieval semantics, configuration, operations, and security model.
-- [Morsel OpenAPI contract](https://raw.githubusercontent.com/narumiruna/morsel/main/api/openapi.yaml): Complete request, response, authentication, schema, and error definitions for the HTTP API.
+- [Morsel OpenAPI contract](https://raw.githubusercontent.com/narumiruna/morsel/main/packages/server/openapi.yaml): Complete request, response, authentication, schema, and error definitions for the HTTP API.
 
 ## Optional
 

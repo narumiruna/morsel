@@ -174,4 +174,4 @@ Do not disable site-wide protection as a default workaround.
 
 When local logs are requested, inspect a bounded tail of `docker compose logs` and bound any `-f` follow duration.
 Report only what the inspected time window supports.
-Consult the checkout's `README.md` and `api/openapi.yaml` when the deployment contract or response differs from this workflow.
+Consult the checkout's `README.md` and `packages/server/openapi.yaml` when the deployment contract or response differs from this workflow.
