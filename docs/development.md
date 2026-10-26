@@ -185,6 +185,33 @@ Production data, physical passkey selection, and native operating-system focus b
 
 For backend query/backfill measurements, run `go test -v ./internal/share -run 'Test(LabelDiscovery|AdminQueryDiscovery|BackfillDiscovery)'` from `packages/server/` with `MORSEL_TEST_DATABASE_URL` set. These tests use generated fixtures and isolated schemas; their timings are not production guarantees.
 
+## Releases
+
+Morsel has one repository version in the root `package.json`. The initial value, `0.0.1`, matches the existing `v0.0.1` Git tag. The server, viewer, and client changes all use this release target. Workspace package versions are not updated or published by this process.
+
+Add a changeset with the change:
+
+```sh
+npm run changeset -- add patch "Fix share rendering."
+npm run changeset -- status
+```
+
+Use `minor` for a feature or `major` for a breaking change. Each generated `.changeset/*.md` file targets only `@narumitw/morsel`. Commit the file with the code change. Changesets are not required for changes that need no release.
+
+Prepare a version change on a branch after the changesets reach `main`:
+
+```sh
+npm run release:version
+npm run ci
+git diff
+```
+
+The version command uses the highest pending bump. It updates only the root `package.json` version, root version metadata in `package-lock.json`, and root `CHANGELOG.md`, then removes the consumed changesets. It does not commit, tag, publish, or deploy. Review and merge these changes through a pull request.
+
+After the version pull request is merged, manually run the **Release** workflow on `main`. The workflow rejects pending changesets, missing changelog entries, and existing or older versions. It creates one `vX.Y.Z` tag from the root version, publishes the container, and creates the GitHub release. GitHub release notes still use GitHub's generated commit notes; Changesets summaries are in the root changelog. If container publishing or GitHub release creation fails after tagging, rerun the workflow to recover the same unreleased tag without another bump. Deployment remains a separate manual workflow subject to the [maintenance requirements](deployment.md#multi-account-maintenance-upgrade).
+
+Use the repository commands rather than `npx changeset` or `changesets/action`. The stock CLI discovers individual npm workspaces. The repository wrapper uses the public Changesets APIs with only the root package. Run `npm run test:release` for isolated release-tooling tests.
+
 ## Repository layout
 
 ```text

@@ -1,5 +1,6 @@
 {
   "name": "@narumitw/morsel",
+  "version": "0.0.1",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -10,7 +11,10 @@
   },
   "scripts": {
     "dev": "npm run dev --workspace @narumitw/morsel-viewer",
-    "ci": "biome ci . && npm run test:deploy && npm run ci --workspaces",
+    "ci": "biome ci . && npm run test:deploy && npm run test:release && npm run changeset -- status && npm run ci --workspaces",
+    "changeset": "node scripts/changeset.mjs",
+    "release:version": "node scripts/changeset.mjs version",
+    "test:release": "node --test scripts/test-release.mjs",
     "test:deploy": "node --test scripts/test-deploy.mjs",
     "test": "vitest run",
     "test:browser": "npm run test:browser --workspace @narumitw/morsel-viewer",
@@ -22,6 +26,13 @@
     "lodash-es": "4.18.1"
   },
   "devDependencies": {
+    "@changesets/apply-release-plan": "8.1.1",
+    "@changesets/assemble-release-plan": "7.0.0",
+    "@changesets/changelog-git": "1.0.0",
+    "@changesets/config": "4.0.1",
+    "@changesets/read": "1.0.1",
+    "@changesets/write": "1.0.1",
+    "@manypkg/tools": "2.1.2",
     "husky": "^9.1.7",
     "vitest": "^5.0.5"
   }
