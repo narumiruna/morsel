@@ -33,36 +33,36 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          go-version-file: packages/server/go.mod
+          cache-dependency-path: packages/server/go.sum
       - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Test maintenance deployment sequence
         run: node --test scripts/test-deploy.mjs
       - name: Validate OpenAPI
-        run: npx --yes @redocly/cli@2.53.2 lint --config api/redocly.yaml api/openapi.yaml
+        run: npx --yes @redocly/cli@2.53.2 lint --config packages/server/redocly.yaml packages/server/openapi.yaml
       - name: Verify generated code
-        working-directory: api
+        working-directory: packages/server
         run: |
           go generate ./...
           git diff --exit-code -- internal/api/openapi.gen.go
       - name: Verify formatting and modules
-        working-directory: api
+        working-directory: packages/server
         run: |
           test -z "$(gofmt -l .)"
           go mod verify
       - name: Vet
-        working-directory: api
+        working-directory: packages/server
         run: go vet ./...
       - name: Vulnerability scan
-        working-directory: api
+        working-directory: packages/server
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: Test with race detector
-        working-directory: api
+        working-directory: packages/server
         run: go test -race -coverprofile=coverage.out ./...
       - name: Repeat final-view concurrency test
-        working-directory: api
+        working-directory: packages/server
         run: go test -race -count=10 ./internal/share -run TestPostgresRepositoryConcurrentFinalViews
       - name: Build Morsel image
         uses: docker/build-push-action@v7
@@ -95,8 +95,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          go-version-file: packages/server/go.mod
+          cache-dependency-path: packages/server/go.sum
       - uses: actions/setup-node@v7
         with:
           node-version: 24

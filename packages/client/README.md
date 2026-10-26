@@ -1,6 +1,6 @@
 # Morsel TypeScript client
 
-Typed client for the [Morsel share API](https://github.com/narumiruna/morsel/blob/main/api/openapi.yaml). Requires Node.js 20+ (or a runtime with `fetch`). The package has no runtime dependencies.
+Typed client for the [Morsel share API](https://github.com/narumiruna/morsel/blob/main/packages/server/openapi.yaml). Requires Node.js 20+ (or a runtime with `fetch`). The package has no runtime dependencies.
 
 Install after publishing:
 
@@ -39,4 +39,4 @@ Share ownership comes from the validated API key, not a request argument. All ac
 
 To consume a share, pass the 43-character capability token (from the URL after `/s/` or `#/s/`) to `consumeShare(token)`. No API key is needed for reading. Anyone with a valid capability can read, including someone signed in to a different account. **Every successful call consumes one view**; the client never caches or retries a request. Each method accepts an optional `{ signal }` for cancellation.
 
-The package lives in `packages/client/` and is not published automatically. From the repository root, run `npm ci && npm run ci --workspace @narumitw/morsel-client` and inspect `npm pack --workspace @narumitw/morsel-client --dry-run` before publishing. The request and response types follow the [OpenAPI contract](https://github.com/narumiruna/morsel/blob/main/api/openapi.yaml).
+The package lives in `packages/client/` and is not published automatically. From the repository root, run `npm ci && npm run ci --workspace @narumitw/morsel-client` and inspect `npm pack --workspace @narumitw/morsel-client --dry-run` before publishing. The request and response types follow the [OpenAPI contract](https://github.com/narumiruna/morsel/blob/main/packages/server/openapi.yaml).

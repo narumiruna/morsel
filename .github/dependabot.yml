@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: gomod
-    directory: /api
+    directory: /packages/server
     schedule:
       interval: weekly
   - package-ecosystem: npm

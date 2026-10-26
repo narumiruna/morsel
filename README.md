@@ -57,7 +57,7 @@ curl --fail-with-body \
   http://127.0.0.1:12647/v1/shares
 ```
 
-The response contains a reader-facing `share_url` and an administrative `id` for revocation. **Anyone with the URL can read the share; every successful retrieval consumes a view.** See [using Morsel](docs/usage.md) for retrieval, revocation, previews, Instant View, Gists, and the TypeScript client. The [OpenAPI contract](api/openapi.yaml) specifies all endpoints.
+The response contains a reader-facing `share_url` and an administrative `id` for revocation. **Anyone with the URL can read the share; every successful retrieval consumes a view.** See [using Morsel](docs/usage.md) for retrieval, revocation, previews, Instant View, Gists, and the TypeScript client. The [OpenAPI contract](packages/server/openapi.yaml) specifies all endpoints.
 
 ## Documentation
 
@@ -66,7 +66,7 @@ The response contains a reader-facing `share_url` and an administrative `id` for
 - [Design and security](docs/design.md): architecture, view semantics, and the security model.
 - [Viewer features](docs/viewer.md): Mermaid and Vega-Lite controls and limits.
 - [Development](docs/development.md): setup, tests, and migrations.
-- [TypeScript client](packages/client/README.md) · [OpenAPI contract](api/openapi.yaml)
+- [TypeScript client](packages/client/README.md) · [OpenAPI contract](packages/server/openapi.yaml)
 
 ## License
 

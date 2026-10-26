@@ -16,7 +16,7 @@
     "format": "biome format --write .",
     "test": "vitest run",
     "test:browser": "playwright test",
-    "openapi:lint": "redocly lint --config ../../api/redocly.yaml ../../api/openapi.yaml",
+    "openapi:lint": "redocly lint --config ../server/redocly.yaml ../server/openapi.yaml",
     "ci": "npm run openapi:lint && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {

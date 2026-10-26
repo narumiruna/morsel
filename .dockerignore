@@ -1,6 +1,7 @@
 .git
 .env
-api/coverage.out
+packages/server/coverage.out
+packages/server/bin
 node_modules
 packages/client/node_modules
 packages/client/dist
