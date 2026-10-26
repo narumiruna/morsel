@@ -19,6 +19,9 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 		t.Fatalf("second up: %v", err)
 	}
 	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+		t.Fatalf("down account isolation migration: %v", err)
+	}
+	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
 		t.Fatal(err)
 	}
 	assertColumnCount(t, pool, "link_token", 0)
@@ -66,8 +69,8 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 		t.Fatalf("insert legacy preview: %v", err)
 	}
 
-	if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
-		t.Fatalf("reapply metadata migration: %v", err)
+	if err := migrations.Run(ctx, pool, migrations.Up, 8); err != nil {
+		t.Fatalf("reapply through metadata/link migrations: %v", err)
 	}
 	assertColumnCount(t, pool, "preview_enabled", 0)
 	assertColumnCount(t, pool, "preview_title", 1)
@@ -182,11 +185,8 @@ func TestMigrationsUpDownUpAndIdempotence(t *testing.T) {
 }
 
 func TestAccountMigrationPreservesExistingShares(t *testing.T) {
-	pool := testdb.Open(t)
+	pool := testdb.OpenVersion(t, 5)
 	ctx := context.Background()
-	if err := migrations.Run(ctx, pool, migrations.Down, 5); err != nil {
-		t.Fatal(err)
-	}
 	assertAuthTables(t, pool, false)
 	id := uuid.New()
 	hash := bytes.Repeat([]byte{42}, 32)
@@ -194,7 +194,7 @@ func TestAccountMigrationPreservesExistingShares(t *testing.T) {
 		t.Fatal(err)
 	}
 	for cycle := 0; cycle < 2; cycle++ {
-		if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+		if err := migrations.Run(ctx, pool, migrations.Up, 5); err != nil {
 			t.Fatal(err)
 		}
 		assertAuthTables(t, pool, true)

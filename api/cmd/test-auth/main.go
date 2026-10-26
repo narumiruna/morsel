@@ -13,9 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/narumiruna/morsel/api/internal/share"
+	"github.com/narumiruna/morsel/api/migrations"
 )
 
 var databaseName = regexp.MustCompile(`^morsel_auth_e2e_[0-9a-f]{24}$`)
@@ -89,7 +91,22 @@ func run(ctx context.Context, args []string) error {
 		fmt.Println(derived)
 		return nil
 	}
-	if len(args) != 1 || (args[0] != "expire-sessions" && args[0] != "expire-verification" && args[0] != "assert-no-secret" && args[0] != "seed-legacy-share") {
+	var accountID uuid.UUID
+	switch args[0] {
+	case "expire-sessions", "expire-verification", "seed-legacy-share":
+		if len(args) != 2 {
+			return errors.New("account ID required")
+		}
+		var err error
+		accountID, err = uuid.Parse(args[1])
+		if err != nil || accountID == uuid.Nil {
+			return errors.New("invalid account ID")
+		}
+	case "assert-no-secret":
+		if len(args) != 1 {
+			return errors.New("unexpected arguments")
+		}
+	default:
 		return errors.New("unknown command")
 	}
 	cfg, err := pgx.ParseConfig(os.Getenv("MORSEL_DATABASE_URL"))
@@ -102,17 +119,36 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer conn.Close(ctx)
 	if args[0] == "seed-legacy-share" {
+		// The browser must finish setup and settle all requests before this
+		// test-only transition. Never insert an ownerless row in schema 11.
+		// Use the real single-account downgrade, seed schema 10, then upgrade.
 		const id = "00000000-0000-4000-8000-000000000001"
-		_, err := conn.Exec(ctx, `INSERT INTO shares (id, token_hash, content, created_at)
-			VALUES ($1, decode(repeat('ab', 32), 'hex'), '# Legacy before account', '2020-01-01T00:00:00Z')`, id)
-		if err != nil {
+		var safe bool
+		if err := conn.QueryRow(ctx, `SELECT
+			(SELECT count(*)=11 AND max(version)=11 AND NOT bool_or(dirty) FROM schema_migrations)
+			AND (SELECT count(*)=1 FROM accounts)
+			AND EXISTS(SELECT 1 FROM accounts WHERE id=$1)
+			AND NOT EXISTS(SELECT 1 FROM auth_flows WHERE expires_at>clock_timestamp())`, accountID).Scan(&safe); err != nil {
 			return err
+		}
+		if !safe {
+			return errors.New("legacy fixture requires clean schema 11, sole matching owner, and no active flows")
 		}
 		pool, err := pgxpool.New(ctx, os.Getenv("MORSEL_DATABASE_URL"))
 		if err != nil {
 			return err
 		}
 		defer pool.Close()
+		if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
+			return err
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO shares (id, token_hash, content, created_at)
+			VALUES ($1, decode(repeat('ab', 32), 'hex'), '# Legacy before account', '2020-01-01T00:00:00Z')`, id); err != nil {
+			return err
+		}
+		if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+			return err
+		}
 		for {
 			count, err := share.BackfillLabels(ctx, pool, 16)
 			if err != nil {
@@ -126,11 +162,11 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	}
 	if args[0] == "expire-sessions" {
-		_, err := conn.Exec(ctx, `UPDATE auth_sessions SET expires_at=clock_timestamp()-interval '1 second'`)
+		_, err := conn.Exec(ctx, `UPDATE auth_sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE account_id=$1`, accountID)
 		return err
 	}
 	if args[0] == "expire-verification" {
-		_, err := conn.Exec(ctx, `UPDATE auth_sessions SET verified_at=to_timestamp(0)`)
+		_, err := conn.Exec(ctx, `UPDATE auth_sessions SET verified_at=to_timestamp(0) WHERE account_id=$1`, accountID)
 		return err
 	}
 	secret, err := io.ReadAll(io.LimitReader(os.Stdin, 4097))

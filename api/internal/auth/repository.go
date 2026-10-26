@@ -16,26 +16,19 @@ import (
 
 type account struct {
 	ID          uuid.UUID
+	DisplayName string
 	Generation  int64
 	Credentials []webauthn.Credential
 }
 
 func (u *account) WebAuthnID() []byte                         { return u.ID[:] }
-func (u *account) WebAuthnName() string                       { return "owner" }
-func (u *account) WebAuthnDisplayName() string                { return "Morsel owner" }
+func (u *account) WebAuthnName() string                       { return u.ID.String() }
+func (u *account) WebAuthnDisplayName() string                { return u.DisplayName }
 func (u *account) WebAuthnCredentials() []webauthn.Credential { return u.Credentials }
 
-func owner(ctx context.Context, tx pgx.Tx) (*account, error) {
-	u := &account{}
-	err := tx.QueryRow(ctx, `SELECT id,auth_generation FROM accounts ORDER BY created_at,id LIMIT 1 FOR UPDATE`).Scan(&u.ID, &u.Generation)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, failure(409, "setup_required", "owner setup required")
-	}
-	return u, err
-}
 func lockAccount(ctx context.Context, tx pgx.Tx, id uuid.UUID, generation int64) (*account, error) {
 	u := &account{ID: id}
-	err := tx.QueryRow(ctx, `SELECT auth_generation FROM accounts WHERE id=$1 FOR UPDATE`, id).Scan(&u.Generation)
+	err := tx.QueryRow(ctx, `SELECT display_name,auth_generation FROM accounts WHERE id=$1 FOR UPDATE`, id).Scan(&u.DisplayName, &u.Generation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errGeneration
 	}
@@ -67,6 +60,51 @@ func loadCredentials(ctx context.Context, tx pgx.Tx, u *account) error {
 	}
 	return rows.Err()
 }
+
+// loginAccount resolves a discoverable assertion without selecting a default
+// account. The credential is checked again after the account lock: recovery or
+// deletion can commit between the lookup and this lock.
+func loginAccount(ctx context.Context, tx pgx.Tx, rawID, userHandle []byte, startedOrder int64) (*account, error) {
+	id, err := uuid.FromBytes(userHandle)
+	if err != nil || id == uuid.Nil {
+		return nil, errCredential
+	}
+	var found uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT account_id FROM passkey_credentials WHERE id=$1 AND account_id=$2`, credentialID(rawID), id).Scan(&found)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, errCredential
+	}
+	if err != nil {
+		return nil, err
+	}
+	u := &account{ID: found}
+	err = tx.QueryRow(ctx, `SELECT display_name,auth_generation FROM accounts WHERE id=$1 FOR UPDATE`, found).Scan(&u.DisplayName, &u.Generation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, errCredential
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err = credentialBeforeFlow(ctx, tx, u.ID, rawID, startedOrder); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// Caller holds the account lock through the authorization commit. Sequence
+// order, not wall-clock time, excludes credentials registered after flow begin.
+func credentialBeforeFlow(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, rawID []byte, startedOrder int64) error {
+	var eligible bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM passkey_credentials WHERE id=$1 AND account_id=$2 AND registered_order<$3)`, credentialID(rawID), accountID, startedOrder).Scan(&eligible)
+	if err != nil {
+		return err
+	}
+	if !eligible {
+		return errCredential
+	}
+	return nil
+}
+
 func saveCredential(ctx context.Context, tx pgx.Tx, u *account, c *webauthn.Credential, name string) error {
 	b, err := json.Marshal(c)
 	if err != nil {
@@ -128,22 +166,26 @@ func newSession(ctx context.Context, tx pgx.Tx, u *account) (string, error) {
 }
 
 // IssueGrant is the operator-only entry point. Raw tokens are returned once and
-// only their hashes are persisted. Issuing a replacement cancels earlier grants.
-func IssueGrant(ctx context.Context, pool *pgxpool.Pool, kind string) (string, error) {
-	if kind != "setup" && kind != "recover" {
-		return "", errors.New("kind must be setup or recover")
+// only their hashes are persisted. Invitations are independent. Recovery grant
+// replacement cancels earlier recovery grants for the selected account only.
+func IssueGrant(ctx context.Context, pool *pgxpool.Pool, kind string, accountID uuid.UUID) (string, error) {
+	if kind != "setup" && kind != "invite" && kind != "recover" {
+		return "", errors.New("kind must be setup, invite, or recover")
+	}
+	if (kind == "recover") != (accountID != uuid.Nil) {
+		return "", errors.New("recover requires an account ID; setup and invite must not specify one")
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, setupLock); err != nil {
-		return "", err
-	}
 	var id *uuid.UUID
 	var generation *int64
 	if kind == "setup" {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, setupLock); err != nil {
+			return "", err
+		}
 		var exists bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts)`).Scan(&exists); err != nil {
 			return "", err
@@ -151,15 +193,28 @@ func IssueGrant(ctx context.Context, pool *pgxpool.Pool, kind string) (string, e
 		if exists {
 			return "", errors.New("owner already exists")
 		}
-	} else {
-		u, e := owner(ctx, tx)
-		if e != nil {
-			return "", e
+	} else if kind == "recover" {
+		id = &accountID
+		var current int64
+		if err = tx.QueryRow(ctx, `SELECT auth_generation FROM accounts WHERE id=$1 FOR UPDATE`, accountID).Scan(&current); err != nil {
+			return "", err
 		}
-		id = &u.ID
-		generation = &u.Generation
+		generation = &current
+	} else {
+		var exists bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts)`).Scan(&exists); err != nil {
+			return "", err
+		}
+		if !exists {
+			return "", failure(409, "setup_required", "complete initial account setup before issuing invitations")
+		}
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM auth_grants WHERE kind=$1`, kind); err != nil {
+	if kind == "setup" {
+		_, err = tx.Exec(ctx, `DELETE FROM auth_grants WHERE kind='setup'`)
+	} else if kind == "recover" {
+		_, err = tx.Exec(ctx, `DELETE FROM auth_grants WHERE kind='recover' AND account_id=$1`, accountID)
+	}
+	if err != nil {
 		return "", err
 	}
 	token := randomToken()

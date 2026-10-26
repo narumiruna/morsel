@@ -6,7 +6,9 @@ export function AppHeader({
   authenticated = false,
   busy = false,
   onLogout,
+  displayName,
 }: {
+  displayName?: string
   authenticated?: boolean
   busy?: boolean
   onLogout?: () => void
@@ -24,11 +26,12 @@ export function AppHeader({
         {authenticated && (
           <DropdownMenu.Root>
             <DropdownMenu.Trigger>
-              <button type="button" className="account-menu-trigger">
+              <button type="button" className="account-menu-trigger" aria-label="Account">
                 Account
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Content>
+              {displayName && <DropdownMenu.Label>{displayName}</DropdownMenu.Label>}
               <DropdownMenu.Item asChild>
                 <a href="/account">Account security</a>
               </DropdownMenu.Item>

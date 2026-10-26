@@ -10,10 +10,11 @@ import (
 
 func TestBackfillDiscovery(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	ctx := t.Context()
 	source := "# **Legacy** [界](https://example.com)\n\n" + strings.Repeat("ordinary paragraph with [link](https://example.com).\n\n", 1200)
-	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content)
-  SELECT md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),$1 FROM generate_series(1,256) n`, source); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content)
+  SELECT (SELECT id FROM accounts), md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),$1 FROM generate_series(1,256) n`, source); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now()

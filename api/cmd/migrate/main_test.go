@@ -9,11 +9,9 @@ import (
 )
 
 func TestMigrateRunsResumableLabelsOnlyForApplicableSchema(t *testing.T) {
-	pool := testdb.Open(t)
+	pool := testdb.OpenVersion(t, 7)
+	testdb.Account(t, pool)
 	ctx := t.Context()
-	if err := migrate(ctx, pool, migrations.Down, 3); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content)
   SELECT md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'# **Legacy** '||n FROM generate_series(1,35) n`); err != nil {
 		t.Fatal(err)
@@ -28,7 +26,7 @@ func TestMigrateRunsResumableLabelsOnlyForApplicableSchema(t *testing.T) {
 	if err := migrate(ctx, pool, migrations.Up, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(ctx, pool, migrations.Down, 3); err != nil {
+	if err := migrate(ctx, pool, migrations.Down, 4); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrate(ctx, pool, migrations.Down, 1); err != nil {

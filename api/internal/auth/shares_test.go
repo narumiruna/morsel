@@ -18,17 +18,17 @@ import (
 func TestAccountShareLifecycle(t *testing.T) {
 	s, pool := testService(t)
 	ctx := t.Context()
-	// A share created before owner setup must remain available to management.
+	b := enroll(t, s, pool)
+	// Each new share requires an existing account.
 	repository := share.NewPostgresRepository(pool)
 	id := uuid.New()
 	token := "legacy-public-capability"
 	var hash [32]byte
 	copy(hash[:], hashToken(token))
 	maxViews := int64(1)
-	if _, err := repository.Create(ctx, share.CreateParams{ID: id, TokenHash: hash, Content: "# Private Markdown\nbody", MaxViews: &maxViews}); err != nil {
+	if _, err := repository.Create(ctx, share.CreateParams{AccountID: testdb.AccountID(t, pool), ID: id, TokenHash: hash, Content: "# Private Markdown\nbody", MaxViews: &maxViews}); err != nil {
 		t.Fatal(err)
 	}
-	b := enroll(t, s, pool)
 	path := "/v1/account/shares/" + id.String()
 	for _, endpoint := range []struct{ method, path string }{{"GET", "/v1/account/shares"}, {"GET", path}, {"DELETE", path}} {
 		w := newBrowser(s).request(endpoint.method, endpoint.path, nil)
@@ -162,8 +162,8 @@ func assertShareNoStore(t *testing.T, w *httptest.ResponseRecorder) {
 func TestAccountShareParametersAndPagination(t *testing.T) {
 	s, pool := testService(t)
 	b := enroll(t, s, pool)
-	if _, err := pool.Exec(t.Context(), `INSERT INTO shares(id,token_hash,content)
-		SELECT md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'row '||n FROM generate_series(1,26) n`); err != nil {
+	if _, err := pool.Exec(t.Context(), `INSERT INTO shares(account_id,id,token_hash,content)
+		SELECT (SELECT id FROM accounts), md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'row '||n FROM generate_series(1,26) n`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := share.BackfillLabels(t.Context(), pool, 100); err != nil {
@@ -240,13 +240,13 @@ func TestAccountSharesSessionInvalidationAndDatabaseFailure(t *testing.T) {
 }
 
 func TestPendingShareAdministrationCannotPassRecovery(t *testing.T) {
-	for _, method := range []string{"list", "GET", "DELETE"} {
+	for _, method := range []string{"list", "GET", "DELETE", "link", "verify_link"} {
 		t.Run(method, func(t *testing.T) {
 			s, pool := testService(t)
 			b := enroll(t, s, pool)
 			ctx := t.Context()
 			id := uuid.New()
-			if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content) VALUES($1,$2,'private')`, id, randomBytes(32)); err != nil {
+			if _, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content) VALUES((SELECT id FROM accounts),$1,$2,'private')`, id, randomBytes(32)); err != nil {
 				t.Fatal(err)
 			}
 			tx, err := pool.Begin(ctx)
@@ -254,13 +254,18 @@ func TestPendingShareAdministrationCannotPassRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback(ctx)
-			u, err := owner(ctx, tx)
+			u, err := lockAccount(ctx, tx, testdb.AccountID(t, pool), 1)
 			if err != nil {
 				t.Fatal(err)
 			}
 			path, verb := "/v1/account/shares/"+id.String(), method
-			if method == "list" {
+			switch method {
+			case "list":
 				path, verb = "/v1/account/shares", "GET"
+			case "link":
+				path, verb = path+"/link", "GET"
+			case "verify_link":
+				path, verb = path+"/link", "POST"
 			}
 			result := make(chan *httptest.ResponseRecorder, 1)
 			go func() { result <- b.request(verb, path, nil) }()
@@ -284,7 +289,7 @@ func TestShareRevocationHoldsAuthorizationLocksThroughCommit(t *testing.T) {
 	b := enroll(t, s, pool)
 	ctx := t.Context()
 	id := uuid.New()
-	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content) VALUES($1,$2,'private')`, id, randomBytes(32)); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content) VALUES((SELECT id FROM accounts),$1,$2,'private')`, id, randomBytes(32)); err != nil {
 		t.Fatal(err)
 	}
 	blocker, err := pool.Begin(ctx)
@@ -331,7 +336,7 @@ func TestShareRevocationHoldsAuthorizationLocksThroughCommit(t *testing.T) {
 			return
 		}
 		defer tx.Rollback(ctx)
-		u, err := owner(ctx, tx)
+		u, err := lockAccount(ctx, tx, testdb.AccountID(t, pool), 1)
 		if err == nil {
 			err = replaceCredentials(ctx, tx, u, &webauthn.Credential{ID: randomBytes(32)}, "Recovered")
 		}
@@ -340,12 +345,12 @@ func TestShareRevocationHoldsAuthorizationLocksThroughCommit(t *testing.T) {
 		}
 		recovery <- err
 	}()
-	// owner() also locks the account, but its SQL differs from lockAccount().
+	// Recovery must wait for the account authorization lock.
 	deadline = time.Now().Add(5 * time.Second)
 	locked = false
 	for time.Now().Before(deadline) {
 		if n := testdb.Count(t, pool, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()
-			AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%FROM accounts ORDER BY created_at,id LIMIT 1 FOR UPDATE%'`); n > 0 {
+			AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%FROM accounts WHERE id=$1%'`); n > 0 {
 			locked = true
 			break
 		}

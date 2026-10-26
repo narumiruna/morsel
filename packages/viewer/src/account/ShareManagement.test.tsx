@@ -30,7 +30,12 @@ let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>
 let intercept: ((path: string, init?: RequestInit) => Promise<Response> | undefined) | undefined
 
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status })
+  const id = account?.account_id ?? "10000000-0000-4000-8000-000000000001"
+  const value =
+    body && typeof body === "object" && "authenticated" in body && body.authenticated
+      ? { account_id: id, display_name: "Owner", ...body }
+      : body
+  return new Response(JSON.stringify(value), { status, headers: { "X-Morsel-Account-ID": id } })
 }
 
 function deferred<T>() {
@@ -119,7 +124,11 @@ beforeEach(() => {
     if (path === "api-keys") return json([])
     if (path === "auth/verify/begin") return json({ publicKey: { challenge: "test" } })
     if (path === "auth/verify/finish") return json({})
-    if (path === "auth/logout") return new Response(null, { status: 204 })
+    if (path === "auth/logout")
+      return new Response(null, {
+        status: 204,
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+      })
     if (path.startsWith("account/shares?")) {
       const params = new URLSearchParams(path.split("?")[1])
       const filter = params.get("status")
@@ -148,7 +157,10 @@ beforeEach(() => {
       if (init?.method === "DELETE") {
         share.revoked_at = created
         share.status = "revoked"
-        return new Response(null, { status: 204 })
+        return new Response(null, {
+          status: 204,
+          headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        })
       }
       return json(share)
     }
@@ -960,7 +972,14 @@ describe("account share management", () => {
     page.unmount()
     expect(signal?.aborted).toBe(true)
     const count = fetchMock.mock.calls.length
-    await act(async () => pending.resolve(new Response(null, { status: 204 })))
+    await act(async () =>
+      pending.resolve(
+        new Response(null, {
+          status: 204,
+          headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        }),
+      ),
+    )
     expect(fetchMock.mock.calls).toHaveLength(count)
   })
 

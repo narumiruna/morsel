@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/narumiruna/morsel/api/internal/share"
+	"github.com/narumiruna/morsel/api/internal/testdb"
 )
 
 func TestVerifyAccountShareLink(t *testing.T) {
@@ -28,7 +29,7 @@ func TestVerifyAccountShareLink(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		params := share.CreateParams{ID: uuid.New(), TokenHash: hash, Content: "# Link test"}
+		params := share.CreateParams{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: hash, Content: "# Link test"}
 		if preview {
 			params.Preview = &share.PreviewMetadata{Title: "Link test", Description: "Summary"}
 		}

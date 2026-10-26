@@ -8,6 +8,7 @@ import {
   accountErrorMessage,
   accountRequest,
   authenticate,
+  checkAccount,
   type Passkey,
   supportsPasskeys,
 } from "../account/accountApi"
@@ -33,7 +34,7 @@ const sections = [
 export function AccountPage({ section = "security" }: { section?: AccountSection }) {
   const {
     account,
-    setAccount,
+    expectedAccount,
     refresh,
     expire,
     signedOut,
@@ -89,10 +90,10 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
     async (signal: AbortSignal) => {
       try {
         if (section === "security") {
-          const next = await accountRequest<Passkey[]>("passkeys", { signal })
+          const next = await accountRequest<Passkey[]>("passkeys", { signal, expectedAccount })
           if (!signal.aborted) setPasskeys(next)
         } else if (section === "api-keys") {
-          const next = await accountRequest<APIKey[]>("api-keys", { signal })
+          const next = await accountRequest<APIKey[]>("api-keys", { signal, expectedAccount })
           if (!signal.aborted) setKeys(next)
         }
         if (!signal.aborted) setListError("")
@@ -102,7 +103,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
         setListError(accountErrorMessage(failure))
       }
     },
-    [section],
+    [section, expectedAccount],
   )
 
   const refreshAccount = useCallback(
@@ -198,9 +199,9 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
 
   const mutateAction = (action: Parameters<AccountMutation>[0], label: string) => {
     return run(async (signal) => {
-      const current = await accountRequest<Account>("account", { signal })
+      const current = await accountRequest<Account>("account", { signal, expectedAccount })
       if (signal.aborted) return
-      setAccount(current)
+      checkAccount(expectedAccount)
       const csrf = current.csrf_token
       if (!current.authenticated || !csrf)
         throw new AccountError(401, "session_expired", "Your session expired.")
@@ -208,9 +209,10 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
         setBusyAction(
           `Verify your passkey to continue: ${label} Complete the passkey prompt, or cancel to stop.`,
         )
-        await authenticate("verify", {}, csrf, signal)
+        await authenticate("verify", {}, csrf, signal, expectedAccount)
       }
       if (signal.aborted) return
+      checkAccount(expectedAccount)
       setBusyAction(label)
       await action(signal, csrf)
       if (!signal.aborted) await refreshLists(signal)
@@ -227,10 +229,12 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
     setRevokeKey(null)
     setRemovePasskey(null)
     void run(async (signal) => {
+      const current = await accountRequest<Account>("account", { signal, expectedAccount })
       await accountRequest("auth/logout", {
+        expectedAccount,
         method: "POST",
         body: {},
-        csrf: account?.csrf_token,
+        csrf: current.csrf_token,
         signal,
       })
       if (signal.aborted) return
@@ -242,6 +246,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
     <>
       <AppHeader
         authenticated={account?.authenticated}
+        displayName={account.display_name}
         busy={busyAction === "Signing out…" && busy}
         onLogout={logout}
       />
@@ -250,13 +255,23 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
           <LoadingPage subject="account" />
         ) : (
           <div className={`account-page${section === "shares" ? " management-shell" : ""}`}>
-            <Heading as="h1">
-              {section === "security"
-                ? "Morsel account"
-                : section === "shares"
-                  ? "Manage shares"
-                  : "Manage API keys"}
-            </Heading>
+            <div className="management-title">
+              <Heading as="h1">
+                {section === "security"
+                  ? "Morsel account"
+                  : section === "shares"
+                    ? "Manage shares"
+                    : "Manage API keys"}
+              </Heading>
+              <Text as="span" size="2" className="management-identity">
+                Account: {account.display_name}
+              </Text>
+            </div>
+            {section === "security" && (
+              <Text as="p" className="management-account-id">
+                Account ID: <code>{account.account_id}</code>
+              </Text>
+            )}
             <nav className="management-navigation" aria-label="Management sections">
               {sections.map((item) => (
                 <a
@@ -304,9 +319,13 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                     onClick={() =>
                       void run(async (signal) => {
                         try {
+                          await accountRequest("account", { signal, expectedAccount })
+                          signal.throwIfAborted()
+                          checkAccount(expectedAccount)
                           await navigator.clipboard.writeText(rawKey)
                           if (!signal.aborted) setNotice("API key copied.")
-                        } catch {
+                        } catch (failure) {
+                          if (failure instanceof AccountError) throw failure
                           if (!signal.aborted)
                             setError("Could not copy API key. Select and copy it manually.")
                         }
@@ -355,6 +374,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                     void mutateAction(async (signal, csrf) => {
                       const result = await accountRequest<APIKey & { key: string }>("api-keys", {
                         method: "POST",
+                        expectedAccount,
                         body: { name: keyName.trim() },
                         csrf,
                         signal,
@@ -453,6 +473,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                           void mutateAction(async (signal, csrf) => {
                             await accountRequest(`api-keys/${encodeURIComponent(key.id)}`, {
                               method: "DELETE",
+                              expectedAccount,
                               csrf,
                               signal,
                             })
@@ -495,7 +516,13 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                     event.preventDefault()
                     void mutateAction(async (signal, csrf) => {
                       setBusyAction("Registering passkey… Complete the passkey prompt.")
-                      await authenticate("passkey", { name: passkeyName.trim() }, csrf, signal)
+                      await authenticate(
+                        "passkey",
+                        { name: passkeyName.trim() },
+                        csrf,
+                        signal,
+                        expectedAccount,
+                      )
                       if (signal.aborted) return
                       setPasskeyName("")
                       setNotice("Passkey added.")
@@ -589,6 +616,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                           void mutateAction(async (signal, csrf) => {
                             await accountRequest(`passkeys/${encodeURIComponent(passkey.id)}`, {
                               method: "DELETE",
+                              expectedAccount,
                               csrf,
                               signal,
                             })
@@ -619,6 +647,11 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                   </section>
                 )}
               </Card>
+            )}
+            {section !== "security" && (
+              <Text as="p" size="1" className="management-account-id">
+                Account ID: <code>{account.account_id}</code>
+              </Text>
             )}
           </div>
         )}

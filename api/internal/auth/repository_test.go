@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/narumiruna/morsel/api/internal/testdb"
 )
 
@@ -18,7 +20,7 @@ func TestCleanupIsBoundedAndPreservesLiveRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, query := range []string{
-		`INSERT INTO auth_flows(token_hash,kind,account_id,generation,name,session_data,expires_at) SELECT sha256(convert_to('flow-'||n::text,'UTF8')),'login',$1,1,'test','{}',clock_timestamp()-interval '1 minute' FROM generate_series(1,2101) n`,
+		`INSERT INTO auth_flows(token_hash,kind,account_id,generation,name,session_data,expires_at) SELECT sha256(convert_to('flow-'||n::text,'UTF8')),'verify',$1,1,'test','{}',clock_timestamp()-interval '1 minute' FROM generate_series(1,2101) n`,
 		`INSERT INTO auth_sessions(token_hash,account_id,generation,csrf_token,expires_at) SELECT sha256(convert_to('session-'||n::text,'UTF8')),$1,1,'csrf',clock_timestamp()-interval '1 minute' FROM generate_series(1,2101) n`,
 		`INSERT INTO auth_grants(token_hash,kind,account_id,generation,expires_at) SELECT sha256(convert_to('grant-'||n::text,'UTF8')),'recover',$1,1,clock_timestamp()-interval '1 minute' FROM generate_series(1,2101) n`,
 	} {
@@ -53,8 +55,8 @@ func TestDatabaseFailureIsClosed(t *testing.T) {
 	s, pool := testService(t)
 	b := enroll(t, s, pool)
 	pool.Close()
-	valid, err := s.Valid(t.Context(), "Bearer "+randomToken())
-	if valid || err == nil {
+	valid, err := s.Authenticate(t.Context(), "Bearer "+randomToken())
+	if valid != uuid.Nil || err == nil {
 		t.Fatal("database failure authorized API key")
 	}
 	for _, path := range []string{"/v1/account", "/v1/api-keys", "/v1/passkeys"} {
@@ -131,7 +133,7 @@ func TestForwardedHeadersCannotBypassRateLimit(t *testing.T) {
 	}
 	// Login floods behind a shared proxy do not spend verify or recovery budgets.
 	requireStatus(t, b.request("POST", "/v1/auth/verify/begin", []byte(`{}`)), 200)
-	token, err := IssueGrant(t.Context(), pool, "recover")
+	token, err := IssueGrant(t.Context(), pool, "recover", testdb.AccountID(t, pool))
 	if err != nil {
 		t.Fatal(err)
 	}

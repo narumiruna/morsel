@@ -55,7 +55,7 @@ func TestAccountShareSearchValidationAndAuthorization(t *testing.T) {
 	// An older writer creates pending labels after migration. Do not expose
 	// partial counts or let a Bearer key bypass session authentication.
 	id := uuid.New()
-	if _, err := pool.Exec(t.Context(), `INSERT INTO shares(id,token_hash,content) VALUES($1,$2,'# Éclair % _')`, id, randomBytes(32)); err != nil {
+	if _, err := pool.Exec(t.Context(), `INSERT INTO shares(account_id,id,token_hash,content) VALUES((SELECT id FROM accounts),$1,$2,'# Éclair % _')`, id, randomBytes(32)); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/v1/account/shares?q=absent", "/v1/account/shares/" + id.String()} {

@@ -19,14 +19,16 @@ type flow struct {
 	AccountID              uuid.UUID
 	Generation             int64
 	SessionHash, GrantHash []byte
-	Name                   string
+	Name, DisplayName      string
+	StartedOrder           int64
 	Data                   webauthn.SessionData
 }
 
 func (s *Service) begin(w http.ResponseWriter, r *http.Request, kind string) error {
 	var body struct {
-		Token string `json:"token"`
-		Name  string `json:"name"`
+		Token       string `json:"token"`
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		return err
@@ -46,39 +48,54 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request, kind string) err
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	f := flow{Kind: kind, Name: name}
+	f := flow{Kind: kind, Name: name, DisplayName: "Owner"}
 	var u *account
 	switch kind {
-	case "setup":
-		if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock($1)`, setupLock); err != nil {
-			return err
+	case "setup", "invite":
+		if kind == "setup" {
+			if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock($1)`, setupLock); err != nil {
+				return err
+			}
+			var exists bool
+			if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM accounts)`).Scan(&exists); err != nil {
+				return err
+			}
+			if exists {
+				return failure(409, "setup_closed", "account already exists")
+			}
 		}
-		var exists bool
-		if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM accounts)`).Scan(&exists); err != nil {
-			return err
-		}
-		if exists {
-			return failure(409, "setup_closed", "owner already exists")
+		if kind == "invite" || body.DisplayName != "" {
+			f.DisplayName, err = cleanName(body.DisplayName)
+			if err != nil {
+				return err
+			}
 		}
 		f.GrantHash = hashToken(body.Token)
 		if err = validGrant(r.Context(), tx, f.GrantHash, kind, nil, false); err != nil {
 			return err
 		}
-		u = &account{ID: uuid.New(), Generation: 1}
+		u = &account{ID: uuid.New(), Generation: 1, DisplayName: f.DisplayName}
 	case "recover":
-		u, err = owner(r.Context(), tx)
+		f.GrantHash = hashToken(body.Token)
+		var id uuid.UUID
+		var generation int64
+		err = tx.QueryRow(r.Context(), `SELECT account_id,generation FROM auth_grants WHERE token_hash=$1 AND kind='recover' AND expires_at>clock_timestamp()`, f.GrantHash).Scan(&id, &generation)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errGrant
+		}
 		if err != nil {
 			return err
 		}
-		f.GrantHash = hashToken(body.Token)
+		u, err = lockAccount(r.Context(), tx, id, generation)
+		if err != nil {
+			return err
+		}
 		if err = validGrant(r.Context(), tx, f.GrantHash, kind, u, false); err != nil {
 			return err
 		}
 	case "login":
-		u, err = owner(r.Context(), tx)
-		if err != nil {
-			return err
-		}
+		// Discoverable login is unbound until a verified credential identifies
+		// its account. Do not enumerate accounts or credentials here.
 	case "verify", "passkey":
 		var ss *session
 		u, ss, err = s.requestAuth(r, tx, true, kind == "passkey")
@@ -87,11 +104,14 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request, kind string) err
 		}
 		f.SessionHash = ss.Hash
 	}
-	if err = loadCredentials(r.Context(), tx, u); err != nil {
-		return err
+	if u != nil {
+		if err = loadCredentials(r.Context(), tx, u); err != nil {
+			return err
+		}
+		f.AccountID = u.ID
+		f.Generation = u.Generation
+		f.DisplayName = u.DisplayName
 	}
-	f.AccountID = u.ID
-	f.Generation = u.Generation
 	var options any
 	var data *webauthn.SessionData
 	if kind == "login" || kind == "verify" {
@@ -115,7 +135,11 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request, kind string) err
 		}
 	}
 	token := randomToken()
-	_, err = tx.Exec(r.Context(), `INSERT INTO auth_flows(token_hash,kind,account_id,generation,session_hash,grant_hash,name,session_data,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,clock_timestamp()+make_interval(secs => $9))`, hashToken(token), f.Kind, f.AccountID, f.Generation, f.SessionHash, f.GrantHash, f.Name, encoded, flowLifetime.Seconds())
+	var accountID, generation any
+	if kind != "login" {
+		accountID, generation = f.AccountID, f.Generation
+	}
+	_, err = tx.Exec(r.Context(), `INSERT INTO auth_flows(token_hash,kind,account_id,generation,session_hash,grant_hash,name,display_name,session_data,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+make_interval(secs => $10))`, hashToken(token), f.Kind, accountID, generation, f.SessionHash, f.GrantHash, f.Name, f.DisplayName, encoded, flowLifetime.Seconds())
 	if err != nil {
 		return err
 	}
@@ -123,6 +147,9 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request, kind string) err
 		return err
 	}
 	s.cookie(w, flowCookie, token, false)
+	if kind == "verify" || kind == "passkey" {
+		w.Header().Set("X-Morsel-Account-ID", u.ID.String())
+	}
 	respond(w, 200, options)
 	return nil
 }
@@ -135,7 +162,7 @@ func (s *Service) consumeFlow(ctx context.Context, token, kind string) (*flow, e
 	}
 	f := &flow{}
 	var data []byte
-	err := s.pool.QueryRow(ctx, `DELETE FROM auth_flows WHERE token_hash=$1 AND kind=$2 AND expires_at>clock_timestamp() RETURNING kind,account_id,generation,session_hash,grant_hash,name,session_data`, hashToken(token), kind).Scan(&f.Kind, &f.AccountID, &f.Generation, &f.SessionHash, &f.GrantHash, &f.Name, &data)
+	err := s.pool.QueryRow(ctx, `DELETE FROM auth_flows WHERE token_hash=$1 AND kind=$2 AND expires_at>clock_timestamp() RETURNING kind,COALESCE(account_id,'00000000-0000-0000-0000-000000000000'::uuid),COALESCE(generation,0),session_hash,grant_hash,name,display_name,started_order,session_data`, hashToken(token), kind).Scan(&f.Kind, &f.AccountID, &f.Generation, &f.SessionHash, &f.GrantHash, &f.Name, &f.DisplayName, &f.StartedOrder, &data)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errFlow
 	}
@@ -175,34 +202,48 @@ func (s *Service) finish(w http.ResponseWriter, r *http.Request, kind string) er
 	}
 	defer tx.Rollback(r.Context())
 	var u *account
-	if kind == "setup" {
-		if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock($1)`, setupLock); err != nil {
-			return err
-		}
-		var exists bool
-		if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM accounts)`).Scan(&exists); err != nil {
-			return err
-		}
-		if exists {
-			return failure(409, "setup_closed", "owner already exists")
+	if kind == "setup" || kind == "invite" {
+		if kind == "setup" {
+			if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock($1)`, setupLock); err != nil {
+				return err
+			}
+			var exists bool
+			if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM accounts)`).Scan(&exists); err != nil {
+				return err
+			}
+			if exists {
+				return failure(409, "setup_closed", "account already exists")
+			}
 		}
 		if err = validGrant(r.Context(), tx, f.GrantHash, kind, nil, true); err != nil {
 			return err
 		}
-		u = &account{ID: f.AccountID, Generation: f.Generation}
+		u = &account{ID: f.AccountID, Generation: f.Generation, DisplayName: f.DisplayName}
+	} else if kind == "login" {
+		u, err = loginAccount(r.Context(), tx, assertion.RawID, assertion.Response.UserHandle, f.StartedOrder)
+		if err != nil {
+			return err
+		}
+	} else if kind == "passkey" || kind == "verify" {
+		// Lock only the current session's account. A foreign flow must not cause
+		// a second account lock or permit cross-account lock-order deadlocks.
+		var ss *session
+		u, ss, err = s.requestAuth(r, tx, true, kind == "passkey")
+		if err != nil {
+			return err
+		}
+		if u.ID != f.AccountID || u.Generation != f.Generation || !bytes.Equal(ss.Hash, f.SessionHash) {
+			return errUnauthorized
+		}
+		if kind == "verify" {
+			if err = credentialBeforeFlow(r.Context(), tx, u.ID, assertion.RawID, f.StartedOrder); err != nil {
+				return err
+			}
+		}
 	} else {
 		u, err = lockAccount(r.Context(), tx, f.AccountID, f.Generation)
 		if err != nil {
 			return err
-		}
-	}
-	if kind == "passkey" || kind == "verify" {
-		authorized, ss, e := s.requestAuth(r, tx, true, kind == "passkey")
-		if e != nil {
-			return e
-		}
-		if authorized.ID != u.ID || !bytes.Equal(ss.Hash, f.SessionHash) {
-			return errUnauthorized
 		}
 	}
 	if kind == "recover" {
@@ -225,22 +266,24 @@ func (s *Service) finish(w http.ResponseWriter, r *http.Request, kind string) er
 		credential, err = s.web.CreateCredential(u, f.Data, creation)
 	}
 	if err != nil {
-		return failure(400, "invalid_credential", "passkey verification failed")
+		return errCredential
 	}
 	var sessionToken string
 	switch kind {
-	case "setup":
-		if _, err = tx.Exec(r.Context(), `INSERT INTO accounts(id,auth_generation) VALUES($1,$2)`, u.ID, u.Generation); err != nil {
+	case "setup", "invite":
+		if _, err = tx.Exec(r.Context(), `INSERT INTO accounts(id,auth_generation,display_name) VALUES($1,$2,$3)`, u.ID, u.Generation, u.DisplayName); err != nil {
 			return err
 		}
 		if err = saveCredential(r.Context(), tx, u, credential, f.Name); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(r.Context(), `DELETE FROM auth_grants WHERE kind='setup'`); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(r.Context(), `DELETE FROM auth_flows WHERE kind='setup'`); err != nil {
-			return err
+		if kind == "setup" {
+			if _, err = tx.Exec(r.Context(), `DELETE FROM auth_grants WHERE kind='setup'`); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(r.Context(), `DELETE FROM auth_flows WHERE kind='setup'`); err != nil {
+				return err
+			}
 		}
 		sessionToken, err = newSession(r.Context(), tx, u)
 	case "recover":
@@ -277,6 +320,7 @@ func (s *Service) finish(w http.ResponseWriter, r *http.Request, kind string) er
 	if sessionToken != "" {
 		s.cookie(w, sessionCookie, sessionToken, false)
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 200, map[string]bool{"authenticated": true})
 	return nil
 }

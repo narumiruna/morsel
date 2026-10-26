@@ -136,6 +136,19 @@ func appliedVersions(ctx context.Context, conn *pgxpool.Conn) ([]int64, error) {
 }
 
 func applyUp(ctx context.Context, conn *pgxpool.Conn, m migration) error {
+	if m.version == 11 {
+		var accounts int64
+		var shares bool
+		if err := conn.QueryRow(ctx, "SELECT (SELECT count(*) FROM accounts), EXISTS(SELECT 1 FROM shares)").Scan(&accounts, &shares); err != nil {
+			return fmt.Errorf("check legacy ownership: %w", err)
+		}
+		if accounts > 1 {
+			return errors.New("legacy ownership is ambiguous: more than one account exists; correct ownership before upgrading")
+		}
+		if accounts == 0 && shares {
+			return errors.New("complete owner setup with the previous release before upgrading; migration 11 was not applied")
+		}
+	}
 	if _, err := conn.Exec(ctx, "INSERT INTO schema_migrations (version, dirty) VALUES ($1, true)", m.version); err != nil {
 		return fmt.Errorf("mark migration %d dirty: %w", m.version, err)
 	}
@@ -151,6 +164,15 @@ func applyUp(ctx context.Context, conn *pgxpool.Conn, m migration) error {
 }
 
 func applyDown(ctx context.Context, conn *pgxpool.Conn, m migration) error {
+	if m.version == 11 {
+		var accounts int64
+		if err := conn.QueryRow(ctx, "SELECT count(*) FROM accounts").Scan(&accounts); err != nil {
+			return fmt.Errorf("check account isolation downgrade: %w", err)
+		}
+		if accounts > 1 {
+			return errors.New("cannot remove account isolation while multiple accounts exist; use an isolation-capable release")
+		}
+	}
 	if _, err := conn.Exec(ctx, "UPDATE schema_migrations SET dirty = true WHERE version = $1", m.version); err != nil {
 		return fmt.Errorf("mark migration %d dirty: %w", m.version, err)
 	}

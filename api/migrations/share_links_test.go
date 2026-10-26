@@ -11,11 +11,8 @@ import (
 )
 
 func TestStoredLinksMigrationPreservesLegacyCapabilities(t *testing.T) {
-	pool := testdb.Open(t)
+	pool := testdb.OpenVersion(t, 8)
 	ctx := t.Context()
-	if err := migrations.Run(ctx, pool, migrations.Down, 2); err != nil {
-		t.Fatal(err)
-	}
 	id := uuid.New()
 	_, hash, _ := (share.TokenGenerator{}).Generate()
 	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content,admin_label) VALUES($1,$2,'# Legacy','Legacy')`, id, hash[:]); err != nil {
@@ -52,7 +49,7 @@ func TestStoredLinksMigrationPreservesLegacyCapabilities(t *testing.T) {
 			t.Fatal("rollback changed legacy share")
 		}
 	}
-	if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Up, 2); err != nil {
 		t.Fatal(err)
 	}
 	// Public authorization still uses the original hash, never a replacement token.

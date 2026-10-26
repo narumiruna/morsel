@@ -45,7 +45,7 @@ func TestAccountShareRoutesPreserveAuthenticationBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := uuid.New()
-	if _, err := repository.Create(ctx, share.CreateParams{ID: id, TokenHash: capabilityHash, LinkToken: capability, Content: "private Markdown"}); err != nil {
+	if _, err := repository.Create(ctx, share.CreateParams{AccountID: testdb.AccountID(t, pool), ID: id, TokenHash: capabilityHash, LinkToken: capability, Content: "private Markdown"}); err != nil {
 		t.Fatal(err)
 	}
 	logs := &bytes.Buffer{}

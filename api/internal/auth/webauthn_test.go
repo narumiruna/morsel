@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"github.com/google/uuid"
 	"testing"
 
 	"github.com/fxamacker/cbor/v2"
@@ -114,7 +115,7 @@ func enroll(t *testing.T, s *Service, pool *pgxpool.Pool) *browser {
 }
 func enrollAuthenticator(t *testing.T, s *Service, pool *pgxpool.Pool) (*browser, *authenticator) {
 	t.Helper()
-	token, err := IssueGrant(t.Context(), pool, "setup")
+	token, err := IssueGrant(t.Context(), pool, "setup", uuid.Nil)
 	if err != nil {
 		t.Fatal(err)
 	}

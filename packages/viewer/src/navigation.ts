@@ -17,7 +17,7 @@ export function loginDestination(search: string): string {
     : "/manage/shares"
 }
 
-export function authenticationURL(mode: "login" | "recover" | "setup", next: string) {
+export function authenticationURL(mode: "login" | "recover" | "setup" | "invite", next: string) {
   const destination = loginDestination(`?next=${encodeURIComponent(next)}`)
   return `/${mode}?next=${encodeURIComponent(destination)}`
 }

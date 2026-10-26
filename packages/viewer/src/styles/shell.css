@@ -56,6 +56,18 @@
   padding-top: 1.5rem;
 }
 
+.management-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.management-account-id,
+.management-identity {
+  overflow-wrap: anywhere;
+}
+
 .management-navigation {
   display: flex;
   flex-wrap: wrap;

@@ -14,6 +14,7 @@ import (
 
 func TestPostgresRepositoryLifecycle(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	repository := NewPostgresRepository(pool)
 	ctx := context.Background()
 	token, tokenHash, err := (TokenGenerator{}).Generate()
@@ -27,7 +28,7 @@ func TestPostgresRepositoryLifecycle(t *testing.T) {
 		Title: "分享標題", Description: "A safe <summary>.",
 		Image: "https://cdn.example/preview.png", Locale: "zh_TW",
 	}
-	created, err := repository.Create(ctx, CreateParams{
+	created, err := repository.Create(ctx, CreateParams{AccountID: testdb.AccountID(t, pool),
 		ID: uuid.New(), TokenHash: tokenHash, Content: "hello", ExpiresIn: &expiresIn, MaxViews: &maxViews,
 		Preview: metadata,
 	})
@@ -55,7 +56,7 @@ func TestPostgresRepositoryLifecycle(t *testing.T) {
 	if _, err := repository.Consume(ctx, tokenHash); !errors.Is(err, ErrViewLimitExhausted) {
 		t.Fatalf("expected exhausted, got %v", err)
 	}
-	found, err := repository.Revoke(ctx, created.ID)
+	found, err := repository.Revoke(ctx, testdb.AccountID(t, pool), created.ID)
 	if err != nil || !found {
 		t.Fatalf("revoke: found=%v err=%v", found, err)
 	}
@@ -63,7 +64,7 @@ func TestPostgresRepositoryLifecycle(t *testing.T) {
 	if err := pool.QueryRow(ctx, "SELECT revoked_at FROM shares WHERE id=$1", created.ID).Scan(&firstRevokedAt); err != nil {
 		t.Fatal(err)
 	}
-	found, err = repository.Revoke(ctx, created.ID)
+	found, err = repository.Revoke(ctx, testdb.AccountID(t, pool), created.ID)
 	if err != nil || !found {
 		t.Fatalf("repeat revoke: found=%v err=%v", found, err)
 	}
@@ -74,13 +75,14 @@ func TestPostgresRepositoryLifecycle(t *testing.T) {
 	if !firstRevokedAt.Equal(secondRevokedAt) {
 		t.Fatal("idempotent revoke changed timestamp")
 	}
-	if found, err := repository.Revoke(ctx, uuid.New()); err != nil || found {
+	if found, err := repository.Revoke(ctx, testdb.AccountID(t, pool), uuid.New()); err != nil || found {
 		t.Fatalf("unknown revoke: found=%v err=%v", found, err)
 	}
 }
 
 func TestPostgresRepositoryUnavailableStates(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	repository := NewPostgresRepository(pool)
 	ctx := context.Background()
 
@@ -99,7 +101,7 @@ func TestPostgresRepositoryUnavailableStates(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, hash, _ := (TokenGenerator{}).Generate()
-			created, err := repository.Create(ctx, CreateParams{ID: uuid.New(), TokenHash: hash, Content: test.name})
+			created, err := repository.Create(ctx, CreateParams{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: hash, Content: test.name})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -115,6 +117,7 @@ func TestPostgresRepositoryUnavailableStates(t *testing.T) {
 
 func TestPostgresRepositoryPreviewRequiresOptInAndAvailability(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	repository := NewPostgresRepository(pool)
 	ctx := context.Background()
 
@@ -130,7 +133,7 @@ func TestPostgresRepositoryPreviewRequiresOptInAndAvailability(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, hash, _ := (TokenGenerator{}).Generate()
-			params := CreateParams{ID: uuid.New(), TokenHash: hash, Content: "private"}
+			params := CreateParams{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: hash, Content: "private"}
 			if test.enabled {
 				params.Preview = &PreviewMetadata{Title: "Private", Description: "Preview metadata"}
 			}
@@ -157,11 +160,12 @@ func TestPostgresRepositoryPreviewRequiresOptInAndAvailability(t *testing.T) {
 
 func TestPostgresRepositoryTelegramInstantView(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	repository := NewPostgresRepository(pool)
 	ctx := context.Background()
 	_, hash, _ := (TokenGenerator{}).Generate()
 	metadata := &PreviewMetadata{Title: "Article", Description: "Summary"}
-	created, err := repository.Create(ctx, CreateParams{
+	created, err := repository.Create(ctx, CreateParams{AccountID: testdb.AccountID(t, pool),
 		ID: uuid.New(), TokenHash: hash, Content: "# Full article", Preview: metadata,
 		TelegramInstantView: true,
 	})
@@ -182,9 +186,9 @@ func TestPostgresRepositoryTelegramInstantView(t *testing.T) {
 	maxViews := int64(1)
 	expiresIn := int64(60)
 	for _, params := range []CreateParams{
-		{ID: uuid.New(), TokenHash: uniqueHash(t), Content: "missing metadata", TelegramInstantView: true},
-		{ID: uuid.New(), TokenHash: uniqueHash(t), Content: "limited", MaxViews: &maxViews, Preview: metadata, TelegramInstantView: true},
-		{ID: uuid.New(), TokenHash: uniqueHash(t), Content: "expiring", ExpiresIn: &expiresIn, Preview: metadata, TelegramInstantView: true},
+		{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: uniqueHash(t), Content: "missing metadata", TelegramInstantView: true},
+		{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: uniqueHash(t), Content: "limited", MaxViews: &maxViews, Preview: metadata, TelegramInstantView: true},
+		{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: uniqueHash(t), Content: "expiring", ExpiresIn: &expiresIn, Preview: metadata, TelegramInstantView: true},
 	} {
 		if _, err := repository.Create(ctx, params); err == nil {
 			t.Fatalf("expected Instant View database constraint failure for %+v", params)
@@ -203,9 +207,10 @@ func uniqueHash(t *testing.T) [32]byte {
 
 func TestPostgresRepositoryUnlimitedViews(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	repository := NewPostgresRepository(pool)
 	_, hash, _ := (TokenGenerator{}).Generate()
-	if _, err := repository.Create(context.Background(), CreateParams{ID: uuid.New(), TokenHash: hash, Content: "unlimited"}); err != nil {
+	if _, err := repository.Create(context.Background(), CreateParams{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: hash, Content: "unlimited"}); err != nil {
 		t.Fatal(err)
 	}
 	for i := int64(1); i <= 3; i++ {
@@ -218,10 +223,11 @@ func TestPostgresRepositoryUnlimitedViews(t *testing.T) {
 
 func TestPostgresRepositorySingleView(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	repository := NewPostgresRepository(pool)
 	_, hash, _ := (TokenGenerator{}).Generate()
 	maxViews := int64(1)
-	if _, err := repository.Create(context.Background(), CreateParams{
+	if _, err := repository.Create(context.Background(), CreateParams{AccountID: testdb.AccountID(t, pool),
 		ID: uuid.New(), TokenHash: hash, Content: "one view", MaxViews: &maxViews,
 	}); err != nil {
 		t.Fatal(err)
@@ -236,10 +242,11 @@ func TestPostgresRepositorySingleView(t *testing.T) {
 
 func TestPostgresRepositoryConcurrentFinalViews(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	repository := NewPostgresRepository(pool)
 	_, hash, _ := (TokenGenerator{}).Generate()
 	maxViews := int64(5)
-	created, err := repository.Create(context.Background(), CreateParams{
+	created, err := repository.Create(context.Background(), CreateParams{AccountID: testdb.AccountID(t, pool),
 		ID: uuid.New(), TokenHash: hash, Content: "race", MaxViews: &maxViews,
 	})
 	if err != nil {
@@ -273,18 +280,19 @@ func TestPostgresRepositoryConcurrentFinalViews(t *testing.T) {
 
 func TestPostgresRepositoryConstraintsAndCollision(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	repository := NewPostgresRepository(pool)
 	ctx := context.Background()
 	_, hash, _ := (TokenGenerator{}).Generate()
-	if _, err := repository.Create(ctx, CreateParams{ID: uuid.New(), TokenHash: hash, Content: "one"}); err != nil {
+	if _, err := repository.Create(ctx, CreateParams{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: hash, Content: "one"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.Create(ctx, CreateParams{ID: uuid.New(), TokenHash: hash, Content: "two"}); !errors.Is(err, ErrTokenCollision) {
+	if _, err := repository.Create(ctx, CreateParams{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: hash, Content: "two"}); !errors.Is(err, ErrTokenCollision) {
 		t.Fatalf("expected collision, got %v", err)
 	}
 	zero := int64(0)
 	_, newHash, _ := (TokenGenerator{}).Generate()
-	if _, err := repository.Create(ctx, CreateParams{ID: uuid.New(), TokenHash: newHash, Content: "bad", MaxViews: &zero}); err == nil {
+	if _, err := repository.Create(ctx, CreateParams{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: newHash, Content: "bad", MaxViews: &zero}); err == nil {
 		t.Fatal("expected database constraint failure")
 	}
 }

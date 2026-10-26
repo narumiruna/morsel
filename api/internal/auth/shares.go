@@ -16,14 +16,15 @@ func (s *Service) listShares(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	if _, _, err = s.requestAuth(r, tx, false, false); err != nil {
+	u, _, err := s.requestAuth(r, tx, false, false)
+	if err != nil {
 		return err
 	}
 	query, err := parseShareQuery(r)
 	if err != nil {
 		return err
 	}
-	page, err := share.NewAdminRepository(tx).List(r.Context(), query)
+	page, err := share.NewAdminRepository(tx, u.ID).List(r.Context(), query)
 	if errors.Is(err, share.ErrLabelBackfillRequired) {
 		return failure(503, "label_backfill_required", "share labels are not ready")
 	}
@@ -36,6 +37,7 @@ func (s *Service) listShares(w http.ResponseWriter, r *http.Request) error {
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 200, page)
 	return nil
 }
@@ -46,14 +48,15 @@ func (s *Service) getShareLink(w http.ResponseWriter, r *http.Request, value str
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	if _, _, err = s.requestAuth(r, tx, false, false); err != nil {
+	u, _, err := s.requestAuth(r, tx, false, false)
+	if err != nil {
 		return err
 	}
 	id, err := uuid.Parse(value)
 	if err != nil || len(value) != 36 {
 		return failure(400, "invalid_id", "invalid share ID")
 	}
-	token, preview, err := share.NewAdminRepository(tx).Link(r.Context(), id)
+	token, preview, err := share.NewAdminRepository(tx, u.ID).Link(r.Context(), id)
 	if errors.Is(err, share.ErrLinkUnavailable) {
 		return failure(404, "link_unavailable", "The original link was not saved. Existing public URLs are unchanged.")
 	}
@@ -66,6 +69,7 @@ func (s *Service) getShareLink(w http.ResponseWriter, r *http.Request, value str
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 200, map[string]string{"share_url": share.PublicURL(s.publicURL, token, preview)})
 	return nil
 }
@@ -78,7 +82,8 @@ func (s *Service) verifyShareLink(w http.ResponseWriter, r *http.Request, value 
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	if _, _, err = s.requestAuth(r, tx, true, false); err != nil {
+	u, _, err := s.requestAuth(r, tx, true, false)
+	if err != nil {
 		return err
 	}
 	id, err := uuid.Parse(value)
@@ -95,7 +100,7 @@ func (s *Service) verifyShareLink(w http.ResponseWriter, r *http.Request, value 
 	if err != nil {
 		return failure(400, "invalid_request", "invalid share token")
 	}
-	preview, err := share.NewAdminRepository(tx).VerifyToken(r.Context(), id, hash)
+	preview, err := share.NewAdminRepository(tx, u.ID).VerifyToken(r.Context(), id, hash)
 	if errors.Is(err, share.ErrNotFound) {
 		return failure(404, "link_mismatch", "This public link does not belong to this share.")
 	}
@@ -105,6 +110,7 @@ func (s *Service) verifyShareLink(w http.ResponseWriter, r *http.Request, value 
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 200, map[string]string{"share_url": share.PublicURL(s.publicURL, body.Token, preview)})
 	return nil
 }
@@ -155,14 +161,15 @@ func (s *Service) manageShare(w http.ResponseWriter, r *http.Request, value stri
 	}
 	defer tx.Rollback(r.Context())
 	mutation := r.Method == http.MethodDelete
-	if _, _, err = s.requestAuth(r, tx, mutation, mutation); err != nil {
+	u, _, err := s.requestAuth(r, tx, mutation, mutation)
+	if err != nil {
 		return err
 	}
 	id, err := uuid.Parse(value)
 	if err != nil || len(value) != 36 {
 		return failure(400, "invalid_id", "invalid share ID")
 	}
-	repository := share.NewAdminRepository(tx)
+	repository := share.NewAdminRepository(tx, u.ID)
 	if mutation {
 		found, err := repository.Revoke(r.Context(), id)
 		if err != nil {
@@ -174,6 +181,7 @@ func (s *Service) manageShare(w http.ResponseWriter, r *http.Request, value stri
 		if err = tx.Commit(r.Context()); err != nil {
 			return err
 		}
+		w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 		respond(w, 204, nil)
 		return nil
 	}
@@ -190,6 +198,7 @@ func (s *Service) manageShare(w http.ResponseWriter, r *http.Request, value stri
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("X-Morsel-Account-ID", u.ID.String())
 	respond(w, 200, detail)
 	return nil
 }

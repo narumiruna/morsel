@@ -15,13 +15,14 @@ import (
 
 func TestAdminGlobalLiteralSearchAndCounts(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	ctx := t.Context()
 	// Raw inserts are legacy shares. Every label must become searchable, not
 	// merely the first page or the subset created by the new server.
 	sources := []string{"# **Éclair** [世界](https://destination.invalid)", `literal % _ \ [bracket]`, "# " + strings.Repeat("界", 80) + "UNSEARCHABLE", "<!-- hidden -->", "# other"}
 	for i, source := range sources {
-		_, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content,created_at,revoked_at)
-   VALUES($1,$2,$3,'2020-01-01Z',CASE WHEN $4 THEN now() ELSE NULL END)`, uuid.New(), []byte(fmt.Sprintf("%032d", i)), source, i == 4)
+		_, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content,created_at,revoked_at)
+   VALUES((SELECT id FROM accounts),$1,$2,$3,'2020-01-01Z',CASE WHEN $4 THEN now() ELSE NULL END)`, uuid.New(), []byte(fmt.Sprintf("%032d", i)), source, i == 4)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -32,7 +33,7 @@ func TestAdminGlobalLiteralSearchAndCounts(t *testing.T) {
 			return AdminPage{}, err
 		}
 		defer tx.Rollback(ctx)
-		return NewAdminRepository(tx).List(ctx, p)
+		return NewAdminRepository(tx, testdb.AccountID(t, pool)).List(ctx, p)
 	}
 	for _, q := range []string{"", "no matching rows"} {
 		if _, err := read(AdminListParams{Q: q}); !errors.Is(err, ErrLabelBackfillRequired) {
@@ -50,7 +51,7 @@ func TestAdminGlobalLiteralSearchAndCounts(t *testing.T) {
 	}
 	repo := NewPostgresRepository(pool)
 	title := "**Explicit** <b> &amp; _ %"
-	if _, err := repo.Create(ctx, CreateParams{ID: uuid.New(), TokenHash: [32]byte{255}, Content: "# ignored", Preview: &PreviewMetadata{Title: title, Description: "description"}}); err != nil {
+	if _, err := repo.Create(ctx, CreateParams{AccountID: testdb.AccountID(t, pool), ID: uuid.New(), TokenHash: [32]byte{255}, Content: "# ignored", Preview: &PreviewMetadata{Title: title, Description: "description"}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -80,9 +81,10 @@ func TestAdminGlobalLiteralSearchAndCounts(t *testing.T) {
 
 func TestAdminSortAndQueryBoundCursors(t *testing.T) {
 	pool := testdb.Open(t)
+	testdb.Account(t, pool)
 	ctx := t.Context()
-	if _, err := pool.Exec(ctx, `INSERT INTO shares(id,token_hash,content,admin_label,created_at)
-  SELECT md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'# Éclair','Éclair','2020-01-01Z'::timestamptz + (n%3)*interval '1 day' FROM generate_series(1,31) n`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO shares(account_id,id,token_hash,content,admin_label,created_at)
+  SELECT (SELECT id FROM accounts), md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'# Éclair','Éclair','2020-01-01Z'::timestamptz + (n%3)*interval '1 day' FROM generate_series(1,31) n`); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
@@ -90,7 +92,7 @@ func TestAdminSortAndQueryBoundCursors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	r := NewAdminRepository(tx)
+	r := NewAdminRepository(tx, testdb.AccountID(t, pool))
 	var descending []uuid.UUID
 	for _, sort := range []string{"newest", "oldest"} {
 		cursor := ""
@@ -148,7 +150,7 @@ func TestAdminSortAndQueryBoundCursors(t *testing.T) {
 	v1 := base64.RawURLEncoding.EncodeToString(b)
 	for _, p := range []AdminListParams{{Cursor: v1}, {Cursor: v1, Q: "\u3000", Sort: "newest"}} {
 		page, err := r.List(ctx, p)
-		if err != nil || len(page.Items) != 25 {
+		if !errors.Is(err, ErrInvalidAdminParams) {
 			t.Fatalf("legacy cursor: %+v %v", page, err)
 		}
 	}
@@ -159,7 +161,7 @@ func TestAdminSortAndQueryBoundCursors(t *testing.T) {
 	}
 	// Long Unicode query size does not enter the cursor; SHA-256 is fixed size.
 	long := strings.Repeat("界", 100)
-	b, _ = json.Marshal(adminCursor{Version: 2, Status: "view_limit_exhausted", CreatedAt: time.Now(), ID: &id, Sort: "newest", SearchHash: searchHash(long)})
+	b, _ = json.Marshal(adminCursor{Version: 3, AccountID: testdb.AccountID(t, pool), Status: "view_limit_exhausted", CreatedAt: time.Now(), ID: &id, Sort: "newest", SearchHash: searchHash(long)})
 	if n := len(base64.RawURLEncoding.EncodeToString(b)); n > 512 {
 		t.Fatalf("cursor length=%d", n)
 	}

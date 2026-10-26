@@ -170,10 +170,10 @@ type ServerInterface interface {
 	// GetReadiness Report PostgreSQL readiness
 	// (GET /readyz)
 	GetReadiness(w http.ResponseWriter, r *http.Request)
-	// CreateShare Create a Markdown share
+	// CreateShare Create a Markdown share owned by the validated key's account
 	// (POST /v1/shares)
 	CreateShare(w http.ResponseWriter, r *http.Request)
-	// RevokeShare Idempotently revoke a share
+	// RevokeShare Idempotently revoke an owned share
 	// (DELETE /v1/shares/{share})
 	RevokeShare(w http.ResponseWriter, r *http.Request, share openapi_types.UUID)
 	// ConsumeShare Atomically consume one view and retrieve a share
@@ -197,13 +197,13 @@ func (_ Unimplemented) GetReadiness(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// CreateShare Create a Markdown share
+// CreateShare Create a Markdown share owned by the validated key's account
 // (POST /v1/shares)
 func (_ Unimplemented) CreateShare(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// RevokeShare Idempotently revoke a share
+// RevokeShare Idempotently revoke an owned share
 // (DELETE /v1/shares/{share})
 func (_ Unimplemented) RevokeShare(w http.ResponseWriter, r *http.Request, share openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -779,10 +779,10 @@ type StrictServerInterface interface {
 	// GetReadiness Report PostgreSQL readiness
 	// (GET /readyz)
 	GetReadiness(ctx context.Context, request GetReadinessRequestObject) (GetReadinessResponseObject, error)
-	// CreateShare Create a Markdown share
+	// CreateShare Create a Markdown share owned by the validated key's account
 	// (POST /v1/shares)
 	CreateShare(ctx context.Context, request CreateShareRequestObject) (CreateShareResponseObject, error)
-	// RevokeShare Idempotently revoke a share
+	// RevokeShare Idempotently revoke an owned share
 	// (DELETE /v1/shares/{share})
 	RevokeShare(ctx context.Context, request RevokeShareRequestObject) (RevokeShareResponseObject, error)
 	// ConsumeShare Atomically consume one view and retrieve a share

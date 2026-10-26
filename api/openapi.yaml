@@ -2,7 +2,25 @@ openapi: 3.1.0
 info:
   title: Morsel API
   version: 1.0.0
-  description: API for creating, consuming, and revoking capability-based Markdown shares.
+  description: |
+    API for account-owned Markdown shares and public capability reads.
+    Setup creates the first ordinary account; later accounts require one-use operator
+    invitations. There is no global administrator or public account enumeration.
+    Bearer writes use the validated key's account; session management uses the
+    authenticated account. Request bodies, queries, and headers cannot select an owner.
+    All active keys in one account have the same share permissions.
+    Public capability reads, previews, and Instant View remain available to anyone
+    with a valid capability, including users signed in to another account.
+    Public responses contain no account IDs or display names.
+    Successful authenticated browser management and bound authentication responses
+    carry the server-derived X-Morsel-Account-ID response marker. Unauthenticated
+    account state and errors need not carry it. Bearer share-write responses and
+    public capability responses do not include this browser identity marker.
+    This marker never selects ownership. Private clients must discard responses
+    with missing or mismatched markers, refresh account identity, and not replay mutations.
+    Account/authentication routes use Cache-Control no-store. Authentication POSTs
+    require the exact configured Origin; session-bound mutations also require
+    X-CSRF-Token. Ceremonies are browser-bound, single-use, and expire after 10 minutes.
   license:
     name: GNU Affero General Public License v3.0 only
     identifier: AGPL-3.0-only
@@ -41,7 +59,7 @@ paths:
   /v1/shares:
     post:
       operationId: createShare
-      summary: Create a Markdown share
+      summary: Create a Markdown share owned by the validated key's account
       security:
         - bearerAuth: []
       requestBody:
@@ -93,7 +111,8 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: revokeShare
-      summary: Idempotently revoke a share
+      summary: Idempotently revoke an owned share
+      description: Any active key in the owning account can revoke it. Foreign and missing UUIDs return identical 404 not_found errors. Repeated revocation of an owned share succeeds.
       security:
         - bearerAuth: []
       parameters:
@@ -117,8 +136,8 @@ paths:
   /v1/account/shares:
     get:
       operationId: listAccountShares
-      summary: List all owner shares without consuming views
-      description: Includes shares created before account setup and with any API key. Pages are live queries, not a snapshot across requests. View counts and status can change between pages; view-sorted shares can move across the cursor and be skipped or repeated. Restart from the first page to refresh the order. Bearer-only access is rejected. Returns 503 with label_backfill_required while any legacy labels are pending; never returns incomplete search results.
+      summary: List the authenticated account's shares without consuming views
+      description: Includes only shares owned by the authenticated account, including those created by any of its keys. Ownership applies before search, status, matching_count, cursor filtering, ordering, and limits. Pages are live queries, not a snapshot across requests. View counts and status can change between pages; view-sorted shares can move across the cursor and be skipped or repeated. Restart from the first page to refresh the order. Bearer-only access is rejected. Returns 503 with label_backfill_required while any labels in this account are pending, including zero-match searches; never returns incomplete search results.
       security:
         - sessionCookie: []
       parameters:
@@ -149,7 +168,7 @@ paths:
             default: newest
         - name: cursor
           in: query
-          description: Opaque v2 continuation cursor bound to status, trimmed q fingerprint, and sort. View sorts include a required nonnegative integer view_count key. Existing v2 creation cursors remain valid; v1 cursors are accepted only with empty trimmed q and newest sort. Invalid (including missing or invalid view-sort counts), empty, repeated, or query-mismatched cursors return 400.
+          description: Opaque v3 continuation cursor bound to the authenticated account, status, trimmed q fingerprint, and sort. View sorts include a required nonnegative integer view_count key. Old unbound v1/v2 cursors, foreign-account cursors, invalid counts, empty, repeated, or query-mismatched cursors return 400. Restart at page one. SQL enforces ownership independently of cursor contents.
           schema:
             type: string
             minLength: 1
@@ -158,6 +177,8 @@ paths:
         "200":
           description: Metadata ordered by the selected creation time or view count order, with creation time and UUID ties in the same direction; never contains full content or capability data
           headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
             Cache-Control:
               schema:
                 type: string
@@ -184,13 +205,15 @@ paths:
     get:
       operationId: getAccountShare
       summary: Inspect share content without consuming views
-      description: Includes revoked, expired, and exhausted shares. link_available indicates whether the original capability was retained for owner-only retrieval.
+      description: Includes only owned shares, even if revoked, expired, or exhausted. Foreign and missing UUIDs return identical 404 not_found errors before label readiness is checked. link_available indicates whether the original capability was retained for owning-account retrieval.
       security:
         - sessionCookie: []
       responses:
         "200":
           description: Administrative metadata and Markdown
           headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
             Cache-Control:
               schema:
                 type: string
@@ -210,7 +233,7 @@ paths:
     delete:
       operationId: revokeAccountShare
       summary: Revoke a share after fresh verification; requires exact Origin and X-CSRF-Token
-      description: Idempotent for existing shares. Revocation is irreversible and does not delete content or external copies. Authorization and revocation commit in one transaction.
+      description: Idempotent for owned shares. Foreign and missing UUIDs return identical 404 not_found errors. Revocation is irreversible and does not delete content or external copies. Authorization and revocation commit in one transaction.
       security:
         - sessionCookie: []
       parameters:
@@ -229,6 +252,8 @@ paths:
         "204":
           description: Share is revoked
           headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
             Cache-Control:
               schema:
                 type: string
@@ -255,13 +280,15 @@ paths:
     get:
       operationId: getAccountShareLink
       summary: Retrieve the stored public URL without consuming a view
-      description: Requires an owner browser session. Returns the canonical URL for active, revoked, expired, and exhausted shares without changing availability. Legacy shares without a retained capability return 404 link_unavailable; missing shares return 404 not_found. Decryption failures return a generic 503. Does not require fresh passkey verification.
+      description: Requires the owning account's browser session. Returns the canonical URL for active, revoked, expired, and exhausted shares without changing availability. Owned legacy shares without a retained plaintext capability return 404 link_unavailable; foreign and missing shares return identical 404 not_found errors. Invalid stored tokens or hash mismatches fail closed with a generic 503. Does not require fresh passkey verification.
       security:
         - sessionCookie: []
       responses:
         "200":
           description: Stored canonical public URL
           headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
             Cache-Control:
               schema:
                 type: string
@@ -286,7 +313,7 @@ paths:
     post:
       operationId: verifyAccountShareLink
       summary: Verify an owner-supplied capability and return its canonical public URL
-      description: Requires an owner session, exact Origin, and CSRF. Does not require fresh passkey verification, consume a view, retain the supplied capability, or change share availability. Works for revoked, expired, and exhausted shares without reactivating them. Cannot recover a lost capability.
+      description: Requires the owning account's session, exact Origin, and CSRF. Foreign and missing UUIDs return identical 404 not_found errors. Does not require fresh passkey verification, consume a view, retain the supplied capability, or change share availability. Works for revoked, expired, and exhausted shares without reactivating them. Cannot recover a lost capability.
       security:
         - sessionCookie: []
       parameters:
@@ -319,6 +346,8 @@ paths:
         "200":
           description: Canonical public URL for the supplied capability and matching share
           headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
             Cache-Control:
               schema:
                 type: string
@@ -350,6 +379,9 @@ paths:
       responses:
         "200":
           description: Operation result; never cache
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -375,6 +407,9 @@ paths:
       responses:
         "204":
           description: Operation completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
         "400":
           $ref: "#/components/responses/AccountError"
         "401":
@@ -397,7 +432,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/GrantFlowRequest"
+              $ref: "#/components/schemas/SetupFlowRequest"
       responses:
         "200":
           description: Operation result; never cache
@@ -431,6 +466,73 @@ paths:
       responses:
         "200":
           description: Flow completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticatedResult"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/invite/begin:
+    post:
+      operationId: beginInvite
+      summary: Begin invited account registration
+      description: Requires a one-use operator invitation, valid for one hour. Independent invitations do not cancel one another. Account display_name and passkey name are separate. Tokens belong only in the body, never in URLs or logs.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteFlowRequest"
+      responses:
+        "200":
+          description: Operation result; never cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/auth/invite/finish:
+    post:
+      operationId: finishInvite
+      summary: Complete invitation registration and create an account, first passkey, and session atomically
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnCredential"
+      responses:
+        "200":
+          description: Flow completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -450,7 +552,8 @@ paths:
   /v1/auth/login/begin:
     post:
       operationId: beginLogin
-      summary: Begin login with exact Origin and a browser-bound flow cookie
+      summary: Begin discoverable login without selecting an account
+      description: No account or credential enumeration. The assertion credential ID and user handle must identify the same registered account; unknown and mismatched pairs use the same public failure. A credential added after this flow began requires a new flow.
       security: []
       requestBody:
         required: true
@@ -491,6 +594,9 @@ paths:
       responses:
         "200":
           description: Flow completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -510,7 +616,8 @@ paths:
   /v1/auth/recover/begin:
     post:
       operationId: beginRecover
-      summary: Begin recover with exact Origin and a browser-bound flow cookie
+      summary: Begin recovery for the account bound to the operator grant
+      description: The operator issues recovery with an explicit account UUID. The browser cannot select the account. Replaces only that account's credentials and sessions on completion; API keys and share ownership are preserved. Other accounts are unaffected.
       security: []
       requestBody:
         required: true
@@ -551,6 +658,9 @@ paths:
       responses:
         "200":
           description: Flow completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -582,6 +692,9 @@ paths:
       responses:
         "200":
           description: Operation result; never cache
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -613,6 +726,9 @@ paths:
       responses:
         "200":
           description: Flow completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -644,6 +760,9 @@ paths:
       responses:
         "200":
           description: Operation result; never cache
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -675,6 +794,9 @@ paths:
       responses:
         "200":
           description: Flow completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -700,6 +822,9 @@ paths:
       responses:
         "200":
           description: Operation result; never cache
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -732,6 +857,9 @@ paths:
       responses:
         "201":
           description: Operation result; never cache
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -759,6 +887,9 @@ paths:
       responses:
         "204":
           description: Operation completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
         "400":
           $ref: "#/components/responses/AccountError"
         "401":
@@ -780,6 +911,9 @@ paths:
       responses:
         "200":
           description: Operation result; never cache
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
           content:
             application/json:
               schema:
@@ -809,6 +943,9 @@ paths:
       responses:
         "204":
           description: Operation completed
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
         "400":
           $ref: "#/components/responses/AccountError"
         "401":
@@ -822,6 +959,12 @@ paths:
         "503":
           $ref: "#/components/responses/AccountError"
 components:
+  headers:
+    AccountIdentity:
+      description: Server-derived UUID of the browser account authorized for this response. Never a request selector. Present on successful authenticated browser management and bound authentication responses; omitted for unauthenticated account state. Errors need not carry it. Compare with both expected and current identity before using private data; discard mismatches and refresh identity without replaying mutations.
+      schema:
+        type: string
+        format: uuid
   securitySchemes:
     sessionCookie:
       type: apiKey
@@ -831,6 +974,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+      description: Active account-issued key. Ownership comes only from its validated account, not request input. All keys in the same account have the same share permissions; they cannot manage another account's shares.
   parameters:
     AccountItemID:
       name: id
@@ -908,11 +1052,11 @@ components:
           type: integer
           format: int64
           minimum: 0
-          description: Complete number of shares that match q and status before cursor filtering, including zero. Count and items use the same database snapshot and status evaluation time.
+          description: Complete number of this account's shares that match q and status before cursor filtering, including zero. Count and items use the same database snapshot and status evaluation time.
         next_cursor:
           type: string
           maxLength: 512
-          description: Omitted on the last page.
+          description: Account-bound version 3 cursor; omitted on the last page.
     AuthenticatedResult:
       type: object
       required: [authenticated]
@@ -931,12 +1075,22 @@ components:
           type: string
     AccountState:
       type: object
+      description: account_id, display_name, csrf_token, and verification_required are returned only when authenticated is true. No account enumeration is provided.
       required: [setup_required, authenticated]
       properties:
         setup_required:
           type: boolean
         authenticated:
           type: boolean
+        account_id:
+          type: string
+          format: uuid
+          description: Stable authenticated account identity; never an owner request selector.
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Authenticated account display name, bounded to 200 UTF-8 bytes. Need not be unique and does not authorize requests.
         csrf_token:
           type: string
           description: Session-bound token, returned only to an authenticated browser.
@@ -956,6 +1110,16 @@ components:
           minLength: 1
           maxLength: 200
           description: Trimmed name limited to 200 UTF-8 bytes by the server.
+    SetupFlowRequest:
+      allOf:
+        - $ref: "#/components/schemas/GrantFlowRequest"
+      description: Setup only when no account exists. Optional display_name defaults to Owner; name labels the passkey.
+    InviteFlowRequest:
+      allOf:
+        - $ref: "#/components/schemas/GrantFlowRequest"
+        - type: object
+          required: [display_name]
+      description: A one-use invitation creates a new ordinary account. display_name names the account; name labels its first passkey. Neither selects an existing account.
     GrantFlowRequest:
       type: object
       additionalProperties: false
@@ -968,6 +1132,11 @@ components:
           type: string
           maxLength: 200
           description: Trimmed passkey name limited to 200 UTF-8 bytes; defaults to Passkey when omitted.
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Separate account display name, trimmed and bounded to 200 UTF-8 bytes. Required for invitation registration; setup defaults to Owner when omitted. Recovery retains the grant-bound account's existing name. Names need not be unique and never authorize requests.
     WebAuthnOptions:
       type: object
       required: [publicKey]
@@ -1156,7 +1325,14 @@ components:
           type: string
   responses:
     AccountError:
-      description: Invalid request, authentication failure, forbidden origin or CSRF, conflict, rate limit, or unavailable database. Account routes always return Cache-Control no-store.
+      description: Invalid request, authentication failure, forbidden origin or CSRF, conflict, rate limit, unavailable database, or identical not_found for missing/foreign share UUIDs. Account routes always return Cache-Control no-store. The identity marker is available only after account authorization succeeds.
+      headers:
+        X-Morsel-Account-ID:
+          $ref: "#/components/headers/AccountIdentity"
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
       content:
         application/json:
           schema:

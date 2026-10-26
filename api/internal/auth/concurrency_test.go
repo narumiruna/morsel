@@ -32,7 +32,7 @@ func TestPendingFinishesCannotCommitAfterRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback(ctx)
-			u, err := owner(ctx, tx)
+			u, err := lockAccount(ctx, tx, testdb.AccountID(t, pool), 1)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -45,7 +45,11 @@ func TestPendingFinishesCannotCommitAfterRecovery(t *testing.T) {
 			if err = tx.Commit(ctx); err != nil {
 				t.Fatal(err)
 			}
-			requireStatus(t, <-result, 401)
+			status := 401
+			if kind == "login" {
+				status = 400
+			}
+			requireStatus(t, <-result, status)
 			if testdb.Count(t, pool, `SELECT count(*) FROM auth_sessions`) != 0 || testdb.Count(t, pool, `SELECT count(*) FROM passkey_credentials`) != 1 {
 				t.Fatal("pending finish escaped recovery")
 			}
@@ -109,7 +113,7 @@ func TestSlowFinishDoesNotLockAccount(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			if _, err := IssueGrant(ctx, pool, "recover"); err != nil {
+			if _, err := IssueGrant(ctx, pool, "recover", testdb.AccountID(t, pool)); err != nil {
 				t.Fatalf("slow body blocked recovery: %v", err)
 			}
 			unblock()
@@ -121,7 +125,7 @@ func TestSlowFinishDoesNotLockAccount(t *testing.T) {
 func TestConcurrentRecoveryGrantCompletion(t *testing.T) {
 	s, pool := testService(t)
 	enroll(t, s, pool)
-	token, err := IssueGrant(t.Context(), pool, "recover")
+	token, err := IssueGrant(t.Context(), pool, "recover", testdb.AccountID(t, pool))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,7 @@ import { formatDate } from "../formatDate"
 import { MarkdownDocument } from "../markdown/MarkdownDocument"
 import { AccountError, accountErrorMessage, accountRequest } from "./accountApi"
 import "./shareManagement.css"
+import { useAccountSession } from "./AccountSession"
 import { useShareLinks } from "./useShareLinks"
 
 export type ShareStatus = "active" | "revoked" | "expired" | "view_limit_exhausted"
@@ -70,6 +71,7 @@ export function ShareManagement({
   controls: ShareListState
   onControlsChange: (next: ShareListState) => void
 }) {
+  const { expectedAccount } = useAccountSession()
   const { search, query, filter, order } = controls
   const [cursors, setCursors] = useState<string[]>([])
   const cursor = cursors.at(-1)
@@ -129,7 +131,7 @@ export function ShareManagement({
     const params = new URLSearchParams({ status: filter, limit: "25", sort: order })
     if (query) params.set("q", query)
     if (cursor) params.set("cursor", cursor)
-    void accountRequest<SharePage>(`account/shares?${params}`, { signal })
+    void accountRequest<SharePage>(`account/shares?${params}`, { signal, expectedAccount })
       .then((result) => {
         if (signal.aborted) return
         setPage(result)
@@ -150,7 +152,7 @@ export function ShareManagement({
         if (!signal.aborted) setListLoading(false)
       })
     return () => controller.abort()
-  }, [filter, order, query, cursor, cursors.length, revision, onSessionExpired])
+  }, [filter, order, query, cursor, cursors.length, revision, onSessionExpired, expectedAccount])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: detailRevision explicitly reloads the selected share.
   useEffect(() => {
@@ -165,6 +167,7 @@ export function ShareManagement({
     copyGeneration.current += 1
     void accountRequest<ShareDetail>(`account/shares/${encodeURIComponent(selectedID)}`, {
       signal,
+      expectedAccount,
     })
       .then((result) => {
         if (!signal.aborted) setDetail(result)
@@ -178,7 +181,7 @@ export function ShareManagement({
         if (!signal.aborted) setDetailLoading(false)
       })
     return () => controller.abort()
-  }, [selectedID, detailRevision, onSessionExpired])
+  }, [selectedID, detailRevision, onSessionExpired, expectedAccount])
 
   const resetPages = () => {
     listRequest.current?.abort()
@@ -217,7 +220,7 @@ export function ShareManagement({
     else sharesHeading.current?.focus()
   }
 
-  const links = useShareLinks({ onSessionExpired, restoreFocus })
+  const links = useShareLinks({ expectedAccount, onSessionExpired, restoreFocus })
 
   const closePreview = () => {
     detailRequest.current?.abort()
@@ -253,6 +256,7 @@ export function ShareManagement({
           method: "DELETE",
           csrf,
           signal: parentSignal,
+          expectedAccount,
         })
         if (parentSignal.aborted || signal.aborted) return
         setConfirmation(null)

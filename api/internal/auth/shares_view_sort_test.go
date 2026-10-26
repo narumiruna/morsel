@@ -13,8 +13,8 @@ import (
 func TestAccountShareViewSortPaginationAndCursorErrors(t *testing.T) {
 	s, pool := testService(t)
 	b := enroll(t, s, pool)
-	if _, err := pool.Exec(t.Context(), `INSERT INTO shares(id,token_hash,content,admin_label,created_at,view_count,revoked_at)
- SELECT md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'content',
+	if _, err := pool.Exec(t.Context(), `INSERT INTO shares(account_id,id,token_hash,content,admin_label,created_at,view_count,revoked_at)
+ SELECT (SELECT id FROM accounts), md5(n::text)::uuid,sha256(convert_to(n::text,'UTF8')),'content',
  CASE WHEN n=6 THEN 'Other' ELSE 'Target' END,'2020-01-01Z',n%3,
  CASE WHEN n=7 THEN now() ELSE NULL END FROM generate_series(1,7) n`); err != nil {
 		t.Fatal(err)

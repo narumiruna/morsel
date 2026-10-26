@@ -27,7 +27,7 @@ func TestAccountAndAPIKeyLifecycle(t *testing.T) {
 		requireStatus(t, anonymous.request("GET", path, nil), 401)
 	}
 	b, a := enrollAuthenticator(t, s, pool)
-	if _, err := IssueGrant(ctx, pool, "setup"); err == nil {
+	if _, err := IssueGrant(ctx, pool, "setup", uuid.Nil); err == nil {
 		t.Fatal("setup reopened")
 	}
 	requireStatus(t, anonymous.request("POST", "/v1/auth/setup/begin", []byte(`{"token":"invalid"}`)), 409)
@@ -66,9 +66,9 @@ func TestAccountAndAPIKeyLifecycle(t *testing.T) {
 		header string
 		valid  bool
 	}{{"Bearer " + created.Key, true}, {"bearer " + created.Key, false}, {"Bearer invalid", false}, {"Bearer " + created.Key + " extra", false}, {"Bearer " + strings.Repeat("a", 32), false}, {"", false}} {
-		got, err := s.Valid(ctx, test.header)
-		if err != nil || got != test.valid {
-			t.Fatalf("Valid=%v err=%v want=%v", got, err, test.valid)
+		got, err := s.Authenticate(ctx, test.header)
+		if err != nil || (got != uuid.Nil) != test.valid {
+			t.Fatalf("Authenticate=%v err=%v want=%v", got, err, test.valid)
 		}
 	}
 	// A Bearer token is not sufficient for account management.
@@ -85,8 +85,8 @@ func TestAccountAndAPIKeyLifecycle(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		requireStatus(t, b.request("DELETE", "/v1/api-keys/"+created.ID, nil), 204)
 	}
-	valid, err := s.Valid(ctx, "Bearer "+created.Key)
-	if err != nil || valid {
+	valid, err := s.Authenticate(ctx, "Bearer "+created.Key)
+	if err != nil || valid != uuid.Nil {
 		t.Fatal("revoked key accepted")
 	}
 	requireStatus(t, b.request("DELETE", "/v1/api-keys/"+uuid.NewString(), nil), 204)
@@ -129,7 +129,7 @@ func TestWebAuthnFailurePaths(t *testing.T) {
 	}{{"wrong origin", "http://localhost:5174", true}, {"missing UV", "http://localhost:5173", false}} {
 		t.Run(test.name, func(t *testing.T) {
 			s, pool := testService(t)
-			token, err := IssueGrant(t.Context(), pool, "setup")
+			token, err := IssueGrant(t.Context(), pool, "setup", uuid.Nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -167,7 +167,7 @@ func TestWebAuthnFailurePaths(t *testing.T) {
 	requireStatus(t, b.request("POST", "/v1/auth/verify/finish", assertion), 400)
 	requireStatus(t, b.request("POST", "/v1/auth/login/finish", assertion), 200)
 	// Grant, flow, and session expiry are database-enforced.
-	token, err := IssueGrant(t.Context(), pool, "recover")
+	token, err := IssueGrant(t.Context(), pool, "recover", testdb.AccountID(t, pool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestWebAuthnFailurePaths(t *testing.T) {
 
 func TestConcurrentSetupAndFlowFinish(t *testing.T) {
 	s, pool := testService(t)
-	token, err := IssueGrant(t.Context(), pool, "setup")
+	token, err := IssueGrant(t.Context(), pool, "setup", uuid.Nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestRecoveryInvalidatesPendingFlowsAndSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := IssueGrant(ctx, pool, "recover")
+	token, err := IssueGrant(ctx, pool, "recover", testdb.AccountID(t, pool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,9 +295,13 @@ func TestRecoveryInvalidatesPendingFlowsAndSessions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = lockAccount(ctx, tx, pending.AccountID, pending.Generation)
+		if pending.Kind == "login" {
+			_, err = loginAccount(ctx, tx, a.id, a.user, pending.StartedOrder)
+		} else {
+			_, err = lockAccount(ctx, tx, pending.AccountID, pending.Generation)
+		}
 		_ = tx.Rollback(ctx)
-		if err != errGeneration {
+		if err != errGeneration && err != errCredential {
 			t.Fatalf("old flow authorized: %v", err)
 		}
 	}
@@ -313,8 +317,8 @@ func TestRecoveryInvalidatesPendingFlowsAndSessions(t *testing.T) {
 	if testdb.Count(t, pool, `SELECT count(*) FROM passkey_credentials`) != 1 || testdb.Count(t, pool, `SELECT count(*) FROM accounts WHERE auth_generation=2`) != 1 {
 		t.Fatal("replacement or generation failed")
 	}
-	valid, err := s.Valid(ctx, "Bearer "+k.Key)
-	if err != nil || !valid {
+	valid, err := s.Authenticate(ctx, "Bearer "+k.Key)
+	if err != nil || valid != testdb.AccountID(t, pool) {
 		t.Fatal("recovery revoked API key")
 	}
 	verify(t, recovery, replacement)
@@ -333,7 +337,7 @@ func TestRecoveryRaceWithSessionMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	u, err := owner(ctx, tx)
+	u, err := lockAccount(ctx, tx, testdb.AccountID(t, pool), 1)
 	if err != nil {
 		t.Fatal(err)
 	}

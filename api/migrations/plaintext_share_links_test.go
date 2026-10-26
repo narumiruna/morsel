@@ -10,11 +10,8 @@ import (
 )
 
 func TestPlaintextLinksMigrationPreservesExistingShares(t *testing.T) {
-	pool := testdb.Open(t)
+	pool := testdb.OpenVersion(t, 9)
 	ctx := t.Context()
-	if err := migrations.Run(ctx, pool, migrations.Down, 1); err != nil {
-		t.Fatal(err)
-	}
 	id := uuid.New()
 	token, hash, err := (share.TokenGenerator{}).Generate()
 	if err != nil {
@@ -36,7 +33,7 @@ func TestPlaintextLinksMigrationPreservesExistingShares(t *testing.T) {
 	}
 	before := snapshot()
 	for range 2 {
-		if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+		if err := migrations.Run(ctx, pool, migrations.Up, 1); err != nil {
 			t.Fatal(err)
 		}
 		if snapshot() != before {
@@ -61,7 +58,7 @@ func TestPlaintextLinksMigrationPreservesExistingShares(t *testing.T) {
 			t.Fatal("rollback changed existing share or ciphertext")
 		}
 	}
-	if err := migrations.Run(ctx, pool, migrations.Up, 0); err != nil {
+	if err := migrations.Run(ctx, pool, migrations.Up, 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := share.NewPostgresRepository(pool).Consume(ctx, hash); err != nil {

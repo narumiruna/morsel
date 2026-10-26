@@ -21,7 +21,15 @@ vi.mock("@simplewebauthn/browser", () => ({
 let account: Account
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>
 const destinations = ["/manage/shares", "/manage/api-keys", "/account"]
-const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status })
+const json = (value: unknown, status = 200) =>
+  new Response(
+    JSON.stringify(
+      value && typeof value === "object" && "authenticated" in value && value.authenticated
+        ? { account_id: "10000000-0000-4000-8000-000000000001", display_name: "Owner", ...value }
+        : value,
+    ),
+    { status, headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" } },
+  )
 function show(path: string) {
   window.history.replaceState({}, "", path)
   return render(
@@ -52,6 +60,41 @@ beforeEach(() => {
 })
 
 describe("authentication routes", () => {
+  it.each(destinations)(
+    "creates an invited account with a separate account name and returns to %s",
+    async (destination) => {
+      show(authenticationURL("invite", destination))
+      const user = userEvent.setup()
+      await user.type(await screen.findByLabelText("Invitation token"), "one-time-invitation")
+      await user.type(screen.getByLabelText("Account name"), "Research team")
+      await user.type(screen.getByLabelText("Passkey name"), "Laptop")
+      await user.click(screen.getByRole("button", { name: "Create account" }))
+      await screen.findByRole("navigation", { name: "Management sections" })
+      expect(window.location.pathname).toBe(destination)
+      expect(
+        JSON.parse(
+          String(fetchMock.mock.calls.find(([url]) => url === "/v1/auth/invite/begin")?.[1]?.body),
+        ),
+      ).toEqual({
+        token: "one-time-invitation",
+        name: "Laptop",
+        display_name: "Research team",
+      })
+      expect(window.location.href).not.toContain("one-time-invitation")
+      expect(startRegistration).toHaveBeenCalledOnce()
+    },
+  )
+
+  it("bounds invited account names by UTF-8 bytes", async () => {
+    show("/invite")
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText("Invitation token"), "invitation")
+    await user.type(screen.getByLabelText("Passkey name"), "Device")
+    await user.type(screen.getByLabelText("Account name"), "界".repeat(67))
+    expect(screen.getByRole("button", { name: "Create account" })).toBeDisabled()
+    expect(startRegistration).not.toHaveBeenCalled()
+  })
+
   for (const mode of ["login", "setup", "recover"] as const) {
     it.each(destinations)(
       `returns from ${mode} to %s without exposing management before authentication`,
