@@ -494,7 +494,7 @@ for (const [version, expected] of [
   })
 }
 
-test("workflow uses the action only for root version PRs and keeps manual deployment", async () => {
+test("workflow uses the action only for root version PRs", async () => {
   const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
   assert.ok(workflow.includes("  workflow_dispatch:\n"))
   assert.ok(workflow.includes("  push:\n    branches: [main]\n"))
@@ -513,7 +513,12 @@ test("workflow uses the action only for root version PRs and keeps manual deploy
   assert.ok(workflow.includes("uses: ./.github/workflows/container.yml"))
   assert.ok(workflow.includes("needs: [publish, container]"))
   assert.doesNotMatch(workflow, /publish-script:|npm publish|registry-url:|id-token:/)
+})
+
+test("deployment runs on version tag pushes and manual dispatch from main", async () => {
   const deploy = await readFile(join(repositoryRoot, ".github/workflows/deploy.yml"), "utf8")
   assert.ok(deploy.includes("  workflow_dispatch:\n"))
-  assert.ok(!deploy.includes("  push:"))
+  assert.ok(deploy.includes('  push:\n    tags:\n      - "v*.*.*"\n'))
+  assert.ok(deploy.includes("if: github.event_name == 'push' || github.ref == 'refs/heads/main'"))
+  assert.doesNotMatch(deploy, /branches:/)
 })

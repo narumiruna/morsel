@@ -1,8 +1,11 @@
 name: Deploy
 
-# Manual dispatch only: migration 11 requires a verified maintenance window.
+# Verify maintenance prerequisites before pushing a version tag or dispatching.
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
 
 permissions:
   contents: read
@@ -13,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
     runs-on: self-hosted
     env:
       MORSEL_IMAGE: morsel:${{ github.sha }}
