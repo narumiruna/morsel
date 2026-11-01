@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "morsel": {
+      "url": "https://morsel.narumi.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MORSEL_API_KEY}"
+      }
+    }
+  }
+}
