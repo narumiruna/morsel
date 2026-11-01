@@ -6,6 +6,7 @@ const contentSecurityPolicy =
 
 const apiProxy = {
   "/v1": "http://127.0.0.1:12647",
+  "/mcp": { target: "http://127.0.0.1:12647", changeOrigin: false },
 }
 
 export default defineConfig({
