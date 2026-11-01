@@ -122,7 +122,83 @@ curl --fail-with-body -X DELETE \
   http://127.0.0.1:12647/v1/shares/SHARE_UUID
 ```
 
-See the [OpenAPI contract](../packages/server/openapi.yaml) for the complete API. Public error responses contain stable `code` and `message` fields.
+See the [OpenAPI contract](../packages/server/openapi.yaml) for the complete REST API. Public error responses contain stable `code` and `message` fields.
+
+## MCP clients
+
+Connect to `/mcp` with stateless Streamable HTTP. Normal responses are JSON; there are no persistent sessions, `Mcp-Session-Id` responses, or persistent SSE streams. Authenticated GET and DELETE return `405` with `Allow: POST`. The official Go MCP SDK is pinned to v1.8.0. Supported and tested protocol versions are `2025-11-25`, `2025-06-18`, and `2025-03-26`.
+
+Every request, including `initialize` and `tools/list`, requires `Authorization: Bearer <UI-created API key>`. Each request checks the active key in PostgreSQL. Cookie-only access is not allowed. There is no OAuth or dynamic client registration; OAuth-only clients cannot connect. Never send raw keys in chat or put them in browser code, URLs, or logs.
+
+For POST requests, send `Content-Type: application/json` and `Accept: application/json, text/event-stream`, even though normal responses are JSON. After initialization, send `MCP-Protocol-Version` with the negotiated version. Use the public URL configured by `MORSEL_URL`: request authority/Host must match it after hostname-case and default-port normalization. An arbitrary backend bind hostname is not accepted. An omitted Origin is allowed; a supplied Origin must be exactly the canonical configured origin. Duplicate, `null`, and foreign Origins are forbidden. CORS is not enabled.
+
+### Custom-header configuration
+
+This generic `mcpServers` JSON example is for a custom-header-capable HTTP client. Adapt it to the selected client's documented configuration format. It is not an external-client acceptance result. For local use, configure Morsel with `MORSEL_URL=http://localhost:12647`:
+
+```json
+{
+  "mcpServers": {
+    "morsel": {
+      "type": "http",
+      "url": "http://localhost:12647/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_WITH_YOUR_UI_CREATED_API_KEY"
+      }
+    }
+  }
+}
+```
+
+The uppercase value is a secret placeholder, not a working credential. Use the client's secret storage when available. Environment-variable and secret substitution syntax varies by client; this example does not assume interpolation. Protect any configuration file that holds the real key. For production, replace the URL with the approved configured HTTPS endpoint and complete the [external handoff](deployment.md#mcp-routing-and-external-handoff).
+
+### Tools and results
+
+`tools/list` publishes explicit input and output schemas. OpenAPI remains REST-only. Unknown fields, including owner selectors, are rejected.
+
+| Tool | Arguments | Result and effect |
+| --- | --- | --- |
+| `create_share` | Required `content`; optional `expires_in`, `max_views`, `preview`, `telegram_instant_view`, as in REST | Creation metadata, including administrative `id` and secret `share_url`. Not idempotent. |
+| `get_share` | `{ "token": "RAW_CAPABILITY_TOKEN" }`, not a URL or UUID | Markdown and view metadata. Every success consumes exactly one view and can exhaust the share; not read-only or idempotent. |
+| `revoke_share` | `{ "id": "ADMINISTRATIVE_SHARE_UUID" }`, not a capability | `{ "id": "...", "revoked": true }`. Destructive; repeated revocation of an owned share succeeds. |
+
+Creation uses the existing [preview and Instant View rules](#link-previews). `expires_in` is an integer from 1 to 315360000 seconds; `max_views` is an integer from 1 to 9223372036854775807. For these two optional fields, `null` means absent. `preview` must be an object with required `title` and `description`; boolean and null values are invalid. `telegram_instant_view` must be a boolean; when true, it requires preview without expiration or view limits. Existing document and request-body limits apply.
+
+The key determines creation ownership and permits revocation only within its account. A foreign and a missing revocation UUID produce the same `not_found` tool error. Retrieval uses the capability, not ownership: a valid token can read another account's share without exposing the owner's identity. There are no account, list, or admin tools.
+
+Tool results include `structuredContent` and the same JSON as text for clients without structured-result display. Share-operation and argument failures return `isError: true` with safe `code` and `message` fields. Expired, revoked, and exhausted capabilities retain distinct errors. Protocol failures use SDK JSON-RPC or HTTP validation errors; malformed and unregistered legacy requests can return HTTP `400`. Missing or invalid keys return HTTP `401` with a Bearer challenge, and authentication database failures return safe HTTP `503` before tool execution. MCP tool errors are not REST HTTP status responses. Responses, including failures, use `Cache-Control: no-store`; existing time limits apply. If the request deadline ends before a response is committed, the server returns safe HTTP `504`.
+
+Never retrieve a newly created share to validate its URL. Do not automatically retry `create_share` or `get_share`: an interrupted call can already have created a share or consumed a view. There is no exactly-once delivery guarantee.
+
+### Local curl example
+
+Use a disposable local database and `MORSEL_URL=http://localhost:12647`. Export your UI-created key as client-only `MORSEL_API_KEY` before running these commands; no key value is included below. Keep shell tracing off and do not log payloads or responses. Initialization and discovery do not consume views. The final command explicitly creates one fixture share; it does not retrieve it.
+
+```sh
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $MORSEL_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"local-curl","version":"1.0"}}}' \
+  http://localhost:12647/mcp
+
+# Continue only after successful initialization with this negotiated version.
+mcp_post() {
+  curl --fail-with-body --silent --show-error \
+    -H "Authorization: Bearer $MORSEL_API_KEY" \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    -H 'MCP-Protocol-Version: 2025-11-25' \
+    -d "$1" http://localhost:12647/mcp
+}
+mcp_post '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+mcp_post '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# Run only when you intend to create a share. Do not retry automatically.
+mcp_post '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_share","arguments":{"content":"# Local MCP fixture","max_views":1}}}'
+```
+
+Inspect JSON-RPC errors and `isError` as well as HTTP status. Keep the returned UUID and capability URL separate and secret. Do not call `get_share` unless retrieval is explicitly requested.
 
 ## TypeScript client
 

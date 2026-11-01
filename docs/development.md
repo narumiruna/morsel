@@ -2,7 +2,7 @@
 
 ## Viewer
 
-Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. Install both npm workspaces from the repository root. The development server proxies `/v1/*` requests to the Go API at `127.0.0.1:12647`.
+Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. Install both npm workspaces from the repository root. The development server proxies `/v1/*` and `/mcp` requests to the Go API at `127.0.0.1:12647`.
 
 ```sh
 npm ci
@@ -34,7 +34,7 @@ export MORSEL_ADDRESS=:12647
 GOTOOLCHAIN=go1.26.10 go run ./cmd/server
 ```
 
-In another terminal, start Vite with the command above. Open <http://localhost:5173/login> (or `/setup` for initial account setup). The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The existing Vite `/v1` proxy still targets `http://127.0.0.1:12647`; relative API paths keep cookies and Origin checks at the browser origin. CORS stays disabled.
+In another terminal, start Vite with the command above. Open <http://localhost:5173/login> (or `/setup` for initial account setup). The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The Vite `/v1` and `/mcp` proxies target `http://127.0.0.1:12647`; relative paths keep the configured browser origin. For MCP, use `http://localhost:5173/mcp` through Vite so the public Host remains consistent with `MORSEL_URL`; an arbitrary backend bind host is rejected. For direct MCP testing at port 12647, instead configure `MORSEL_URL=http://localhost:12647` as in the [local curl example](usage.md#local-curl-example). CORS stays disabled.
 
 With the same local database variable set, generate a setup token:
 
@@ -103,6 +103,46 @@ npx --yes @redocly/cli@2.53.2 lint --config packages/server/redocly.yaml package
 ```
 
 `packages/server/oapi-codegen.yaml` includes only health and public/Bearer share operations. Account, invitation, verification, passkey, and saved-link routes are manual handlers; update their contract and viewer types explicitly. Share-write shapes in the TypeScript client and Markdown CLI have no ownership argument.
+
+## MCP validation
+
+The official Go MCP SDK is pinned to v1.8.0. The advertised and tested versions are `2025-11-25`, `2025-06-18`, and `2025-03-26`. `/mcp` uses stateless Streamable HTTP with JSON responses, without persistent sessions or SSE streams. Every request needs a UI-managed Bearer key, including initialization and `tools/list`; cookies and OAuth do not authorize it. Use a custom-header-capable client and the [documented headers and tools](usage.md#mcp-clients). OpenAPI and generated REST code remain REST-only; `tools/list` supplies MCP input/output schemas.
+
+These commands and evidence requirements are validation instructions, not a report of completed checks. Prepare disposable PostgreSQL with the test database variable above; database tests must execute with zero skips:
+
+```sh
+cd packages/server
+export GOTOOLCHAIN=go1.26.10
+go test -race -v ./internal/api -run MCP
+go test -race -v -count=10 ./internal/api -run MCP
+go test -race -coverprofile=coverage.out ./...
+go test -race -count=10 ./internal/share \
+  -run TestPostgresRepositoryConcurrentFinalViews
+go mod verify
+go vet ./...
+test -z "$(gofmt -l .)"
+```
+
+Record the commands, toolchain/SDK versions, executed test counts, skips, failures, and secret-free evidence location. Keep MCP evidence separate from historical results below. Required evidence includes:
+
+- Full-router SDK-client initialization, notification, `ping`, discovery, and calls for all advertised versions. Verify normal JSON responses, no session ID or persistent SSE, legacy batch safety, authenticated GET/DELETE `405` with `Allow: POST`, malformed protocol/media/version errors, and no-store on success and failure.
+- Bearer enforcement including initialization/discovery, cookie-only denial, key revocation between calls, safe authentication outages, configured Host/default-port normalization, and exact/omitted versus duplicate, `null`, and foreign Origin handling. Verify request/body/document limits, restored deadline/cancellation and safe uncommitted HTTP `504`, security headers, and logs without keys, capabilities, URLs, Markdown, or payloads.
+- Explicit schemas, strict types/nulls/unknown fields, exact int64 limits, REST preview/Instant View rules, structured/text agreement, and safe `isError` codes/messages. Test two-account isolation, same-account key interchange, foreign/missing revocation equivalence, idempotent owned revocation, and request-local identity despite supplied session headers.
+- REST/MCP interoperability, cross-account capability reads without owner identity, exactly one consumed view per successful retrieval, and concurrent final-view limits. Never retrieve a created share merely to validate it or automatically retry creation/retrieval.
+
+Also run the generator drift check and OpenAPI lint above, root `npm run ci`, the CI govulncheck command, `npm run test:browser`, and required `npm run test:auth:browser` with prepared Chromium and disposable PostgreSQL. Required database/authentication checks need zero skips; do not run the production-only live scenario. Confirm generated REST code is unchanged. Local checks do not establish production proxy behavior or external-client acceptance; retain the [MCP handoff](deployment.md#mcp-routing-and-external-handoff).
+
+### MCP validation evidence
+
+Local validation on 2026-11-02 used Go 1.26.10, official Go MCP SDK v1.8.0, Node.js 26, disposable PostgreSQL 17.6, and Chromium:
+
+- Backend race/coverage suite: 626 passing cases including subtests, with zero test skips. All 127 MCP cases passed ten race-detector repetitions (1,270 cases, zero skips). Existing final-view concurrency also passed ten repetitions. Generator drift, formatting, module verification, and vet passed.
+- Root CI: 530 viewer tests, 11 client tests, 33 release-tool tests, and five deployment tests passed. OpenAPI lint, TypeScript checks, and viewer build passed. A live Vite proxy test verifies explicit `changeOrigin: false` and preservation of public Host, Origin, Bearer, and MCP protocol headers.
+- Browser suite: 83 passed; the single production-only live scenario was not run. Required real Go/PostgreSQL authentication: one test with 21 executed steps passed, with zero skips. Existing CLI/TypeScript client and account-isolation paths remain covered. All 28 Markdown CLI unit tests also passed.
+- The Docker image built with supported Go 1.27.3. Its localhost smoke test ran the documented initialization, notification, discovery, and creation commands, then checked owned revocation and unauthorized denial. PostgreSQL confirmed creation/revocation consumed zero views; no validation read was made.
+- npm production audit found zero vulnerabilities. Govulncheck found zero reachable or imported-package vulnerabilities. The existing module-only GO-2026-5932 advisory concerns unused `golang.org/x/crypto/openpgp`, which this application does not import or call.
+
+Only disposable test infrastructure and fixture data were used. Production proxy/WAF behavior and external-client configuration remain unverified in the [MCP handoff](deployment.md#mcp-routing-and-external-handoff). No package publication, version tag, release dispatch, or production deployment was performed.
 
 ## Migrations
 

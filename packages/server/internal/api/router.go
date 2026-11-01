@@ -24,6 +24,7 @@ type RouterConfig struct {
 	Authenticator  BearerAuthenticator
 	Account        http.Handler
 	Viewer         http.Handler
+	MCP            http.Handler
 	MaxRequestBody int64
 	RequestTimeout time.Duration
 	Logger         *slog.Logger
@@ -58,6 +59,9 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 			writePublicError(w, http.StatusInternalServerError, ErrorCodeInternalError, "internal server error")
 		},
 	})
+	if cfg.MCP != nil {
+		router.Handle("/mcp", cfg.MCP)
+	}
 	if cfg.Account != nil {
 		for _, path := range []string{"/v1/account", "/v1/account/invitations", "/v1/account/shares", "/v1/account/shares/{id}", "/v1/account/shares/*", "/v1/auth/*", "/v1/passkeys", "/v1/passkeys/*", "/v1/api-keys", "/v1/api-keys/*"} {
 			router.Handle(path, cfg.Account)
@@ -65,7 +69,8 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 	}
 	HandlerWithOptions(strict, ChiServerOptions{BaseRouter: router, ErrorHandlerFunc: writeRequestError})
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		apiPath := r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/")
+		apiPath := r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") ||
+			r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/")
 		if cfg.Viewer != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) && !apiPath {
 			cfg.Viewer.ServeHTTP(w, r)
 			return
@@ -168,11 +173,20 @@ func rejectUnknownCreateFields(next http.Handler) http.Handler {
 
 func requireBearer(authenticator BearerAuthenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
+		authenticated := authenticateBearer(authenticator)(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !isProtected(r) {
+			if isProtected(r) {
+				authenticated.ServeHTTP(w, r)
+			} else {
 				next.ServeHTTP(w, r)
-				return
 			}
+		})
+	}
+}
+
+func authenticateBearer(authenticator BearerAuthenticator) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var accountID uuid.UUID
 			var err error
 			if authenticator != nil {

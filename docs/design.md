@@ -39,7 +39,25 @@ sequenceDiagram
     Viewer->>Viewer: Sanitize and render Markdown
 ```
 
-The service handles `/`, `/example`, `/manage/shares`, `/manage/api-keys`, `/manage/invitations`, `/account`, `/login`, `/setup`, `/invite`, `/recover`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell. Instant View shares additionally inject server-rendered GFM into the viewer root; the React viewer replaces it after loading in a browser. JavaScript and CSS remain static assets. Morsel has no Redis, object storage, queue, separate static host, or Node.js runtime server.
+The service handles `/`, `/example`, `/manage/shares`, `/manage/api-keys`, `/manage/invitations`, `/account`, `/login`, `/setup`, `/invite`, `/recover`, `/s/*`, `/gist/`, `/assets/*`, `/v1/*`, `/mcp`, `/healthz`, and `/readyz` on one domain. Preview-enabled `/s/<token>` responses inject Open Graph metadata into the otherwise static viewer shell. Instant View shares additionally inject server-rendered GFM into the viewer root; the React viewer replaces it after loading in a browser. JavaScript and CSS remain static assets. Morsel has no Redis, object storage, queue, separate static host, or Node.js runtime server.
+
+## MCP transport and tool boundary
+
+`/mcp` uses the official Go MCP SDK pinned to v1.8.0 with stateless Streamable HTTP and JSON responses. Supported and tested protocol versions are `2025-11-25`, `2025-06-18`, and `2025-03-26`. The SDK handles initialization, notifications, `ping`, discovery, and tool dispatch. There are no persistent sessions, session IDs, persistent SSE streams, replay storage, or legacy HTTP+SSE transport. The `2025-03-26` protocol also accepts JSON-RPC batches; calls within one HTTP request run in sequence so request metadata remains safe. Later protocol versions reject batches. Authenticated GET and DELETE return `405` with `Allow: POST`; `/mcp` never falls through to viewer HTML.
+
+Every request, including initialization and discovery, validates an existing UI-managed Bearer key against PostgreSQL and derives a request-local typed account principal. No account identity persists between requests. Cookies cannot authorize MCP; OAuth and dynamic client registration are not provided. Clients must support a custom Authorization header. Missing or invalid keys return HTTP `401` with the Bearer challenge; authentication database failures return safe HTTP `503` without running a tool.
+
+The handler checks authority/Host against `MORSEL_URL`, normalizing hostname case and default ports. This configured-host check provides DNS rebinding protection when the SDK's loopback-only Host protection is disabled for reverse-proxy use. Forwarded headers do not select the allowed host or origin. An omitted Origin is allowed; a present Origin must be one exact canonical configured origin. Duplicate, `null`, invalid, and foreign Origins fail with `403`. CORS remains disabled. POST requires JSON Content-Type and Accept support for both `application/json` and `text/event-stream`; subsequent requests carry the negotiated `MCP-Protocol-Version`.
+
+The adapters call existing `Service.CreateShare`, `Service.ConsumeShare`, and `Service.RevokeShare` operations, without internal HTTP calls or separate share rules:
+
+- `create_share` accepts all REST creation fields: `content`, `expires_in`, `max_views`, `preview`, and `telegram_instant_view`. Optional expiration/view-limit nulls mean absent. Ownership comes only from the key. Creation is not idempotent.
+- `get_share` accepts a raw capability `token`, not a URL or administrative UUID. Each success consumes one view; it is neither read-only nor idempotent. A valid capability can read another account's share without returning owner identity.
+- `revoke_share` accepts an administrative UUID `id` and only revokes shares owned by the key's account. Success is `{ "id": "...", "revoked": true }`. It is destructive and idempotent; foreign and missing targets have the same `not_found` result.
+
+`tools/list` exposes explicit input and output schemas with unknown-field rejection. Typed decoding preserves int64 limits. Results contain structured JSON and the same JSON as text. Safe tool failures use `isError: true` with existing `code` and `message` fields, not REST HTTP statuses. Protocol failures use SDK JSON-RPC or HTTP validation errors; malformed and unregistered legacy requests can return HTTP `400`. Expired, revoked, and exhausted capability errors remain distinct. OpenAPI documents REST only. MCP adds no account, listing, or admin tools and does not change REST or browser authorization.
+
+Existing body/document limits, request deadlines, security headers, and secret-free route logging apply. The adapter restores the original HTTP deadline and cancellation because the SDK detaches them. A deadline that ends before response commitment returns safe HTTP `504`. The response writer enforces `Cache-Control: no-store` at header commitment, including failures; SDK payload logging is not enabled. Never retrieve a newly created share to validate it, fetch arbitrary URLs, or automatically retry creation or retrieval. A lost response does not prove the operation failed.
 
 ## Account and authentication boundaries
 
@@ -72,7 +90,7 @@ The admin UI displays one link at a time, requires **Dismiss invitation link** b
 
 ## View and availability semantics
 
-- Every successful `GET /v1/shares/<token>` consumes exactly one view, including browser refreshes, command-line requests, and bots that call the API.
+- Every successful `GET /v1/shares/<token>` or MCP `get_share` consumes exactly one view, including browser refreshes, command-line requests, and bots that call the API.
 - Fetching an enabled `/s/<token>` Open Graph preview does not consume a view. Link-preview crawlers do not execute the viewer JavaScript, while a browser does and therefore consumes a view through the API.
 - An Instant View share exposes the complete rendered article through the same non-consuming request. It cannot use expiration or view limits, and revocation cannot remove copies already cached by Telegram.
 - Preview metadata can be fetched repeatedly by anyone holding its capability URL. Disable preview when its explicit title, description, image URL, or locale must not be exposed this way.

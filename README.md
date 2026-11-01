@@ -5,7 +5,7 @@ Morsel is a small, self-hosted service for sharing Markdown through revocable ca
 - Open a share or GitHub Gist URL from the homepage, or try the bundled example.
 - Sign in with a passkey to search your account's shares in `/manage/shares`, manage client keys in `/manage/api-keys`, and manage security in `/account`.
 - As an admin, create one-use account invitation links in `/manage/invitations` and send them manually.
-- Create and revoke shares through an API, with optional expiration and view limits.
+- Create and revoke shares through REST or MCP, with optional expiration and view limits.
 - Render GitHub Flavored Markdown with syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts.
 - View Markdown files from GitHub Gists without storing them in Morsel.
 - Opt in to Open Graph previews or Telegram Instant View articles.
@@ -57,11 +57,17 @@ curl --fail-with-body \
   http://127.0.0.1:12647/v1/shares
 ```
 
-The response contains a reader-facing `share_url` and an administrative `id` for revocation. **Anyone with the URL can read the share; every successful retrieval consumes a view.** See [using Morsel](docs/usage.md) for retrieval, revocation, previews, Instant View, Gists, and the TypeScript client. The [OpenAPI contract](packages/server/openapi.yaml) specifies all endpoints.
+The response contains a reader-facing `share_url` and an administrative `id` for revocation. **Anyone with the URL can read the share; every successful retrieval consumes a view.** See [using Morsel](docs/usage.md) for retrieval, revocation, previews, Instant View, Gists, and the TypeScript client. The [OpenAPI contract](packages/server/openapi.yaml) specifies the REST API.
+
+## MCP clients
+
+Use `/mcp` for stateless Streamable HTTP with JSON responses, without persistent sessions or SSE streams. Every request, including initialization and discovery, needs an existing UI-managed Bearer API key. Cookies cannot authorize MCP; OAuth is not provided. Clients must support a custom Authorization header.
+
+The tools are `create_share`, `get_share`, and `revoke_share`. Each successful `get_share` consumes one view, even for another account's share when its capability is valid. Never retrieve a new share to validate it or automatically retry creation or retrieval. See [MCP setup and local examples](docs/usage.md#mcp-clients) for headers, protocol versions, client configuration, and `tools/list` schemas. Production proxy and external-client acceptance require the [operator handoff](docs/deployment.md#mcp-routing-and-external-handoff).
 
 ## Documentation
 
-- [Using Morsel](docs/usage.md): shares, previews, Telegram Instant View, Gists, and the client.
+- [Using Morsel](docs/usage.md): shares, MCP clients, previews, Telegram Instant View, Gists, and the TypeScript client.
 - [Deployment and configuration](docs/deployment.md): environment variables, key rotation, production, backups, and rollback.
 - [Design and security](docs/design.md): architecture, view semantics, and the security model.
 - [Viewer features](docs/viewer.md): Mermaid and Vega-Lite controls and limits.

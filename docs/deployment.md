@@ -9,7 +9,7 @@ The API reads these environment variables:
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
-| `MORSEL_URL` | yes | — | Public origin for share links, invitation links, and WebAuthn. Non-root paths, queries, fragments, and credentials are rejected. |
+| `MORSEL_URL` | yes | — | Public origin for share links, invitation links, WebAuthn, and MCP Host/Origin checks. Non-root paths, queries, fragments, and credentials are rejected. |
 | `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Viewer directory, relative to the usual `packages/server/` working directory. The container uses `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
@@ -25,7 +25,7 @@ The API reads these environment variables:
 
 Startup rejects insecure public URLs, empty viewer paths, and invalid limits or timeouts. Errors do not echo configured secrets. Server API key environment configuration and key-file loading are removed. Clients and scripts can still use `MORSEL_API_KEY` for a key created in the UI; do not pass it to the server.
 
-The WebAuthn RP ID is derived from the hostname in `MORSEL_URL`, without a scheme or port. The allowed origin includes its scheme and port. Production uses `MORSEL_URL=https://morsel.narumi.dev`, RP ID `morsel.narumi.dev`, and origin `https://morsel.narumi.dev`. These values are not derived from request headers. WebAuthn requires a hostname RP ID; numeric IP origins are not supported. Use `localhost`, not `127.0.0.1` or `::1`, for the configured development browser origin. API clients can still connect through loopback IPs. Keep the hostname stable: an RP ID change can require passkey re-enrollment. Development uses [the exact localhost origin](development.md#interactive-account-development).
+The WebAuthn RP ID is derived from the hostname in `MORSEL_URL`, without a scheme or port. The allowed origin includes its scheme and port. Production uses `MORSEL_URL=https://morsel.narumi.dev`, RP ID `morsel.narumi.dev`, and origin `https://morsel.narumi.dev`. These values are not derived from request headers. WebAuthn requires a hostname RP ID; numeric IP origins are not supported. Use `localhost`, not `127.0.0.1` or `::1`, for the configured development browser origin. REST clients can still connect through loopback IPs. MCP clients must use the configured public authority/Host, not an arbitrary backend bind host; direct local MCP use requires the configured localhost URL. Keep the hostname stable: an RP ID change can require passkey re-enrollment. Development uses [the exact localhost origin](development.md#interactive-account-development).
 
 ## Share link storage
 
@@ -105,12 +105,38 @@ HTTPS and reverse-proxy provisioning are already in place and are not changed he
 
 The reverse proxy must:
 
+- Route `/mcp` to the Go service, including unsupported methods; do not send it to a static viewer fallback. Preserve the configured public Host rather than replacing it with the upstream bind address. See [MCP routing and handoff](#mcp-routing-and-external-handoff).
 - Preserve the browser `Origin` header unchanged and preserve `X-Request-ID` and `X-Morsel-Account-ID` response headers. The account marker is server-derived, never a request-side owner selector.
-- Never cache `/v1/*` (including authentication and management), `/manage/*`, `/account`, `/account/*`, `/login`, `/recover`, `/setup`, `/invite`, or `/s/*`; honor `Cache-Control: no-store`.
+- Never cache `/mcp`, `/v1/*` (including authentication and management), `/manage/*`, `/account`, `/account/*`, `/login`, `/recover`, `/setup`, `/invite`, or `/s/*`; honor `Cache-Control: no-store`.
 - Exclude authorization headers, cookies, setup/invitation/recovery tokens, WebAuthn payloads, raw keys, request bodies, and raw `/s/<token>` paths from logs. Do not enable shell tracing around secret operations.
 - Not replace the configured WebAuthn origin with forwarded request headers. Do not assume arbitrary forwarded client IP headers are trusted.
 
 The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. CORS remains disabled. Default hash routing keeps capabilities out of initial document requests. Preview metadata intentionally uses a path capability; the Go logger does not log the raw path.
+
+## MCP routing and external handoff
+
+MCP uses the same process, database, UI-managed API keys, and configured public origin as REST. It adds no environment variable or migration. See [client setup](usage.md#mcp-clients) for the three tools and local examples. OpenAPI remains REST-only; authenticated `tools/list` is the MCP schema source.
+
+For an approved HTTPS deployment, route `/mcp` unchanged to Go and preserve `Authorization`, `Origin`, `Accept`, `Content-Type`, and `MCP-Protocol-Version`. Preserve the public Host matching `MORSEL_URL` after hostname-case/default-port normalization; do not substitute `localhost:12647` for the public authority or rely on forwarded headers to select it. If Origin is present, preserve its single exact canonical value. Omitted Origin is allowed; duplicate, `null`, and foreign values are forbidden. Do not add CORS.
+
+The endpoint uses stateless Streamable HTTP with normal JSON responses, not persistent SSE streams or sessions. It issues no `Mcp-Session-Id`; authenticated GET/DELETE return `405` with `Allow: POST`. POST clients must accept `application/json` and `text/event-stream` and send JSON Content-Type. Preserve the negotiated version header on subsequent requests. Supported and tested versions are `2025-11-25`, `2025-06-18`, and `2025-03-26` with official Go SDK v1.8.0.
+
+Disable proxy/CDN caching for every `/mcp` response, including errors, and honor `Cache-Control: no-store`. Disable request/response body logging, SDK payload logging, and header capture that could expose keys. Tool payloads and responses can contain Markdown, capabilities, and complete share URLs. Preserve existing request/body/document limits and timeouts. Verify the actual proxy/WAF timeout policy; application cancellation is restored through the SDK, and a deadline before response commitment returns safe HTTP `504`. Do not configure automatic mutation retries in the proxy or client. Creation can make another share, and retrieval can consume another view after an interrupted response.
+
+### External MCP handoff
+
+These checks are external responsibilities, not completed agent checks or authorization to deploy. Local evidence does not establish production deployment or external-client acceptance.
+
+| Responsible role | Prerequisite | Action | Expected result | Unverified behavior | Release restriction |
+| --- | --- | --- | --- | --- | --- |
+| Deployment operator | An approved release and passing local/CI evidence | Route `/mcp` through the actual HTTPS proxy; preserve Host and the headers above; disable caching and payload/secret logging; perform an authorized fixture smoke test | Authenticated protocol calls reach Go, invalid origins fail, and existing REST/browser routes remain available | Production proxy/WAF routing, Host behavior, header preservation, and timeout policy | No production readiness claim before this check; this task does not authorize deployment or release dispatch |
+| Account owner / client operator | A custom-header-capable client and an approved reachable endpoint | Create or select a UI-managed key; store it in the client's secret mechanism; check discovery and only explicitly requested fixture operations | Only that account's share writes are authorized; capability reads and their view consumption are understood | The selected external client's configuration, credential storage, and retry behavior | No compatibility claim for an untested client or OAuth-only clients; never request raw keys in chat |
+
+### MCP rollback
+
+MCP does not change the schema or existing share data. For an approved rollback, use the previous account-isolation-capable application release compatible with the current schema. Do not downgrade migrations or start an older unscoped server. Remove the affected client's MCP configuration or return it to REST. Do not revoke all keys, regenerate capabilities, delete shares, or restore the database merely to remove MCP. Use existing explicit key rotation/share revocation procedures only if a secret was disclosed.
+
+Never automatically retry mutations during rollback or recovery. A timeout or lost response does not prove failure: creation can already have committed, and retrieval can already have consumed a view. There is no exactly-once delivery guarantee. Remove only named disposable test resources after local failures.
 
 ## Multi-account maintenance upgrade
 
