@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -48,7 +49,7 @@ func NewMCPHandler(service *Service, authenticator BearerAuthenticator, maxReque
 	}
 	origin := strings.ToLower(public.Scheme) + "://" + authority
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		response := &mcpResponseWriter{ResponseWriter: w}
+		response := &mcpResponseWriter{ResponseWriter: w, ctx: r.Context()}
 		response.Header().Set("Cache-Control", "no-store")
 		if canonicalMCPAuthority(public.Scheme, r.Host) != authority {
 			writePublicError(response, http.StatusForbidden, ErrorCodeInvalidRequest, "configured application Host required")
@@ -63,7 +64,7 @@ func NewMCPHandler(service *Service, authenticator BearerAuthenticator, maxReque
 			// The SDK can finish without committing headers when the HTTP context
 			// ends. Do not report an empty 200 response after a request deadline.
 			response.Header().Set("Cache-Control", "no-store")
-			if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
+			if mcpDeadlineExceeded(r.Context()) {
 				writePublicError(response, http.StatusGatewayTimeout, ErrorCodeServiceUnavailable, "request timed out")
 			}
 		}
@@ -97,12 +98,19 @@ func mcpRequestContext(next mcp.MethodHandler) mcp.MethodHandler {
 		defer cancel()
 		stop := context.AfterFunc(httpContext, cancel)
 		defer stop()
-		if httpContext.Err() != nil {
+		if httpContext.Err() != nil || mcpDeadlineExceeded(httpContext) {
 			cancel()
 			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidRequest, Message: "request canceled"}
 		}
 		return next(ctx, method, request)
 	}
+}
+
+// Parent and restored SDK contexts have independent deadline timers. Check the
+// deadline itself: the operation timer can fire before the HTTP timer callback.
+func mcpDeadlineExceeded(ctx context.Context) bool {
+	deadline, ok := ctx.Deadline()
+	return errors.Is(ctx.Err(), context.DeadlineExceeded) || (ok && !time.Now().Before(deadline))
 }
 
 // canonicalMCPAuthority accepts only a plain authority. Default ports and host
@@ -134,20 +142,32 @@ func canonicalMCPAuthority(scheme, authority string) string {
 // JSON mode. Do not change the response writer used by other routes.
 type mcpResponseWriter struct {
 	http.ResponseWriter
+	ctx         context.Context
 	wroteHeader bool
+	timedOut    bool
 }
 
 func (w *mcpResponseWriter) WriteHeader(status int) {
 	if !w.wroteHeader {
 		w.Header().Set("Cache-Control", "no-store")
 		w.wroteHeader = true
-		w.ResponseWriter.WriteHeader(status)
+		if mcpDeadlineExceeded(w.ctx) {
+			// SDK completion can race HTTP cancellation. Enforce the deadline
+			// before commitment, not only after the SDK handler returns.
+			w.timedOut = true
+			writePublicError(w.ResponseWriter, http.StatusGatewayTimeout, ErrorCodeServiceUnavailable, "request timed out")
+		} else {
+			w.ResponseWriter.WriteHeader(status)
+		}
 	}
 }
 
 func (w *mcpResponseWriter) Write(data []byte) (int, error) {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
+	}
+	if w.timedOut {
+		return len(data), nil
 	}
 	return w.ResponseWriter.Write(data)
 }

@@ -122,6 +122,61 @@ func TestMCPRequestLifetime(t *testing.T) {
 	}
 }
 
+// Model a deadline whose timer callback has not run yet: Err is still nil.
+type mcpPendingDeadlineContext struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c mcpPendingDeadlineContext) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestMCPResponseCommitDeadline(t *testing.T) {
+	for _, timerPending := range []bool{false, true} {
+		for _, explicit := range []bool{false, true} {
+			t.Run("pending="+strconv.FormatBool(timerPending)+"/explicit="+strconv.FormatBool(explicit), func(t *testing.T) {
+				expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+				defer cancel()
+				var ctx context.Context = expired
+				if timerPending {
+					ctx = mcpPendingDeadlineContext{Context: t.Context(), deadline: time.Now().Add(-time.Second)}
+					if ctx.Err() != nil {
+						t.Fatal("pending deadline timer must not have set Err")
+					}
+				}
+				response := httptest.NewRecorder()
+				writer := &mcpResponseWriter{ResponseWriter: response, ctx: ctx}
+				writer.Header().Set("Cache-Control", "no-cache, no-transform")
+				if explicit {
+					writer.WriteHeader(http.StatusOK)
+				}
+				for range 2 {
+					if n, err := writer.Write([]byte("late SDK payload")); n != len("late SDK payload") || err != nil {
+						t.Fatalf("discarded write: %d %v", n, err)
+					}
+				}
+				var failure Error
+				if err := json.Unmarshal(response.Body.Bytes(), &failure); err != nil || response.Code != 504 ||
+					failure.Code != ErrorCodeServiceUnavailable || failure.Message != "request timed out" ||
+					response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Content-Type") != "application/json" {
+					t.Fatalf("late commitment: %d %v %s err=%v", response.Code, response.Header(), response.Body.String(), err)
+				}
+			})
+		}
+	}
+	t.Run("already committed", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+		defer cancel()
+		response := httptest.NewRecorder()
+		writer := &mcpResponseWriter{ResponseWriter: response, ctx: ctx}
+		writer.WriteHeader(http.StatusOK)
+		<-ctx.Done()
+		_, _ = writer.Write([]byte("committed response"))
+		if response.Code != 200 || response.Body.String() != "committed response" || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("committed response was rewritten: %d %s", response.Code, response.Body.String())
+		}
+	})
+}
+
 func TestMCPReverseProxyConfiguredAuthority(t *testing.T) {
 	backend := httptest.NewServer(mcpTestHandler(t, &repositoryStub{}, RouterConfig{Authenticator: authenticatorStub{}}))
 	defer backend.Close()
