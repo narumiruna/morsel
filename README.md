@@ -5,6 +5,7 @@ Morsel is a small, self-hosted service for sharing Markdown through revocable ca
 - Open a share or GitHub Gist URL from the homepage, or try the bundled example.
 - Sign in with a passkey to search your account's shares in `/manage/shares`, manage client keys in `/manage/api-keys`, and manage security in `/account`.
 - As an admin, create one-use account invitation links in `/manage/invitations` and send them manually.
+- Connect native MCP clients with passkey-backed OAuth and explicit consent, or keep using API keys.
 - Create and revoke shares through REST or MCP, with optional expiration and view limits.
 - Render GitHub Flavored Markdown with syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts.
 - View Markdown files from GitHub Gists without storing them in Morsel.
@@ -37,13 +38,13 @@ Create a one-use operator token after the services and migrations are ready:
 docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -kind setup
 ```
 
-Open <http://localhost:12647/setup>, enter the token in the setup form within one hour, and enroll the first account's passkey. Setup creates an `admin`. Admins use **Invitations** to create a one-hour, one-use link and send it manually; the operator CLI can still issue raw invitation tokens. Every invitation creates a `user`; recipients cannot select a role. Neither role can manage another account's shares. Account display names need not be unique. Add a backup passkey, then open **API keys** and create a client key. Copy the key when shown; it cannot be recovered. Export it as the **client-only** secret `MORSEL_API_KEY` for the examples below. Privileged share operations are rejected until setup; public share reads are unchanged.
+Open <http://localhost:12647/setup>, enter the token in the setup form within one hour, and enroll the first account's passkey. Setup creates an `admin`. Admins use **Invitations** to create a one-hour, one-use link and send it manually; the operator CLI can still issue raw invitation tokens. Every invitation creates a `user`; recipients cannot select a role. Neither role can manage another account's shares. Account display names need not be unique. Add a backup passkey. For REST scripts or API-key MCP clients, open **API keys** and create a client key. Copy the key when shown; it cannot be recovered. Export it as the **client-only** secret `MORSEL_API_KEY` for the curl examples below. Native OAuth MCP clients do not need an API key. Privileged share operations are rejected until setup; public share reads are unchanged.
 
 New shares retain their original tokens in PostgreSQL so the signed-in account can copy or show its own saved links. No share-link encryption key is required. Database access or a backup exposes these tokens and their share URLs; protect both as secrets. See [share link storage](docs/deployment.md#share-link-storage) before upgrading an existing deployment.
 
 The root [`compose.yaml`](compose.yaml) uses the explicitly built image, starts PostgreSQL, applies migrations, and binds Morsel to loopback. Keep `MORSEL_IMAGE=morsel:local` exported for later Compose commands. `.env` is ignored by Git; [`.env.example`](.env.example) contains no secrets. Keep the PostgreSQL password URL-safe because Compose interpolates it into a connection URL.
 
-Stop without deleting data with `docker compose down`. **`docker compose down --volumes` deletes the local database.** For public deployment or an existing database, see [deployment and configuration](docs/deployment.md#multi-account-maintenance-upgrade). Migrations 11 and 12 require a maintenance window with all old instances stopped. Migration 12 makes the oldest existing account (`created_at, id`) the admin and the rest users; verify that UUID on a restored production copy first. Implementation validation authorizes no production release.
+Stop without deleting data with `docker compose down`. **`docker compose down --volumes` deletes the local database.** For public deployment or an existing database, see [deployment and configuration](docs/deployment.md#multi-account-maintenance-upgrade). Migrations 11 and 12 require a maintenance window with all old instances stopped. Migration 12 makes the oldest existing account (`created_at, id`) the admin and the rest users; verify that UUID on a restored production copy first. Additive migration 13 stores OAuth clients, requests, grants, and tokens; use the [OAuth upgrade and recovery procedure](docs/deployment.md#oauth-upgrade-rollback-and-restore). Implementation validation authorizes no production release.
 
 ## Create a share
 
@@ -61,7 +62,19 @@ The response contains a reader-facing `share_url` and an administrative `id` for
 
 ## MCP clients
 
-Use `/mcp` for stateless Streamable HTTP with JSON responses, without persistent sessions or SSE streams. Every request, including initialization and discovery, needs an existing UI-managed Bearer API key. Cookies cannot authorize MCP; OAuth is not provided. Clients must support a custom Authorization header.
+Use `/mcp` for stateless Streamable HTTP with JSON responses, without persistent sessions or SSE streams. Native clients can use OAuth Authorization Code with PKCE (`S256`), passkey login, and explicit consent. Pi can use a URL-only configuration:
+
+```json
+{
+  "mcpServers": {
+    "morsel": { "url": "https://morsel.narumi.dev/mcp" }
+  }
+}
+```
+
+Use an approved reachable deployment or a disposable [local endpoint](docs/usage.md#oauth-and-pi). The last production probe returned `/mcp` HTTP 404; this example is not a deployment-readiness claim. Pi must have no explicit `Authorization` header to use OAuth. Review the unverified app name, client ID, redirect host, account, resource, share permissions, and persistent access before approval. Revoke individual connections in **Connected apps** under `/account`.
+
+Every MCP request validates either a short-lived OAuth access token or an existing UI-managed Bearer API key in PostgreSQL. API-key lifetimes, REST permissions, and recovery behavior are unchanged; the [custom-header alternative and curl examples](docs/usage.md#custom-header-configuration) remain available. Cookies cannot authorize MCP. OAuth tokens cannot authorize REST share writes or account management.
 
 The tools are `create_share`, `get_share`, and `revoke_share`. Each successful `get_share` consumes one view, even for another account's share when its capability is valid. Never retrieve a new share to validate it or automatically retry creation or retrieval. See [MCP setup and local examples](docs/usage.md#mcp-clients) for headers, protocol versions, client configuration, and `tools/list` schemas. Production proxy and external-client acceptance require the [operator handoff](docs/deployment.md#mcp-routing-and-external-handoff).
 

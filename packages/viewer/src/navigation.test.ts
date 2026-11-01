@@ -33,6 +33,28 @@ describe("authentication destinations", () => {
   ])("rejects missing, ambiguous, or unsafe values: %s", (search) => {
     expect(loginDestination(search)).toBe("/manage/shares")
   })
+  it("preserves only the exact canonical consent destination", () => {
+    const destination = `/oauth/consent?request=${"A".repeat(43)}`
+    expect(loginDestination(`?next=${encodeURIComponent(destination)}`)).toBe(destination)
+    for (const mode of ["login", "recover", "setup", "invite"] as const)
+      expect(authenticationURL(mode, destination)).toBe(
+        `/${mode}?next=${encodeURIComponent(destination)}`,
+      )
+  })
+  it.each([
+    `/oauth/consent?request=${"A".repeat(42)}B`,
+    `/oauth/consent?request=${"A".repeat(43)}&extra=1`,
+    `/oauth/consent?request=${"A".repeat(43)}&request=${"A".repeat(43)}`,
+    `/oauth/consent?request=${"A".repeat(43)}#fragment`,
+    `/oauth/consent?request=%41${"A".repeat(42)}`,
+    `/oauth/consent?request=${"A".repeat(43)}%0A`,
+    `/oauth/consent/?request=${"A".repeat(43)}`,
+    `/oauth/consent?request=${"A".repeat(43)}\n`,
+    `/oauth/authorize?request=${"A".repeat(43)}`,
+    "/oauth/consent",
+  ])("does not broaden continuation for %s", (destination) => {
+    expect(loginDestination(`?next=${encodeURIComponent(destination)}`)).toBe("/manage/shares")
+  })
   it("does not generate authentication links with arbitrary destinations", () => {
     expect(authenticationURL("login", "https://evil.example/secret")).toBe(
       "/login?next=%2Fmanage%2Fshares",

@@ -8,6 +8,7 @@ import { AccountPage } from "./pages/AccountPage"
 import { AuthPage } from "./pages/AuthPage"
 import { ExamplePage } from "./pages/ExamplePage"
 import { GistPage } from "./pages/GistPage"
+import { OAuthConsentPage } from "./pages/OAuthConsentPage"
 import { SharePage } from "./pages/SharePage"
 import { ErrorPage, HomePage } from "./pages/StatusPage"
 import { parseRoute } from "./route"
@@ -30,6 +31,15 @@ export function App() {
           invitation={route.mode === "invite" ? invitation.current : undefined}
           mode={route.mode}
           search={location.search}
+        />
+      )
+      break
+    case "oauth-consent":
+      page = (
+        <OAuthConsentPage
+          key={`${location.search}:${location.hash}`}
+          search={location.search}
+          hash={location.hash}
         />
       )
       break
@@ -60,10 +70,12 @@ export function App() {
     <Tooltip.Provider delayDuration={350}>
       {route.kind === "account" ||
       route.kind === "management" ||
-      route.kind === "authentication" ? (
+      route.kind === "authentication" ||
+      route.kind === "oauth-consent" ? (
         <AccountSession
           pathname={location.pathname}
           search={location.search}
+          hash={location.hash}
           onAccountChange={invitation.current.clear}
         >
           {page}

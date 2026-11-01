@@ -25,7 +25,11 @@ async function mockAccount(page: Page, state = { authenticated: false, setup_req
         headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         json: { items: [], matching_count: 0 },
       })
-    } else if (path === "/v1/passkeys" || path === "/v1/api-keys") {
+    } else if (
+      path === "/v1/passkeys" ||
+      path === "/v1/api-keys" ||
+      (path === "/v1/account/oauth/grants" && route.request().method() === "GET")
+    ) {
       await route.fulfill({
         headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
         json: [],

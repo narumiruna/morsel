@@ -42,7 +42,11 @@ async function mock(page: Page, authenticated = true) {
           ? { message: "Issuance unavailable. Try again." }
           : { invitation_url: link, expires_at: expires },
       })
-    if (path === "/v1/passkeys" || path === "/v1/api-keys")
+    if (
+      path === "/v1/passkeys" ||
+      path === "/v1/api-keys" ||
+      (path === "/v1/account/oauth/grants" && request.method() === "GET")
+    )
       return route.fulfill({ headers, json: [] })
     if (path === "/v1/account/shares")
       return route.fulfill({ headers, json: { items: [], matching_count: 0 } })

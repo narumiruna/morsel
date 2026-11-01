@@ -105,6 +105,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var err error
 	path := r.URL.Path
 	switch {
+	case strings.HasPrefix(path, "/v1/account/oauth/requests/") && (r.Method == "GET" || r.Method == "POST"):
+		err = s.oauthConsentRequest(w, r, strings.TrimPrefix(path, "/v1/account/oauth/requests/"))
+	case path == "/v1/account/oauth/grants" && r.Method == "GET":
+		err = s.oauthConnectedApps(w, r, "")
+	case strings.HasPrefix(path, "/v1/account/oauth/grants/") && r.Method == "DELETE":
+		err = s.oauthConnectedApps(w, r, strings.TrimPrefix(path, "/v1/account/oauth/grants/"))
 	case path == "/v1/account" && r.Method == "GET":
 		err = s.accountState(w, r)
 	case path == "/v1/account/invitations" && r.Method == "POST":

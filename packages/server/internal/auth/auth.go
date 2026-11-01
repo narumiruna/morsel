@@ -35,13 +35,15 @@ const (
 )
 
 type Service struct {
-	pool      *pgxpool.Pool
-	web       *webauthn.WebAuthn
-	origin    string
-	publicURL *url.URL
-	secure    bool
-	limiter   rateLimiter
-	cleanupAt atomic.Int64
+	pool           *pgxpool.Pool
+	web            *webauthn.WebAuthn
+	origin         string
+	publicURL      *url.URL
+	secure         bool
+	limiter        rateLimiter
+	cleanupAt      atomic.Int64
+	oauthLimiter   rateLimiter
+	oauthCleanupAt atomic.Int64
 }
 
 func NewService(pool *pgxpool.Pool, publicURL *url.URL) (*Service, error) {

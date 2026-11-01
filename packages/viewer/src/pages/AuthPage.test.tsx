@@ -53,7 +53,8 @@ beforeEach(() => {
       return json({})
     }
     if (path.startsWith("/v1/account/shares?")) return json({ items: [], matching_count: 0 })
-    if (path === "/v1/passkeys" || path === "/v1/api-keys") return json([])
+    if (path === "/v1/passkeys" || path === "/v1/api-keys" || path === "/v1/account/oauth/grants")
+      return json([])
     throw new Error(`Unexpected request: ${path}`)
   })
   vi.stubGlobal("fetch", fetchMock)

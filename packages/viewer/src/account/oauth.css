@@ -1,0 +1,38 @@
+.oauth-details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.5rem 1rem;
+  margin-block: 1rem;
+}
+
+.oauth-details dt {
+  font-weight: 600;
+}
+
+.oauth-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.oauth-permissions {
+  padding-left: 1.5rem;
+}
+
+.oauth-permissions li + li {
+  margin-top: 0.5rem;
+}
+
+.oauth-grants code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+  .oauth-details {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+
+  .oauth-details dd + dt {
+    margin-top: 0.5rem;
+  }
+}

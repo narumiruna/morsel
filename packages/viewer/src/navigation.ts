@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { isConsentDestination } from "./account/oauth"
 import { parseRoute } from "./route"
 
 const beforeNavigate = "morsel:before-navigate"
@@ -15,7 +16,10 @@ export function loginDestination(search: string): string {
   const values = new URLSearchParams(search).getAll("next")
   return values.length === 1 &&
     values[0] !== undefined &&
-    ["/manage/shares", "/manage/api-keys", "/manage/invitations", "/account"].includes(values[0])
+    (["/manage/shares", "/manage/api-keys", "/manage/invitations", "/account"].includes(
+      values[0],
+    ) ||
+      isConsentDestination(values[0]))
     ? values[0]
     : "/manage/shares"
 }

@@ -44,11 +44,13 @@ export function useAccountSession() {
 export function AccountSession({
   pathname,
   search,
+  hash = "",
   children,
   onAccountChange,
 }: {
   pathname: string
   search: string
+  hash?: string
   children: ReactNode
   onAccountChange?: () => void
 }) {
@@ -190,7 +192,11 @@ export function AccountSession({
   }, [refresh, expire, invalidate, setAccount])
 
   const authRoute = ["/login", "/recover", "/setup", "/invite"].includes(pathname)
-  const destination = authRoute ? loginDestination(search) : pathname
+  const destination = authRoute
+    ? loginDestination(search)
+    : pathname === "/oauth/consent"
+      ? `${pathname}${search}${hash}`
+      : pathname
   let redirect: string | null = null
   if (account) {
     if (logout) redirect = "/login"

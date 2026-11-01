@@ -6,6 +6,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -95,7 +97,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	var accountID uuid.UUID
 	switch args[0] {
-	case "expire-sessions", "expire-verification", "seed-legacy-share":
+	case "expire-sessions", "expire-verification", "seed-legacy-share", "oauth-counts":
 		if len(args) != 2 {
 			return errors.New("account ID required")
 		}
@@ -104,7 +106,7 @@ func run(ctx context.Context, args []string) error {
 		if err != nil || accountID == uuid.Nil {
 			return errors.New("invalid account ID")
 		}
-	case "assert-no-secret", "assert-invitation", "expire-invitation":
+	case "assert-no-secret", "assert-invitation", "expire-invitation", "expire-oauth-access", "expire-oauth-request":
 		if len(args) != 1 {
 			return errors.New("unexpected arguments")
 		}
@@ -122,27 +124,37 @@ func run(ctx context.Context, args []string) error {
 	defer conn.Close(ctx)
 	if args[0] == "seed-legacy-share" {
 		// The browser must finish setup and settle all requests before this
-		// test-only transition. Never insert an ownerless row in schema 11/12.
-		// Use the real single-account 12 -> 10 downgrade, then upgrade to 12.
+		// test-only transition. Never insert an ownerless row in schema 11/12/13.
+		// Use the real single-account 13 -> 10 downgrade, then upgrade to 13.
 		// A sole user is not safe: upgrading would promote it to admin.
 		const id = "00000000-0000-4000-8000-000000000001"
+		var current bool
+		if err := conn.QueryRow(ctx, `SELECT count(*)=13 AND min(version)=1 AND max(version)=13 AND NOT bool_or(dirty) FROM schema_migrations`).Scan(&current); err != nil {
+			return err
+		}
+		if !current {
+			return errors.New("legacy fixture requires clean schema 13")
+		}
 		var safe bool
 		if err := conn.QueryRow(ctx, `SELECT
-			(SELECT count(*)=12 AND min(version)=1 AND max(version)=12 AND NOT bool_or(dirty) FROM schema_migrations)
-			AND (SELECT count(*)=1 FROM accounts)
+			(SELECT count(*)=1 FROM accounts)
 			AND EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND role='admin')
-			AND NOT EXISTS(SELECT 1 FROM auth_flows WHERE expires_at>clock_timestamp())`, accountID).Scan(&safe); err != nil {
+			AND NOT EXISTS(SELECT 1 FROM auth_flows WHERE expires_at>clock_timestamp())
+			AND NOT EXISTS(SELECT 1 FROM oauth_clients)
+			AND NOT EXISTS(SELECT 1 FROM oauth_requests)
+			AND NOT EXISTS(SELECT 1 FROM oauth_grants)
+			AND NOT EXISTS(SELECT 1 FROM oauth_tokens)`, accountID).Scan(&safe); err != nil {
 			return err
 		}
 		if !safe {
-			return errors.New("legacy fixture requires clean schema 12, sole matching admin, and no active flows")
+			return errors.New("legacy fixture requires sole matching admin, no active flows, and no OAuth rows")
 		}
 		pool, err := pgxpool.New(ctx, os.Getenv("MORSEL_DATABASE_URL"))
 		if err != nil {
 			return err
 		}
 		defer pool.Close()
-		if err := migrations.Run(ctx, pool, migrations.Down, 2); err != nil {
+		if err := migrations.Run(ctx, pool, migrations.Down, 3); err != nil {
 			return err
 		}
 		if _, err := pool.Exec(ctx, `INSERT INTO shares (id, token_hash, content, created_at)
@@ -164,6 +176,18 @@ func run(ctx context.Context, args []string) error {
 		fmt.Println(id)
 		return nil
 	}
+	if args[0] == "oauth-counts" {
+		var counts struct {
+			Grants int `json:"grants"`
+			Tokens int `json:"tokens"`
+		}
+		if err := conn.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM oauth_grants WHERE account_id=$1),
+			(SELECT count(*) FROM oauth_tokens t JOIN oauth_grants g ON g.id=t.grant_id WHERE g.account_id=$1)`, accountID).Scan(&counts.Grants, &counts.Tokens); err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(counts)
+	}
 	if args[0] == "expire-sessions" {
 		_, err := conn.Exec(ctx, `UPDATE auth_sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE account_id=$1`, accountID)
 		return err
@@ -177,6 +201,38 @@ func run(ctx context.Context, args []string) error {
 		return errors.New("invalid secret input")
 	}
 	raw := strings.TrimSpace(string(secret))
+	if args[0] == "expire-oauth-access" || args[0] == "expire-oauth-request" {
+		value := raw
+		if args[0] == "expire-oauth-access" {
+			if !strings.HasPrefix(raw, "moa_") {
+				return errors.New("invalid access credential input")
+			}
+			value = strings.TrimPrefix(raw, "moa_")
+		}
+		decoded, err := base64.RawURLEncoding.Strict().DecodeString(value)
+		if err != nil || len(value) != 43 || len(decoded) != 32 {
+			return errors.New("invalid OAuth fixture input")
+		}
+		hash := sha256.Sum256([]byte(raw))
+		var changed int64
+		if args[0] == "expire-oauth-access" {
+			tag, err := conn.Exec(ctx, `UPDATE oauth_tokens SET expires_at=clock_timestamp()-interval '1 second' WHERE signature=$1 AND kind='access'`, hex.EncodeToString(hash[:]))
+			if err != nil {
+				return err
+			}
+			changed = tag.RowsAffected()
+		} else {
+			tag, err := conn.Exec(ctx, `UPDATE oauth_requests SET expires_at=clock_timestamp()-interval '1 second' WHERE handle_hash=$1`, hash[:])
+			if err != nil {
+				return err
+			}
+			changed = tag.RowsAffected()
+		}
+		if changed != 1 {
+			return errors.New("OAuth fixture missing")
+		}
+		return nil
+	}
 	if args[0] == "assert-invitation" || args[0] == "expire-invitation" {
 		decoded, err := base64.RawURLEncoding.Strict().DecodeString(raw)
 		if err != nil || len(raw) != 43 || len(decoded) != 32 {

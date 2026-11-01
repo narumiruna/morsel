@@ -15,6 +15,19 @@ describe("parseRoute", () => {
     },
   )
 
+  it("matches only the consent SPA path, not OAuth protocol paths", () => {
+    expect(parseRoute("/oauth/consent", "")).toEqual({ kind: "oauth-consent" })
+    for (const path of [
+      "/oauth/consent/",
+      "/oauth/authorize",
+      "/oauth/token",
+      "/oauth/register",
+      "/oauth/revoke",
+    ])
+      expect(parseRoute(path, "")).toEqual({ kind: "not-found" })
+    expect(parseRoute("/", "#/oauth/consent")).toEqual({ kind: "not-found" })
+  })
+
   it("matches only the explicit account route", () => {
     expect(parseRoute("/account", "")).toEqual({ kind: "account" })
     expect(parseRoute("/account", "#ignored")).toEqual({ kind: "account" })

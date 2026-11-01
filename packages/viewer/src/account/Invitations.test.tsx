@@ -93,7 +93,8 @@ beforeEach(() => {
     if (pending) return pending
     if (path === "account") return json(account)
     if (path === "account/invitations") return json(result(), account.account_id, 201)
-    if (path === "api-keys" || path === "passkeys") return json([])
+    if (path === "api-keys" || path === "passkeys" || path === "account/oauth/grants")
+      return json([])
     if (path.startsWith("account/shares?")) return json({ items: [], matching_count: 0 })
     if (path === "auth/logout") {
       account = { authenticated: false, setup_required: false }

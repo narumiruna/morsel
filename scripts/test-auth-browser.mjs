@@ -188,7 +188,10 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   if (!ready) throw new Error("Backend readiness failed")
-  console.log("Running required authentication tests against isolated PostgreSQL")
+  // Playwright project dependencies run account.spec.ts first. Its historical
+  // downgrade requires the sole setup account. oauth.spec.ts then enrolls its
+  // own two accounts against this same backend and database.
+  console.log("Running required account phase, then OAuth phase against isolated PostgreSQL")
   await run(
     "npx",
     ["--no-install", "playwright", "test", "--config", "playwright.auth.config.ts"],

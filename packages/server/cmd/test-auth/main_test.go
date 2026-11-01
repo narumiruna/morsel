@@ -140,6 +140,12 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	if err := migrations.Run(ctx, pool, migrations.Up, 1); err != nil {
 		t.Fatal("migrate role fixture to schema 12")
 	}
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
+		t.Fatal("legacy fixture accepted schema 12")
+	}
+	if err := migrations.Run(ctx, pool, migrations.Up, 1); err != nil {
+		t.Fatal("migrate OAuth fixture to schema 13")
+	}
 	if _, err := pool.Exec(ctx, `WITH retained AS (INSERT INTO auth_sessions(token_hash,account_id,generation,csrf_token,expires_at)
 		VALUES(decode(repeat('dd',32),'hex'),$1,1,'retained-csrf',clock_timestamp()+interval '1 hour') RETURNING account_id)
 		INSERT INTO api_keys(id,account_id,name,prefix,token_hash)
@@ -163,13 +169,13 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE accounts SET role='admin' WHERE id=$1`, owner); err != nil {
 		t.Fatal("restore sole admin fixture")
 	}
-	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty=true WHERE version=12`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty=true WHERE version=13`); err != nil {
 		t.Fatal("set dirty fixture")
 	}
 	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
-		t.Fatal("legacy fixture accepted dirty schema 12")
+		t.Fatal("legacy fixture accepted dirty schema 13")
 	}
-	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty=false WHERE version=12`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty=false WHERE version=13`); err != nil {
 		t.Fatal("restore clean fixture")
 	}
 	if err := run(ctx, []string{"seed-legacy-share", "10000000-0000-4000-8000-000000000099"}); err == nil {
@@ -184,6 +190,22 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `DELETE FROM auth_flows`); err != nil {
 		t.Fatal("remove fixture ceremony")
+	}
+	// Even an expired registration must not be discarded by this historical
+	// fixture. OAuth enrollment is a separate, later browser phase.
+	if _, err := pool.Exec(ctx, `INSERT INTO oauth_clients(id,name,redirect_uris,expires_at)
+		VALUES('00000000-0000-4000-8000-000000000004','Retained app','["http://127.0.0.1:12345/callback"]',clock_timestamp()-interval '1 second')`); err != nil {
+		t.Fatal("create retained OAuth fixture")
+	}
+	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
+		t.Fatal("legacy fixture accepted OAuth rows")
+	}
+	var retained bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM oauth_clients) AND (SELECT count(*)=13 FROM schema_migrations)`).Scan(&retained); err != nil || !retained {
+		t.Fatal("legacy fixture changed retained OAuth rows or schema")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM oauth_clients`); err != nil {
+		t.Fatal("remove retained OAuth fixture")
 	}
 	if err := run(ctx, []string{"seed-legacy-share", owner}); err != nil {
 		t.Fatal("seed legacy fixture in disposable target")
@@ -205,7 +227,7 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 		t.Fatal("legacy fixture did not preserve the sole owner")
 	}
 	var targetMigrations int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 12 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&targetMigrations); err != nil || targetMigrations != 13 {
 		t.Fatal("target database was not fully migrated")
 	}
 	var actualOwner string
@@ -270,6 +292,60 @@ func TestDatabaseAliasCannotMigrateAdministratorDatabase(t *testing.T) {
 	if err := run(ctx, []string{"seed-legacy-share", owner}); err == nil {
 		t.Fatal("legacy fixture accepted multiple accounts")
 	}
+	// OAuth expiry helpers hash stdin credentials and change only their target.
+	const clientID = "00000000-0000-4000-8000-000000000005"
+	if _, err := pool.Exec(ctx, `INSERT INTO oauth_clients(id,name,redirect_uris,expires_at)
+		VALUES($1,'Same app','["http://127.0.0.1:12345/callback"]',clock_timestamp()+interval '1 day')`, clientID); err != nil {
+		t.Fatal("create OAuth client fixture")
+	}
+	for index, id := range []string{owner, other} {
+		value := []string{first, independent}[index]
+		handleHash := sha256.Sum256([]byte(value))
+		access := "moa_" + value
+		accessHash := sha256.Sum256([]byte(access))
+		grantID := []string{"00000000-0000-4000-8000-000000000006", "00000000-0000-4000-8000-000000000007"}[index]
+		if _, err := pool.Exec(ctx, `INSERT INTO oauth_requests(handle_hash,client_id,form,expires_at)
+			VALUES($1,$2,'{}',clock_timestamp()+interval '10 minutes')`, handleHash[:], clientID); err != nil {
+			t.Fatal("create OAuth request fixture")
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO oauth_grants(id,account_id,generation,client_id,issuer,resource,scope,expires_at)
+			VALUES($1,$2,1,$3,'http://localhost','http://localhost/mcp','mcp:shares offline_access',clock_timestamp()+interval '30 days')`, grantID, id, clientID); err != nil {
+			t.Fatal("create OAuth grant fixture")
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO oauth_tokens(signature,kind,grant_id,request_data,expires_at)
+			VALUES($1,'access',$2,'{}',clock_timestamp()+interval '10 minutes')`, hex.EncodeToString(accessHash[:]), grantID); err != nil {
+			t.Fatal("create OAuth access fixture")
+		}
+		if err := run(ctx, []string{"oauth-counts", id}); err != nil {
+			t.Fatal("read OAuth counts")
+		}
+		if err := withInput("assert-no-secret", access); err != nil {
+			t.Fatal("raw OAuth credential persisted")
+		}
+	}
+	if err := withInput("expire-oauth-access", "moa_"+first); err != nil {
+		t.Fatal("expire owner OAuth access")
+	}
+	if err := withInput("expire-oauth-request", first); err != nil {
+		t.Fatal("expire owner OAuth request")
+	}
+	ownerRequestHash := sha256.Sum256([]byte(first))
+	otherRequestHash := sha256.Sum256([]byte(independent))
+	var oauthIsolated bool
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT t.expires_at<clock_timestamp() FROM oauth_tokens t JOIN oauth_grants g ON g.id=t.grant_id WHERE g.account_id=$1)
+		AND (SELECT t.expires_at>clock_timestamp() FROM oauth_tokens t JOIN oauth_grants g ON g.id=t.grant_id WHERE g.account_id=$2)
+		AND (SELECT expires_at<clock_timestamp() FROM oauth_requests WHERE handle_hash=$3)
+		AND (SELECT expires_at>clock_timestamp() FROM oauth_requests WHERE handle_hash=$4)`, owner, other, ownerRequestHash[:], otherRequestHash[:]).Scan(&oauthIsolated); err != nil || !oauthIsolated {
+		t.Fatal("OAuth expiry changed another target")
+	}
+	for _, command := range []string{"expire-oauth-access", "expire-oauth-request"} {
+		for _, value := range []string{"too-short", first + "A", first[:42] + "/", first[:42] + "B", "mor_" + first} {
+			if err := withInput(command, value); err == nil {
+				t.Fatal("OAuth helper accepted invalid input")
+			}
+		}
+	}
 	if _, err := pool.Exec(ctx, `DELETE FROM auth_sessions`); err != nil {
 		t.Fatal("remove retained session fixture")
 	}
@@ -315,12 +391,12 @@ func TestRejectUnsafeDatabaseNames(t *testing.T) {
 }
 
 func TestMutationRequiresDisposableDatabase(t *testing.T) {
-	for _, command := range []string{"expire-sessions", "expire-verification", "assert-no-secret", "assert-invitation", "expire-invitation", "seed-legacy-share"} {
+	for _, command := range []string{"expire-sessions", "expire-verification", "assert-no-secret", "assert-invitation", "expire-invitation", "seed-legacy-share", "oauth-counts", "expire-oauth-access", "expire-oauth-request"} {
 		for _, database := range []string{"production", "postgres", "morsel_test", "morsel_auth_e2e_invalid"} {
 			t.Run(command+"/"+database, func(t *testing.T) {
 				t.Setenv("MORSEL_DATABASE_URL", "postgres://operator:secret@127.0.0.1:1/"+database+"?connect_timeout=1")
 				args := []string{command}
-				if command != "assert-no-secret" && command != "assert-invitation" && command != "expire-invitation" {
+				if command == "expire-sessions" || command == "expire-verification" || command == "seed-legacy-share" || command == "oauth-counts" {
 					args = append(args, "10000000-0000-4000-8000-000000000001")
 				}
 				err := run(context.Background(), args)
@@ -333,7 +409,7 @@ func TestMutationRequiresDisposableDatabase(t *testing.T) {
 }
 
 func TestRejectUnknownCommandsAndArguments(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions"}, {"expire-verification"}, {"seed-legacy-share"}, {"expire-sessions", "00000000-0000-0000-0000-000000000000"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}, {"assert-invitation", "extra"}, {"expire-invitation", "extra"}, {"seed-legacy-share", "extra"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"database-drop"}, {"expire-sessions"}, {"expire-verification"}, {"seed-legacy-share"}, {"oauth-counts"}, {"expire-sessions", "00000000-0000-0000-0000-000000000000"}, {"expire-sessions", "extra"}, {"expire-verification", "extra"}, {"assert-no-secret", "extra"}, {"assert-invitation", "extra"}, {"expire-invitation", "extra"}, {"expire-oauth-access", "extra"}, {"expire-oauth-request", "extra"}, {"seed-legacy-share", "extra"}, {"oauth-counts", "extra"}} {
 		if err := run(context.Background(), args); err == nil {
 			t.Fatal("invalid command accepted")
 		}

@@ -72,6 +72,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveShare(w, r, strings.TrimPrefix(r.URL.Path, "/s/"))
 		return
 	}
+	if r.URL.Path == "/oauth/consent" {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(h.index)
+		}
+		return
+	}
 	if r.URL.Path == "/gist/" || r.URL.Path == "/account" || r.URL.Path == "/example" ||
 		r.URL.Path == "/manage/shares" || r.URL.Path == "/manage/api-keys" || r.URL.Path == "/manage/invitations" ||
 		r.URL.Path == "/login" || r.URL.Path == "/recover" || r.URL.Path == "/setup" || r.URL.Path == "/invite" {

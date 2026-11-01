@@ -2,7 +2,7 @@
 
 ## Viewer
 
-Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. Install both npm workspaces from the repository root. The development server proxies `/v1/*` and `/mcp` requests to the Go API at `127.0.0.1:12647`.
+Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. Install both npm workspaces from the repository root. The development server proxies `/v1/*`, `/mcp`, the four explicit OAuth protocol routes, and both OAuth well-known documents to the Go API at `127.0.0.1:12647`. It does not proxy the complete `/oauth` prefix: `/oauth/consent` remains the viewer SPA route.
 
 ```sh
 npm ci
@@ -34,7 +34,7 @@ export MORSEL_ADDRESS=:12647
 GOTOOLCHAIN=go1.26.10 go run ./cmd/server
 ```
 
-In another terminal, start Vite with the command above. Open <http://localhost:5173/login> (or `/setup` for initial account setup). The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The Vite `/v1` and `/mcp` proxies target `http://127.0.0.1:12647`; relative paths keep the configured browser origin. For MCP, use `http://localhost:5173/mcp` through Vite so the public Host remains consistent with `MORSEL_URL`; an arbitrary backend bind host is rejected. For direct MCP testing at port 12647, instead configure `MORSEL_URL=http://localhost:12647` as in the [local curl example](usage.md#local-curl-example). CORS stays disabled.
+In another terminal, start Vite with the command above. Open <http://localhost:5173/login> (or `/setup` for initial account setup). The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The Vite proxies target `http://127.0.0.1:12647`; relative paths keep the configured browser origin. MCP, `/oauth/authorize`, `/oauth/token`, `/oauth/register`, `/oauth/revoke`, `/.well-known/oauth-authorization-server`, and `/.well-known/oauth-protected-resource/mcp` explicitly preserve Host with `changeOrigin: false`. Both development and preview keep `/oauth/consent?request=<handle>` in the SPA; do not proxy all `/oauth` paths or enable application-wide CORS. For MCP, use `http://localhost:5173/mcp` through Vite so the public Host remains consistent with `MORSEL_URL`; an arbitrary backend bind host is rejected. For direct MCP testing at port 12647, instead configure `MORSEL_URL=http://localhost:12647` as in the [local curl example](usage.md#local-curl-example). MCP CORS stays disabled; only public OAuth metadata has credential-free GET/OPTIONS CORS. To exercise native OAuth, point the URL-only [Pi example](usage.md#oauth-and-pi) at `http://localhost:5173/mcp`; the issuer is `http://localhost:5173` and resource is `http://localhost:5173/mcp`.
 
 With the same local database variable set, generate a setup token:
 
@@ -58,7 +58,7 @@ npm run test:auth:browser
 
 Use a test-only PostgreSQL role with permission to create databases. The harness creates an isolated database, applies migrations, builds the viewer and backend, starts Go on an available dynamic port, and stops Go and removes the database on success or failure. It does not use the interactive service on port 12647. The browser origin is `http://localhost:<selected-port>` and the RP ID is `localhost`; the harness sets a matching `MORSEL_URL`. Direct navigation and refresh use Go's built viewer, not Vite preview. Never point this command at production.
 
-The separate required authentication CI job provisions PostgreSQL, Go, Node.js, and Chromium. Missing infrastructure, zero executed tests, or skipped required tests must fail the job. This suite does not use `MORSEL_E2E_LIVE`.
+The separate required authentication CI job provisions PostgreSQL, Go, Node.js, and Chromium. It runs the account project before the OAuth project; all nine required OAuth cases and the required account lifecycle must execute without skips. Missing infrastructure, zero executed tests, or skipped required tests must fail the job. This suite does not use `MORSEL_E2E_LIVE`.
 
 ## Backend
 
@@ -102,11 +102,11 @@ npx --yes @redocly/cli@2.53.2 lint --config packages/server/redocly.yaml package
   test "$before" = "$(sha256sum internal/api/openapi.gen.go)")
 ```
 
-`packages/server/oapi-codegen.yaml` includes only health and public/Bearer share operations. Account, invitation, verification, passkey, and saved-link routes are manual handlers; update their contract and viewer types explicitly. Share-write shapes in the TypeScript client and Markdown CLI have no ownership argument.
+`packages/server/oapi-codegen.yaml` includes only health and public/Bearer share operations. OAuth protocol/metadata, consent, connected-app, account, invitation, verification, passkey, and saved-link routes are manual handlers; update their contract and viewer types explicitly. Do not expand `include-operation-ids` to generate these routes or change existing generated REST bindings for this feature. Redocly can report `operation-2xx-response` for `/oauth/authorize`, whose successful response is 302; keep the real redirect contract rather than adding a fictional 200. Share-write shapes in the TypeScript client and Markdown CLI have no ownership argument.
 
 ## MCP validation
 
-The official Go MCP SDK is pinned to v1.8.0. The advertised and tested versions are `2025-11-25`, `2025-06-18`, and `2025-03-26`. `/mcp` uses stateless Streamable HTTP with JSON responses, without persistent sessions or SSE streams. Every request needs a UI-managed Bearer key, including initialization and `tools/list`; cookies and OAuth do not authorize it. Use a custom-header-capable client and the [documented headers and tools](usage.md#mcp-clients). OpenAPI and generated REST code remain REST-only; `tools/list` supplies MCP input/output schemas.
+The official Go MCP SDK is pinned to v1.8.0. The advertised and tested versions are `2025-11-25`, `2025-06-18`, and `2025-03-26`. `/mcp` uses stateless Streamable HTTP with JSON responses, without persistent sessions or SSE streams. Every request needs a validated OAuth access token or UI-managed Bearer API key, including initialization and `tools/list`; cookies do not authorize it. Use URL-only OAuth or the custom-header alternative with the [documented headers and tools](usage.md#mcp-clients). OpenAPI includes manual OAuth/account contracts, while generated REST bindings remain limited to the existing health/share routes. `tools/list` supplies MCP input/output schemas.
 
 These commands and evidence requirements are validation instructions, not a report of completed checks. Prepare disposable PostgreSQL with the test database variable above; database tests must execute with zero skips:
 
@@ -134,6 +134,8 @@ Also run the generator drift check and OpenAPI lint above, root `npm run ci`, th
 
 ### MCP validation evidence
 
+These historical transport results precede native OAuth. They do not establish validation of the OAuth implementation, migration 13, consent UI, or client lifecycle.
+
 Local validation on 2026-11-02 used Go 1.26.10, official Go MCP SDK v1.8.0, Node.js 26, disposable PostgreSQL 17.6, and Chromium:
 
 - Backend race/coverage suite: 632 passing cases including subtests, with zero test skips. All 133 MCP cases passed ten race-detector repetitions (1,330 cases, zero skips). Existing final-view concurrency also passed ten repetitions. Generator drift, formatting, module verification, and vet passed.
@@ -144,6 +146,71 @@ Local validation on 2026-11-02 used Go 1.26.10, official Go MCP SDK v1.8.0, Node
 - npm production audit found zero vulnerabilities. Govulncheck found zero reachable or imported-package vulnerabilities. The existing module-only GO-2026-5932 advisory concerns unused `golang.org/x/crypto/openpgp`, which this application does not import or call.
 
 Only disposable test infrastructure and fixture data were used. Production proxy/WAF behavior and external-client configuration remain unverified in the [MCP handoff](deployment.md#mcp-routing-and-external-handoff). No package publication, version tag, release dispatch, or production deployment was performed.
+
+## Native OAuth validation
+
+Native OAuth uses Fosite v0.49.0 with only code, refresh, and `S256` PKCE handlers, a custom 256-bit opaque/SHA-256 strategy, and patched dependencies. It has no signing/HMAC secret or JWT-key provisioning. Keep the pinned dependency/vulnerability gates, including reachable and imported-package results, separate from unused module-only advisories.
+
+These are reproducible **requirements**, not a report that all checks are complete. Use disposable PostgreSQL and prepared Chromium; required database/browser cases must execute with zero skips. Keep shell tracing off and artifacts secret-free. Do not use the production-only live scenario, physical passkeys as an agent check, or real global client credentials/settings.
+
+From the repository root, with `MORSEL_TEST_DATABASE_URL` pointing to the disposable test role:
+
+```sh
+export GOTOOLCHAIN=go1.26.10
+(cd packages/server && \
+  go test -race -v ./internal/auth ./internal/api ./migrations -run 'OAuth|MCP' && \
+  go test -race -v -count=10 ./internal/auth ./internal/api -run 'OAuth|MCP' && \
+  go test -race -coverprofile=coverage.out ./... && \
+  go test -race -count=10 ./internal/share -run TestPostgresRepositoryConcurrentFinalViews && \
+  go mod verify && go vet ./... && test -z "$(gofmt -l .)" && \
+  go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...)
+npm run ci
+npx --yes @redocly/cli@2.53.2 lint --config packages/server/redocly.yaml packages/server/openapi.yaml
+npm audit --omit=dev --workspace @narumitw/morsel-viewer
+npm pack --workspace @narumitw/morsel-client --dry-run
+npm run build --workspace @narumitw/morsel-viewer
+npx playwright install chromium
+npm run test:browser
+npm run test:auth:browser
+docker build --tag morsel:oauth-validation .
+```
+
+Run the generator drift/idempotence commands above and verify `internal/api/openapi.gen.go` and the include-only generator configuration are unchanged. If Chromium is launched headed under WSLg, preserve existing launch arguments and add `--ozone-platform=wayland`; do not change headless behavior.
+
+Run the local installed-Pi lifecycle gate with an explicit absolute Pi package directory. Pi is an external test tool, not a project dependency. Prepare Go 1.26.10, Chromium, and `MORSEL_TEST_DATABASE_URL` with the same test-only database-creation permissions as the authentication suite:
+
+```sh
+node scripts/test-mcp-oauth-pi.mjs \
+  --pi-directory /absolute/path/to/@earendil-works/pi-coding-agent
+```
+
+Replace the directory argument with the installed package root. Pi 1.4.0 is the selected validation version. The harness builds its own Go service/viewer, creates and removes its isolated database, uses headless virtual passkeys and private temporary client credentials, and does not change user-global Pi configuration. Its default secret-free summary/captures are under ignored `packages/viewer/test-results/mcp-oauth-pi-*/`; optional `--report-directory` must name a new absolute directory. Never point it at production. Retain the exact invocation, client versions, executed cases, and secret-free results before finalizing evidence. The required Go SDK lifecycle cases are in `packages/server/internal/api/mcp_oauth_integration_test.go`, included in the Go commands above. The installed Pi 1.4.0 client sends the RFC 8707 resource during code exchange and refresh. Official Go MCP SDK v1.8.0 integration must use `StreamableClientTransport.OAuthHandler` and `auth.NewAuthorizationCodeHandler` with an explicit resource-aware refresh HTTP transport/`NewTokenSource` hook. Its default `oauth2.Config.TokenSource` omits `resource` on refresh, so that request must fail with 400; do not relax the server's mandatory resource check or claim out-of-box SDK refresh compatibility. Validate the configured hook positively and the default omission negatively.
+
+Required evidence:
+
+- Discovery/challenges match the configured issuer and `<origin>/mcp`, not Host/forwarded headers. Cover credential-free metadata GET/OPTIONS, `resource_metadata`, initial `mcp:shares offline_access`, `insufficient_scope`, no-store, safe 503, and no application/MCP CORS. Preserve legacy keys and all three advertised MCP versions/tools.
+- Prove public native DCR, bounded strict JSON/forms, S256-only PKCE, exact redirects and IP-loopback port-only exception, client/redirect/state/issuer/resource/scope binding, no CIMD/outbound metadata fetch, one-use codes, finite database-clock expiry, no scope/resource widening, and no credential-type fallback after storage failure. If refresh scope is supplied it must match the granted canonical scope after order normalization; both narrowing and widening must return `invalid_scope`, never silently regrant the original scope. Pi/configured Go clients omit it; no-refresh access requires new authorization without `offline_access`. OAuth must fail on REST/account writes; cookies/codes/refresh tokens must fail on MCP.
+- Prove hash-only credentials and absent verifiers/raw handles/tokens in OAuth storage. Inspect HTTP URLs, Referrer, backend/proxy logs, browser storage, history/shared events, and artifacts for leaks. Existing raw share capabilities remain secret database/backup data; do not claim all persistence is hash-only.
+- Exercise code/refresh atomicity, rollback, concurrent redemption, reuse revocation including access, uncertain lost responses without automatic retries, restart/multi-process persistence, fixed absolute family expiry, access-only families, capacity and cleanup retention/batches, and a separate OAuth source-IP/global limiter that ignores forwarded addresses. Repeat focused concurrency/lifecycle cases ten times under the race detector.
+- Prove consent shows account/UUID, unverified client name/ID, redirect/resource/permissions/persistent access; no GET/login/preview issuance; explicit approval/denial; twelve-hour freshness only for approval; exact session/account/generation binding; same-account new-session restart; logout, recovery, cross-tab, stale-marker, and duplicate-submission rejection. Test connected-app ownership/revocation, same-name clients in two accounts, keyboard/focus/accessibility, safe callback navigation, and list-only retries.
+- Run actual installed Pi and the configured official Go SDK against the built Go service/isolated database: discovery/DCR, virtual-passkey login/consent, calls, access expiry and rotating refresh, registration reuse/new loopback ports, restart/reconnect, denial, revocation, recovery, and reauthorization. Use private client credential directories, never `~/.pi/agent` or real OS credentials. Native browser launching, physical passkeys, callback ownership, and OS keyring behavior remain external.
+- Rehearse the built image and guarded script in a separate disposable Compose project. Prove migration 13 up/down/up preserves all legacy tables/roles/authentication/share capability state, old-runner unknown-schema handling, supported schema-12 isolation-capable rollback, failure shutdown, and the exact [OAuth-only restore invalidation SQL](deployment.md#invalidate-restored-oauth-state-before-startup), including pending-request deletion and restored code/access/refresh denial while legacy API keys still work. Never use down-12/11 to disable OAuth.
+
+### Native OAuth validation evidence
+
+Local validation on 2026-11-02 used Go 1.26.10, PostgreSQL 17.6, Node.js 26.11.1, Chromium virtual authenticators, Pi 1.4.0, and official Go MCP SDK v1.8.0:
+
+| Evidence group | Verified result |
+| --- | --- |
+| Backend / PostgreSQL | Full race/coverage suite: 809 passing cases, zero skipped tests, 79.2% statement coverage. All 160 MCP cases passed ten repetitions (1,600 cases). Existing final-view concurrency passed ten repetitions. Sixteen component tests and controlled OAuth concurrency also passed ten repetitions. |
+| Viewer / browser | Root CI passed: 682 viewer, 11 client, 33 release-tool, and five deployment tests. Viewer typecheck/build passed. Ordinary browser suite: 83 passed; only the production-only live case was excluded. Required real-backend account/OAuth suite: nine named tests and 47 checks passed, zero skips. Helper and secret-safe reporter negative checks passed. |
+| Actual clients | `scripts/test-mcp-oauth-pi.mjs` passed 13 phases across ten separate Pi processes, one reused DCR registration, five code exchanges, one successful refresh rotation plus expected revoked/recovered refresh failures, and 21 tool calls. Headless passkey consent, denial, restart, revocation/recovery and reauthorization passed. Configured Go SDK lifecycle/final-view/exact-number tests passed 290 cases over ten race repetitions; unconfigured refresh without `resource` was rejected. |
+| Contracts / security / build | Generator drift/idempotence, gofmt, module verification, vet, root CI, client package dry-run, and final Docker build passed. npm production audit: zero vulnerabilities. Govulncheck: zero reachable/imported-package findings; only the existing unused-module openpgp advisory remains. Redocly 2.53.2 passed with the expected 302-only authorize warning. The existing Vite large-chunk warning remains. Independent read-only production security/lifecycle review found no material issue. |
+| Migration / rollback / restore | Built-image schema 12 → 13 → 12 → 13 rehearsal passed with 18 legacy snapshots. Roles, shares/capabilities, keys, sessions, passkeys, grants, logical schema/indexes and ordering were preserved. Old-runner unknown-version refusal, dirty/partial-migration and replacement-startup failures left the service stopped. The exact OAuth-only restore invalidation SQL denied restored code/access/refresh credentials while legacy clients remained valid. |
+
+Secret-free local evidence is retained under `/tmp/morsel-mcp-oauth-baseline.bjTSTA` (final Go/root/browser/contract/build logs), `/tmp/morsel-oauth-http-tests.7ibBuK` (protocol/concurrency evidence), `/tmp/morsel-pi-real-evidence-verified` (Pi summary and fixture-only consent capture), and `/tmp/morsel-mcp-oauth-rehearsal.cVqPef1V/evidence` (18-snapshot rollback/restore report). The final formatted Pi harness passed again and deleted its raw credential store, browser/service processes, and database. A manual SIGTERM during startup also removed the owned process, temporary directory, and database. Invalid arguments and an existing report-directory collision failed without changing existing files. Docker rehearsal resources and image tags were removed; protected fixture backups remain local with mode `0600`. No image or binary artifact is committed. The final Docker image includes the current `llms.txt` asset, verified by byte comparison.
+
+These temporary paths support the recorded local checks; they are not durable runtime artifacts or production evidence. The [external handoff](deployment.md#external-mcp-handoff) retains production proxy/TLS/WAF, clock/backup/load, physical-passkey/native callback/keyring, and subjective consent checks, including the prior production `/mcp` 404. No production write, deployment, package publication, version tag, or release/workflow dispatch was performed.
 
 ## Migrations
 
@@ -157,11 +224,13 @@ GOTOOLCHAIN=go1.26.10 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -
 
 For schema version 8 and later, the normal up command also derives missing administrative labels in loops of at most 16 documents, with per-document durable updates. Cancellation leaves completed work intact; rerun up to resume. Direct `migrations.Run` calls in tests apply schema only, so tests that insert legacy rows must explicitly use `share.BackfillLabels` before expecting complete management search. A pending label causes `503 label_backfill_required`, not an incomplete result.
 
-Migration 11 adds account display names, NOT NULL share ownership with restrictive account deletion, the account-leading history index, and monotonic authentication ordering. Only login flows may be unbound. Legacy credentials receive sequence orders before service startup. Pending authentication flows are cleared; sessions, passkeys, API keys, and valid existing grants are preserved. One existing account receives all legacy shares; a fresh empty database is valid. Upgrade preflight rejects shares without an account or more than one legacy account before setting dirty metadata. Complete first setup on the current migration-10 release for ownerless shares; do not guess ownership from keys. Down-11 preflight rejects multiple accounts before setting dirty metadata. Never run the old unscoped application against multi-account data, even with schema 11 retained. See the [maintenance procedure](deployment.md#multi-account-maintenance-upgrade).
+Migration 11 adds account display names, NOT NULL share ownership with restrictive account deletion, the account-leading history index, and monotonic authentication ordering. Within `auth_flows`, only login flows may be unbound. Legacy credentials receive sequence orders before service startup. Pending authentication flows are cleared; sessions, passkeys, API keys, and valid existing grants are preserved. One existing account receives all legacy shares; a fresh empty database is valid. Upgrade preflight rejects shares without an account or more than one legacy account before setting dirty metadata. Complete first setup on the current migration-10 release for ownerless shares; do not guess ownership from keys. Down-11 preflight rejects multiple accounts before setting dirty metadata. Never run the old unscoped application against multi-account data, even with schema 11 retained. See the [maintenance procedure](deployment.md#multi-account-maintenance-upgrade).
 
 Migration 12 adds `accounts.role NOT NULL DEFAULT 'user'` constrained to `admin|user`. It promotes only the oldest existing account ordered by `created_at, id`. Empty databases stay empty until explicit admin setup; all invitation completions insert user explicitly. Recovery preserves the role, and startup does not reassign it. Roles do not bypass share ownership. Before production, verify the selected UUID on a restored production copy using the [read-only schema-11 query](deployment.md#admin-role-upgrade-migration-12).
 
 Down-12 removes role assignments only, not migration 11's ownership boundary. Keep a role snapshot and reverify the selected UUID before rolling forward. Stop every old writer before migration; an old setup writer against an empty upgraded database can create only a user. Use the existing guarded manual deployment, not mixed versions. Paired schema-11 API/viewer/CLI versions keep account isolation and raw invitations but do not autofill fragment links.
+
+Migration 13 is additive and creates `oauth_clients`, `oauth_requests`, `oauth_grants`, and `oauth_tokens`. Up/down/up must preserve every legacy table, shares and raw capabilities, roles, sessions, passkeys, keys, existing grants, generations, and authentication ordering. Down-13 drops OAuth state only; a rollforward requires re-registration/consent. Pause writers and use compatible account-isolation-capable releases and the migration-13 runner. Old runners may reject schema 13. OAuth rollback must not run down-12 or down-11. Restored OAuth families must be invalidated and pending requests deleted before startup with the [documented SQL](deployment.md#invalidate-restored-oauth-state-before-startup); that procedure must not invalidate API keys.
 
 Create legacy test fixtures at the old schema version and run the real migration path. Current-schema shares need explicit owners. Validate two-account isolation, same-account key interchange, foreign/missing 404 equivalence, scoped counts/readiness/link retrieval and verification, v3 cursor binding with v1/v2 rejection, and unchanged public capabilities. Authentication validation includes equal/backwards timestamps, concurrent registration/recovery, consumed in-flight flows, independent recovery, and cross-tab response-marker races. Virtual authenticators do not establish physical passkey-picker behavior. Test output must show required database/browser tests executed, not silently skipped.
 

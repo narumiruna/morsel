@@ -22,5 +22,19 @@ export default defineConfig({
     screenshot: "off",
     video: "off",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // The historical migration fixture needs the sole setup account. OAuth
+  // enrolls separate accounts only after the complete account phase passes.
+  projects: [
+    {
+      name: "account",
+      testMatch: "account.spec.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "oauth",
+      testMatch: "oauth.spec.ts",
+      dependencies: ["account"],
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
 })

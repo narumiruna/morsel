@@ -24,6 +24,20 @@ info:
     Account/authentication routes use Cache-Control no-store. Authentication POSTs
     require the exact configured Origin; session-bound mutations also require
     X-CSRF-Token. Ceremonies are browser-bound, single-use, and expire after 10 minutes.
+    Native MCP OAuth runs in the same Go process with Fosite v0.49.0 and PostgreSQL.
+    OAuth protocol/metadata routes below are manual handlers with security: [];
+    cookies add no protocol authority. Browser consent/grant routes instead require
+    browserCookieAuth and account response markers. These routes do not expand
+    generated health/share REST bindings or define MCP tool schemas.
+    OAuth authorizes only /mcp, never REST writes or account management. API keys
+    keep existing REST/MCP permissions, non-expiring lifetime until revocation,
+    and recovery behavior. Issuer is the canonical MORSEL_URL origin and resource
+    is <origin>/mcp, never Host/forwarded headers. MCP 401 challenges include
+    resource_metadata and mcp:shares offline_access; otherwise valid tokens with
+    insufficient scope receive 403 insufficient_scope. Only native/public DCR,
+    authorization code, S256 PKCE, and rotating refresh are supported. CIMD is
+    deliberately omitted despite the MCP recommendation to avoid client-controlled
+    metadata fetching/SSRF. No outbound client URL fetch occurs.
   license:
     name: GNU Affero General Public License v3.0 only
     identifier: AGPL-3.0-only
@@ -35,6 +49,447 @@ servers:
         default: morsel.your-domain.invalid
         description: Hostname serving both the Morsel viewer and API
 paths:
+  /.well-known/oauth-protected-resource/mcp:
+    get:
+      operationId: getMCPResourceMetadata
+      summary: Discover the canonical MCP resource and authorization server
+      description: Public RFC 9728 metadata. No query parameters. Credential-free GET/OPTIONS CORS only, not application-wide CORS.
+      security: []
+      responses:
+        "200":
+          description: Configured resource metadata; never cache
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+            Access-Control-Allow-Origin:
+              $ref: "#/components/headers/PublicMetadataOrigin"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthResourceMetadata"
+        "400":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "405":
+          $ref: "#/components/responses/OAuthMethodNotAllowed"
+    options:
+      operationId: optionsMCPResourceMetadata
+      summary: Report credential-free resource metadata CORS
+      security: []
+      responses:
+        "204":
+          $ref: "#/components/responses/OAuthMetadataOptions"
+  /.well-known/oauth-authorization-server:
+    get:
+      operationId: getOAuthAuthorizationServerMetadata
+      summary: Discover the native authorization server
+      description: Public RFC 8414 metadata derived from MORSEL_URL, with RFC 9207 issuer identification. No query parameters, CIMD, JWTs, or client secrets.
+      security: []
+      responses:
+        "200":
+          description: Configured authorization metadata; never cache
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+            Access-Control-Allow-Origin:
+              $ref: "#/components/headers/PublicMetadataOrigin"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthServerMetadata"
+        "400":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "405":
+          $ref: "#/components/responses/OAuthMethodNotAllowed"
+    options:
+      operationId: optionsOAuthAuthorizationServerMetadata
+      summary: Report credential-free authorization metadata CORS
+      security: []
+      responses:
+        "204":
+          $ref: "#/components/responses/OAuthMetadataOptions"
+  /oauth/register:
+    post:
+      operationId: registerOAuthClient
+      summary: Register an unverified public native client
+      description: |
+        Manual DCR handler. JSON only; optional charset must be UTF-8. Rejects
+        Authorization headers, query parameters, unknown/duplicate members, nulls,
+        and trailing JSON. Cookies add no authority. Native Origin may be omitted;
+        a supplied Origin must be the single exact configured origin. No client
+        metadata URL, logo, or callback is fetched. Redirects match exactly except
+        an HTTP IP-literal loopback port change; localhost and HTTPS match exactly.
+        Userinfo, wildcards, queries, fragments, escaped paths, and prefixes are
+        rejected. Registration expires after 90 days, extended by valid authorize/
+        token traffic. All retained clients count toward the 10000-client cap.
+        Protocol input is at most 16 KiB. The separate per-process OAuth limiter
+        allows 60/source-IP/fixed-endpoint-kind/minute and 1000 globally/minute;
+        forwarded IP headers are not trusted. Rate/capacity failures insert no client.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthRegistrationRequest"
+      responses:
+        "201":
+          description: Public native client registered; no secret or registration-management token
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthRegisteredClient"
+        "400":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "403":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "405":
+          $ref: "#/components/responses/OAuthMethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/OAuthRateLimited"
+        "503":
+          $ref: "#/components/responses/OAuthProtocolError"
+  /oauth/authorize:
+    get:
+      operationId: beginOAuthAuthorization
+      summary: Validate authorization and open internal consent
+      description: |
+        Manual native code handler. Creates a ten-minute pending request, not a
+        grant/code. Client and redirect are validated before any redirect, including
+        errors. Invalid input returns local JSON. No GET, preview, or login alone
+        issues credentials. Parameters are single-valued, at most 2048 UTF-8 bytes
+        each without NUL/CR/LF, at most 16 KiB total; unknown/duplicate fields fail.
+        S256 and the exact configured resource are mandatory. Scope is mcp:shares,
+        optionally offline_access for refresh. All 10000 retained pending requests
+        count toward admission. Consent read binds account/generation/exact session.
+      security: []
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            const: code
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/OAuthClientID"
+        - name: redirect_uri
+          in: query
+          required: true
+          description: Registered callback with only the IP-loopback port exception; exchange must use this exact authorized value.
+          schema:
+            $ref: "#/components/schemas/OAuthRedirectURI"
+        - name: state
+          in: query
+          required: true
+          description: Preserved exactly in callback; bounded to 8–2048 UTF-8 bytes (byte length, not character count).
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 2048
+        - name: code_challenge
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema:
+            type: string
+            const: S256
+        - name: resource
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/OAuthResource"
+        - name: scope
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/OAuthRequestedScope"
+        - name: prompt
+          in: query
+          schema:
+            type: string
+            enum: [consent]
+      responses:
+        "302":
+          description: Configured-origin SPA consent page; no code issued
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+            Location:
+              description: Only /oauth/consent?request=<43-character opaque handle> at the configured origin, not an arbitrary next URL.
+              schema:
+                type: string
+                format: uri
+        "400":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "403":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "405":
+          $ref: "#/components/responses/OAuthMethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/OAuthRateLimited"
+        "503":
+          $ref: "#/components/responses/OAuthProtocolError"
+  /oauth/token:
+    post:
+      operationId: exchangeOAuthToken
+      summary: Atomically exchange a code or rotate a refresh token
+      description: |
+        Manual public-client handler, token_endpoint_auth_method=none. Form body
+        only (optional UTF-8 charset), no Authorization header/query parameters,
+        no duplicate/unknown fields. Cookies add no authority. Native Origin may
+        be absent; if supplied it must match exactly. Client ID and configured
+        resource are mandatory for both grants. Code exchange needs the exact
+        authorized redirect and S256 verifier. Optional scope must normalize to
+        the original family scope (order normalized); narrowing and widening both
+        return invalid_scope. No downscoping is implemented; reauthorize without
+        offline_access for no refresh. Pi/configured Go omit scope on refresh. Codes last
+        one minute; access tokens at most ten minutes. Offline-access families
+        expire 30 days after approval; access-only families expire ten minutes
+        after approval. Rotation never extends the deadline and invalidates old
+        access credentials. Code/refresh reuse revokes the family including access.
+        Concurrent redemption can revoke the winning pair. Lost responses are
+        uncertain; never automatically retry redemption. PostgreSQL persists state.
+        Go MCP SDK v1.8.0 default oauth2.Config.TokenSource omits resource on refresh
+        and receives 400; use an explicit resource-aware refresh transport/hook.
+        Input is at most 16 KiB, each value at most 2048 UTF-8 bytes. Families retain
+        at most 10000 token rows including tombstones. At capacity, wait for eligible
+        expiry/cleanup then explicitly reauthorize; no automatic retry loop.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/OAuthCodeExchange"
+                - $ref: "#/components/schemas/OAuthRefreshExchange"
+      responses:
+        "200":
+          description: Committed access token and optional newly rotated refresh token; secret response
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+            Pragma:
+              schema:
+                type: string
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthTokenResponse"
+        "400":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "403":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "405":
+          $ref: "#/components/responses/OAuthMethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/OAuthRateLimited"
+        "503":
+          $ref: "#/components/responses/OAuthProtocolError"
+  /oauth/revoke:
+    post:
+      operationId: revokeOAuthToken
+      summary: Revoke a token's client-bound grant family
+      description: |
+        Manual RFC 7009 handler. Form client_id and token required; no Authorization
+        header/query parameters. Cookies add no authority. Same strict Origin/form/
+        field/input limits as token exchange. Access or refresh credentials revoke
+        only the matching client's family. Hint does not override actual token type.
+        Unknown, malformed, foreign-client, expired, or revoked credentials return
+        the same empty 200 object. Keys, shares, and other families are unchanged.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/OAuthRevocationRequest"
+      responses:
+        "200":
+          description: Family revoked or credential not recognized; indistinguishable
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyRequest"
+        "400":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "403":
+          $ref: "#/components/responses/OAuthProtocolError"
+        "405":
+          $ref: "#/components/responses/OAuthMethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/OAuthRateLimited"
+        "503":
+          $ref: "#/components/responses/OAuthProtocolError"
+  /v1/account/oauth/requests/{request}:
+    parameters:
+      - name: request
+        in: path
+        required: true
+        description: Pending opaque handle, not a code/token or arbitrary next destination; only its hash is stored.
+        schema:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+    get:
+      operationId: getOAuthConsent
+      summary: Bind and inspect consent for this browser account/session
+      description: |
+        Manual browser route, no query parameters. Requires a session, not API-key/
+        OAuth Bearer access. First read binds the ten-minute request to this account,
+        generation, and exact session, without issuing a grant/code. A new session
+        for the same account must restart; logout, recovery, switching accounts,
+        and expiry cannot rebind it. Viewer shows account/name/UUID, unverified app
+        name/client ID, redirect host, resource, scope, permissions, persistent access.
+      security:
+        - browserCookieAuth: []
+      responses:
+        "200":
+          description: Account/session-bound display data; no credential, verifier, or client state
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthConsent"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+    post:
+      operationId: decideOAuthConsent
+      summary: Approve or deny only the displayed account's bound request
+      description: |
+        Manual browser mutation. Requires exact Origin, CSRF, and a prior consent
+        read by the same account/generation/session. account_id confirms displayed
+        identity, never selects ownership. Approval requires passkey verification
+        within twelve hours; denial does not. Strict JSON: no nulls, unknown/duplicate
+        members, trailing data, or query parameters; browser body limit 64 KiB.
+        Approval/code creation commits atomically under account/request locks.
+        Duplicate decisions fail. Denial issues no grant/code. Callback includes
+        state, iss, and code or error=access_denied at the validated redirect. Never
+        log/cache/store it or automatically replay failed/uncertain decisions.
+        Admission counts all retained grants: 10000 global, 100 per account.
+        Revocation does not immediately free a retained slot. Logout invalidates
+        pending consent, not existing grants/API keys. Recovery invalidates older
+        OAuth codes/grants/tokens through generation checks, not API keys.
+      security:
+        - browserCookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrowserOrigin"
+        - $ref: "#/components/parameters/BrowserCSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthConsentDecision"
+      responses:
+        "200":
+          description: One-use decision committed; navigate only while account marker is current
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthConsentResult"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "409":
+          $ref: "#/components/responses/AccountError"
+        "429":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/account/oauth/grants:
+    get:
+      operationId: listOAuthGrants
+      summary: List only the browser account's connected-app families
+      description: Manual session-only route; no query parameters. Returns retained active/expired/revoked families newest first with UUID tie order. No signatures/tokens. Recovery makes older-generation families unusable and reports them as revoked. API-key/OAuth Bearer credentials alone cannot list grants.
+      security:
+        - browserCookieAuth: []
+      responses:
+        "200":
+          description: Owned metadata including unverified names and distinguishing IDs
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  $ref: "#/components/schemas/OAuthGrant"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
+  /v1/account/oauth/grants/{id}:
+    delete:
+      operationId: revokeOAuthGrant
+      summary: Revoke one owned connected-app family after fresh verification
+      description: Manual browser-only route; exact Origin, CSRF, and twelve-hour verification freshness rechecked under account lock through commit. No query parameters. Foreign/missing UUIDs return identical 404 not_found; repeated owned revocation succeeds. Stops subsequent OAuth requests, not already-authorized operations. Keys, shares, other families remain unchanged; grant row is retained. No automatic retries.
+      security:
+        - browserCookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            minLength: 36
+            maxLength: 36
+        - $ref: "#/components/parameters/BrowserOrigin"
+        - $ref: "#/components/parameters/BrowserCSRF"
+      responses:
+        "204":
+          description: Owned family revoked; no body
+          headers:
+            X-Morsel-Account-ID:
+              $ref: "#/components/headers/AccountIdentity"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+        "400":
+          $ref: "#/components/responses/AccountError"
+        "401":
+          $ref: "#/components/responses/AccountError"
+        "403":
+          $ref: "#/components/responses/AccountError"
+        "404":
+          $ref: "#/components/responses/AccountError"
+        "503":
+          $ref: "#/components/responses/AccountError"
   /healthz:
     get:
       operationId: getHealth
@@ -1064,12 +1519,27 @@ paths:
           $ref: "#/components/responses/AccountError"
 components:
   headers:
+    NoStore:
+      description: Always no-store, including failures.
+      schema:
+        type: string
+        const: no-store
+    PublicMetadataOrigin:
+      description: Public metadata only, without credentials or application-wide CORS.
+      schema:
+        type: string
+        const: "*"
     AccountIdentity:
       description: Server-derived UUID of the browser account authorized for this response. Never a request selector. Present on successful authenticated browser management and bound authentication responses; omitted for unauthenticated account state. Errors need not carry it. Compare with both expected and current identity before using private data; discard mismatches and refresh identity without replaying mutations.
       schema:
         type: string
         format: uuid
   securitySchemes:
+    browserCookieAuth:
+      type: apiKey
+      in: cookie
+      name: morsel_session
+      description: Browser session for manual consent/grant routes, not OAuth/API-key Bearer access. Mutations need exact Origin and X-CSRF-Token. Approval/revocation need twelve-hour verification freshness; denial does not. Consent binds exact session/account/generation. Sessions expire after 30 days without sliding renewal.
     sessionCookie:
       type: apiKey
       in: cookie
@@ -1078,8 +1548,24 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Active account-issued key. Ownership comes only from its validated account, not request input. All keys in the same account have the same share permissions; they cannot manage another account's shares.
+      description: Active account-issued API key, not OAuth. Ownership comes only from its validated account. All keys in one account have the same share permissions, never foreign ownership. Lifetime stays non-expiring until revocation, including after recovery. OAuth is accepted only at /mcp, not these REST Bearer writes.
   parameters:
+    BrowserOrigin:
+      name: Origin
+      in: header
+      required: true
+      description: One exact canonical configured browser origin, never forwarded/client-selected.
+      schema:
+        type: string
+        format: uri
+    BrowserCSRF:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Token bound to the current browser session.
+      schema:
+        type: string
+        minLength: 1
     AccountItemID:
       name: id
       in: path
@@ -1096,6 +1582,374 @@ components:
         type: string
         pattern: "^[A-Za-z0-9_-]{43}$"
   schemas:
+    OAuthClientID:
+      type: string
+      format: uuid
+      description: Public registration ID, not proof of app identity.
+    OAuthResource:
+      type: string
+      format: uri
+      maxLength: 2048
+      pattern: "^https?://[^/?#]+/mcp$"
+      description: Exact canonical MORSEL_URL origin plus /mcp, with no trailing slash or foreign resource.
+    OAuthRedirectURI:
+      type: string
+      format: uri
+      minLength: 1
+      maxLength: 2048
+      description: HTTPS or HTTP localhost/127.0.0.1/[::1] callback with nonempty absolute path. No credentials, wildcard, query, fragment, escaped path, backslash. Exact match except HTTP IP-loopback port only; localhost ports match exactly. Never fetched.
+    OAuthRequestedScope:
+      type: string
+      enum: ["mcp:shares", "mcp:shares offline_access", "offline_access mcp:shares"]
+      description: Share scope required; offline_access adds refresh only. No other/duplicate/wildcard scopes.
+    OAuthGrantedScope:
+      type: string
+      enum: ["mcp:shares", "mcp:shares offline_access"]
+    OAuthResourceMetadata:
+      type: object
+      additionalProperties: false
+      required: [resource, authorization_servers, scopes_supported, bearer_methods_supported]
+      properties:
+        resource:
+          $ref: "#/components/schemas/OAuthResource"
+        authorization_servers:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            format: uri
+          description: Only the configured canonical origin issuer.
+        scopes_supported:
+          type: array
+          minItems: 2
+          maxItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            enum: ["mcp:shares", offline_access]
+        bearer_methods_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            const: header
+    OAuthServerMetadata:
+      type: object
+      additionalProperties: false
+      required: [issuer, authorization_endpoint, token_endpoint, registration_endpoint, revocation_endpoint, response_types_supported, grant_types_supported, scopes_supported, token_endpoint_auth_methods_supported, revocation_endpoint_auth_methods_supported, code_challenge_methods_supported, authorization_response_iss_parameter_supported]
+      properties:
+        issuer:
+          type: string
+          format: uri
+          description: Canonical MORSEL_URL origin without trailing slash.
+        authorization_endpoint:
+          type: string
+          format: uri
+        token_endpoint:
+          type: string
+          format: uri
+        registration_endpoint:
+          type: string
+          format: uri
+        revocation_endpoint:
+          type: string
+          format: uri
+        response_types_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            const: code
+        grant_types_supported:
+          type: array
+          minItems: 2
+          maxItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            enum: [authorization_code, refresh_token]
+        scopes_supported:
+          type: array
+          minItems: 2
+          maxItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            enum: ["mcp:shares", offline_access]
+        token_endpoint_auth_methods_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            const: none
+        revocation_endpoint_auth_methods_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            const: none
+        code_challenge_methods_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            const: S256
+        authorization_response_iss_parameter_supported:
+          type: boolean
+          const: true
+    OAuthRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required: [client_name, redirect_uris, token_endpoint_auth_method]
+      properties:
+        client_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Unverified display name, trimmed to 1–200 UTF-8 bytes without NUL/CR/LF.
+        redirect_uris:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/OAuthRedirectURI"
+        token_endpoint_auth_method:
+          type: string
+          const: none
+        application_type:
+          type: string
+          const: native
+        grant_types:
+          type: array
+          maxItems: 2
+          uniqueItems: true
+          description: If nonempty must include authorization_code. Omitted/empty uses code/refresh profile.
+          items:
+            type: string
+            enum: [authorization_code, refresh_token]
+        response_types:
+          type: array
+          maxItems: 1
+          items:
+            type: string
+            const: code
+        scope:
+          $ref: "#/components/schemas/OAuthRequestedScope"
+    OAuthRegisteredClient:
+      type: object
+      additionalProperties: false
+      required: [client_id, client_id_issued_at, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, application_type, scope]
+      properties:
+        client_id:
+          $ref: "#/components/schemas/OAuthClientID"
+        client_id_issued_at:
+          type: integer
+          format: int64
+          description: Database creation timestamp as Unix seconds.
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/OAuthRedirectURI"
+        grant_types:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: string
+            enum: [authorization_code, refresh_token]
+        response_types:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            const: code
+        token_endpoint_auth_method:
+          type: string
+          const: none
+        application_type:
+          type: string
+          const: native
+        scope:
+          type: string
+          const: "mcp:shares offline_access"
+    OAuthCodeExchange:
+      type: object
+      additionalProperties: false
+      required: [grant_type, client_id, code, redirect_uri, code_verifier, resource]
+      properties:
+        grant_type:
+          type: string
+          const: authorization_code
+        client_id:
+          $ref: "#/components/schemas/OAuthClientID"
+        code:
+          type: string
+          pattern: "^moc_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          description: One-use 256-bit opaque code, one-minute lifetime; never log/replay.
+        redirect_uri:
+          $ref: "#/components/schemas/OAuthRedirectURI"
+        code_verifier:
+          type: string
+          minLength: 43
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._~-]+$"
+          description: S256 verifier; never stored by Morsel.
+        resource:
+          $ref: "#/components/schemas/OAuthResource"
+        scope:
+          $ref: "#/components/schemas/OAuthRequestedScope"
+    OAuthRefreshExchange:
+      type: object
+      additionalProperties: false
+      required: [grant_type, client_id, refresh_token, resource]
+      properties:
+        grant_type:
+          type: string
+          const: refresh_token
+        client_id:
+          $ref: "#/components/schemas/OAuthClientID"
+        refresh_token:
+          type: string
+          pattern: "^mor_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          description: Rotating credential; replay revokes family. Never automatically retry uncertain redemption.
+        resource:
+          $ref: "#/components/schemas/OAuthResource"
+        scope:
+          $ref: "#/components/schemas/OAuthRequestedScope"
+    OAuthTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token:
+          type: string
+          pattern: "^moa_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          description: 256-bit opaque MCP-only credential; only SHA-256 signature stored.
+        token_type:
+          type: string
+          const: bearer
+        expires_in:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 600
+          description: Whole seconds from database time, capped by absolute family deadline.
+        scope:
+          $ref: "#/components/schemas/OAuthGrantedScope"
+        refresh_token:
+          type: string
+          pattern: "^mor_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          description: Only with offline_access, 30-day absolute family deadline from approval, not sliding. Access-only families expire ten minutes after approval.
+    OAuthRevocationRequest:
+      type: object
+      additionalProperties: false
+      required: [client_id, token]
+      properties:
+        client_id:
+          $ref: "#/components/schemas/OAuthClientID"
+        token:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Access/refresh credential; unknown/foreign values give the same success object.
+        token_type_hint:
+          type: string
+          enum: [access_token, refresh_token]
+    OAuthProtocolFailure:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_request, invalid_client_metadata, invalid_redirect_uri, invalid_client, invalid_grant, invalid_scope, unsupported_grant_type, temporarily_unavailable]
+          description: Safe code only, without component hints, database details, or original credentials.
+    OAuthConsent:
+      type: object
+      additionalProperties: false
+      required: [client_id, client_name, redirect_host, resource, scope, expires_at, account_id]
+      properties:
+        client_id:
+          $ref: "#/components/schemas/OAuthClientID"
+        client_name:
+          type: string
+          description: Unverified display text.
+        redirect_host:
+          type: string
+          description: Validated callback authority including port if present.
+        resource:
+          $ref: "#/components/schemas/OAuthResource"
+        scope:
+          $ref: "#/components/schemas/OAuthGrantedScope"
+        expires_at:
+          type: string
+          format: date-time
+          description: Ten-minute pending-request deadline from database time.
+        account_id:
+          type: string
+          format: uuid
+          description: Displayed browser account, equal to X-Morsel-Account-ID, never an owner selector.
+    OAuthConsentDecision:
+      type: object
+      additionalProperties: false
+      required: [approve, account_id]
+      properties:
+        approve:
+          type: boolean
+        account_id:
+          type: string
+          format: uuid
+          description: Must match displayed/request-bound and current account, never selects another account.
+    OAuthConsentResult:
+      type: object
+      additionalProperties: false
+      required: [redirect_url]
+      properties:
+        redirect_url:
+          type: string
+          format: uri
+          description: Validated callback with state, iss, and code or error=access_denied. Secret code on approval; no logging, browser storage/history state, or shared navigation events.
+    OAuthGrant:
+      type: object
+      additionalProperties: false
+      required: [id, client_id, client_name, resource, scope, created_at, expires_at, revoked_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Owned connection/family ID, not a token.
+        client_id:
+          $ref: "#/components/schemas/OAuthClientID"
+        client_name:
+          type: string
+          description: Unverified display text; identify by IDs, not names.
+        resource:
+          $ref: "#/components/schemas/OAuthResource"
+        scope:
+          $ref: "#/components/schemas/OAuthGrantedScope"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: Absolute approval-based deadline, 30 days with offline_access, ten minutes without.
+        revoked_at:
+          type: [string, "null"]
+          format: date-time
+          description: Explicit or effective older-generation revocation; null otherwise.
     AccountShareStatus:
       type: string
       description: Computed with database time; precedence is revoked, expired, view_limit_exhausted, active.
@@ -1174,7 +2028,7 @@ components:
       properties:
         code:
           type: string
-          description: Account-specific error code, such as invalid_origin, invalid_csrf, invalid_flow, invalid_grant, sign_out_required, setup_closed, last_passkey, or verification_required. Invitation begin and finish return 409 sign_out_required for a valid signed-in browser session without consuming the grant or overwriting the session.
+          description: Account-specific error code, such as invalid_origin, invalid_csrf, invalid_flow, invalid_grant, sign_out_required, setup_closed, last_passkey, verification_required, or oauth_request_invalid. OAuth consent returns 409 oauth_request_invalid for expired, used, unseen, or account/session-mismatched requests; restart from the app. Invitation begin and finish return 409 sign_out_required for a valid signed-in browser session without consuming the grant or overwriting the session.
         message:
           type: string
     AccountState:
@@ -1464,6 +2318,57 @@ components:
         message:
           type: string
   responses:
+    OAuthProtocolError:
+      description: Safe OAuth error only; no browser account marker. Invalid grant covers expired, unknown, revoked, or mismatched credentials. Storage errors fail closed with temporarily_unavailable, never reflected internal details. No-store and no-cache apply to protocol success and failure.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+        Pragma:
+          schema:
+            type: string
+            const: no-cache
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthProtocolFailure"
+    OAuthRateLimited:
+      description: OAuth rate/admission limit reached. Retry-After is present for limiter rejection, not necessarily capacity rejection. No automatic retry; wait for eligible expiry/cleanup and explicitly reconnect. Cleanup is at most once/minute/process and 2000 rows/statement; grant rows remain until family expiry, active-family code/refresh tombstones until family expiry, expired access rows can be pruned.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+        Retry-After:
+          description: Seconds before an explicit retry is permitted; optional on capacity rejection.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthProtocolFailure"
+    OAuthMethodNotAllowed:
+      description: Unsupported protocol method; never viewer HTML.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+        Allow:
+          schema:
+            type: string
+            enum: [GET, POST, "GET, OPTIONS"]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthProtocolFailure"
+    OAuthMetadataOptions:
+      description: Public credential-free metadata GET/OPTIONS only.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+        Access-Control-Allow-Origin:
+          $ref: "#/components/headers/PublicMetadataOrigin"
+        Access-Control-Allow-Methods:
+          schema:
+            type: string
+            const: "GET, OPTIONS"
     AccountError:
       description: Invalid request, authentication failure, forbidden origin or CSRF, conflict, rate limit, unavailable database, or identical not_found for missing/foreign share UUIDs. Account routes always return Cache-Control no-store. The identity marker is available only after account authorization succeeds.
       headers:
