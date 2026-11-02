@@ -73,3 +73,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.publish.outputs.tag }}
         run: gh release create "$TAG" --verify-tag --generate-notes --fail-on-no-commits --title "$TAG"
+
+  deploy:
+    needs: [publish, release]
+    if: needs.publish.outputs.tag != ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy.yml
+    with:
+      tag: ${{ needs.publish.outputs.tag }}
+    secrets: inherit

@@ -315,7 +315,7 @@ The **Publish** workflow runs on pushes to `main` and through manual dispatch:
    - The command uses the highest pending bump, updates the root version, root lockfile version metadata, and root `CHANGELOG.md`, and removes the consumed changesets.
    - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
 2. After the version pull request is merged and no changesets remain, `npm run release` creates and pushes one `vX.Y.Z` tag from the checked-out `main` commit.
-   - The workflow publishes the container from that tag, then creates the GitHub release. GitHub release notes use generated commit notes; Changesets summaries remain in the root changelog.
+   - The workflow publishes the container from that tag, creates the GitHub release, then calls **Deploy** with the same tag. GitHub release notes use generated commit notes; Changesets summaries remain in the root changelog.
    - A completed version is a no-op on later pushes. An older version or a missing changelog entry fails before tagging.
 3. If container publication or GitHub release creation fails after tagging, manually rerun **Publish** on `main`.
    - The workflow recovers the same unreleased tag without moving it or creating another version.
@@ -327,7 +327,9 @@ To review a version change locally, run `npm run release:version` on a branch, t
 
 Use the repository commands rather than the stock `npx changeset` CLI, which discovers individual npm workspaces. The action uses the custom root-only version command; its built-in npm publisher, package tags, and GitHub releases are disabled. Repository tag publication runs before the action can check out its version branch. No npm registry URL, npm token, or OIDC permission is needed. Run `npm run test:release` for isolated tests.
 
-Deployment remains a separate manual workflow subject to the [maintenance requirements](deployment.md#multi-account-maintenance-upgrade). Publishing a container or GitHub release does not deploy services or apply migrations.
+**Deploy** is a reusable workflow called only after container publication and GitHub release creation succeed with a nonempty release tag. It checks out that exact tag and names the local image with the checked-out commit SHA, including recovery of an older unreleased tag. Tags pushed with `GITHUB_TOKEN` do not trigger another workflow; the direct call does not depend on that event. The deployment job appears inside the **Publish** run. Ordinary pushes that only prepare a version PR or find an already completed release do not deploy. Version-tag pushes from other credentials and manual **Deploy** dispatch from `main` remain supported.
+
+Verify the [maintenance requirements](deployment.md#multi-account-maintenance-upgrade) before merging a version PR, starting release recovery, pushing a version tag, or dispatching deployment. If deployment fails after the GitHub release exists, rerun the failed deployment job in the original **Publish** run. A new **Publish** run for that completed version is a no-op and does not retry deployment.
 
 ## Repository layout
 
