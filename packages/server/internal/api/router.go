@@ -25,6 +25,7 @@ type RouterConfig struct {
 	Account        http.Handler
 	Viewer         http.Handler
 	MCP            http.Handler
+	OAuth          http.Handler
 	MaxRequestBody int64
 	RequestTimeout time.Duration
 	Logger         *slog.Logger
@@ -62,15 +63,22 @@ func NewRouter(handler StrictServerInterface, cfg RouterConfig) http.Handler {
 	if cfg.MCP != nil {
 		router.Handle("/mcp", cfg.MCP)
 	}
+	if cfg.OAuth != nil {
+		for _, path := range []string{"/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server", "/oauth/authorize", "/oauth/token", "/oauth/register", "/oauth/revoke"} {
+			router.Handle(path, cfg.OAuth)
+		}
+	}
 	if cfg.Account != nil {
-		for _, path := range []string{"/v1/account", "/v1/account/invitations", "/v1/account/shares", "/v1/account/shares/{id}", "/v1/account/shares/*", "/v1/auth/*", "/v1/passkeys", "/v1/passkeys/*", "/v1/api-keys", "/v1/api-keys/*"} {
+		for _, path := range []string{"/v1/account", "/v1/account/invitations", "/v1/account/oauth/*", "/v1/account/shares", "/v1/account/shares/{id}", "/v1/account/shares/*", "/v1/auth/*", "/v1/passkeys", "/v1/passkeys/*", "/v1/api-keys", "/v1/api-keys/*"} {
 			router.Handle(path, cfg.Account)
 		}
 	}
 	HandlerWithOptions(strict, ChiServerOptions{BaseRouter: router, ErrorHandlerFunc: writeRequestError})
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		apiPath := r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") ||
-			r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/")
+			r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") ||
+			(r.URL.Path != "/oauth/consent" && (r.URL.Path == "/oauth" || strings.HasPrefix(r.URL.Path, "/oauth/"))) ||
+			strings.HasPrefix(r.URL.Path, "/.well-known/")
 		if cfg.Viewer != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) && !apiPath {
 			cfg.Viewer.ServeHTTP(w, r)
 			return

@@ -88,6 +88,7 @@ beforeEach(() => {
     const pending = intercept?.(path, init, id)
     if (pending) return pending
     if (path === "account") return json(identity(id), id)
+    if (path === "account/oauth/grants") return json([], id)
     if (path.startsWith("account/shares?"))
       return json({ items: [share(id)], matching_count: 1 }, id)
     if (path.endsWith("/link")) return json({ share_url: savedLink }, id)

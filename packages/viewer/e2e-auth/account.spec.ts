@@ -313,7 +313,7 @@ test("required real-backend account and API key lifecycle", async ({
 
   await test.step("real legacy schema fixture upgrades to the enrolled sole owner", async () => {
     // No other context exists and no ceremony is pending during this test-only
-    // schema 12 -> 10 -> 12 transition. Wait until all management reads finish.
+    // schema 13 -> 10 -> 13 transition. Wait until all management reads finish.
     await page.waitForLoadState("networkidle")
     legacyID = await command(helper, ["seed-legacy-share", accountA])
     expect((await account(page)).account_id).toBe(accountA)

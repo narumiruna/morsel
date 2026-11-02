@@ -100,7 +100,7 @@ func TestMCPPostgresOwnershipAndKeys(t *testing.T) {
 			r := f.do(t, key, http.MethodPost, "/mcp", mcpDBPayload("create_share", map[string]any{"content": "must not exist"}),
 				http.Header{"Mcp-Session-Id": {session}, "X-Morsel-Account-ID": {b.id.String()}})
 			mcpDBStatus(t, r, http.StatusUnauthorized)
-			if r.header.Get("WWW-Authenticate") != `Bearer realm="morsel"` {
+			if r.header.Get("WWW-Authenticate") != `Bearer realm="morsel", resource_metadata="https://morsel.example/.well-known/oauth-protected-resource/mcp", scope="mcp:shares offline_access"` {
 				t.Fatal("missing Bearer challenge")
 			}
 		}

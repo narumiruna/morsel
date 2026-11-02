@@ -23,7 +23,12 @@ type mcpHTTPContext struct {
 	mu  sync.Mutex
 }
 
-// NewMCPHandler serves stateless Streamable HTTP with the existing API keys.
+type mcpBearerAuthenticator interface {
+	AuthenticateMCP(context.Context, string) (uuid.UUID, bool, error)
+	MCPResourceMetadataURL() string
+}
+
+// NewMCPHandler serves stateless Streamable HTTP with API keys or MCP OAuth.
 // The configured public authority is required, including behind a reverse proxy.
 func NewMCPHandler(service *Service, authenticator BearerAuthenticator, maxRequestBytes int64) http.Handler {
 	server := mcp.NewServer(&mcp.Implementation{Name: "morsel", Version: "dev"}, &mcp.ServerOptions{
@@ -38,7 +43,7 @@ func NewMCPHandler(service *Service, authenticator BearerAuthenticator, maxReque
 		// configured-authority check below also protects non-loopback listeners.
 		DisableLocalhostProtection: true,
 	})
-	authenticated := authenticateBearer(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	authenticated := authenticateMCPBearer(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), mcpRequestContextKey{}, &mcpHTTPContext{ctx: r.Context()})
 		transport.ServeHTTP(w, r.WithContext(ctx))
 	}))

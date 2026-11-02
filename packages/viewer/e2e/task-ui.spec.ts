@@ -85,6 +85,11 @@ async function mockManagement(page: Page, backupPasskey = false) {
         status: 503,
         json: { message: "Fixture list unavailable." },
       })
+    } else if (path === "/v1/account/oauth/grants" && request.method() === "GET") {
+      await route.fulfill({
+        headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },
+        json: [],
+      })
     } else if (path === "/v1/passkeys") {
       await route.fulfill({
         headers: { "X-Morsel-Account-ID": "10000000-0000-4000-8000-000000000001" },

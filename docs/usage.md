@@ -1,6 +1,6 @@
 # Using Morsel
 
-Start with the [Quick start](../README.md#quick-start). Create and revoke shares with an owner-issued API key; readers need only the capability URL. `MORSEL_API_KEY` remains a client-side secret, not server configuration. Never expose it in browser code.
+Start with the [Quick start](../README.md#quick-start). Create and revoke shares through REST with an owner-issued API key, or use [native MCP OAuth](#oauth-and-pi); readers need only the capability URL. `MORSEL_API_KEY` remains a client-side secret, not server configuration. Never expose it in browser code.
 
 ## Open a document
 
@@ -25,9 +25,17 @@ Select **View example** to open `/example`. The bundled example makes no share, 
 
 All active API keys in one account have the same share permissions. A key can create and revoke only that account's shares, including shares created with another key in the same account. The validated key determines ownership; request bodies, query parameters, and headers cannot select an owner. Foreign and missing share UUIDs return the same `404 not_found`. An admin's role permits invitation creation, not access to another account's shares. Use `/manage/api-keys` to list key metadata and confirm revocation after fresh verification. Key revocation stops subsequent requests, but does not cancel an already-authorized request or revoke shares. Revoke exposed shares separately. API keys cannot manage account credentials, sessions, other keys, browser-only share management, or invitations, even when the key belongs to an admin. Browser sessions cannot authorize the existing Bearer share-write routes; the separate account routes allow share inspection and revocation.
 
-Sessions last 30 days from login and survive browser restarts; activity does not extend them. Sensitive changes reuse passkey verification for 12 hours. After deployment, log out and sign in again to use the longer session lifetime. Logout invalidates the server session. If passkeys are lost, request operator recovery. Recovery targets one account UUID and invalidates that account's old credentials, sessions, and pending bound authentication grants, but **does not revoke API keys** or affect other accounts. Shares keep their owner and recovery preserves the account role. Review and revoke suspect keys separately. Existing public share URLs do not require login. Anyone with a valid capability can read, including a user signed in to another account.
+Sessions last 30 days from login and survive browser restarts; activity does not extend them. Sensitive changes reuse passkey verification for 12 hours. After deployment, log out and sign in again to use the longer session lifetime. Logout invalidates the server session and its pending OAuth consent, but not existing OAuth connections or API keys. If passkeys are lost, request operator recovery. Recovery targets one account UUID and invalidates that account's old passkeys, sessions, pending bound authentication grants, and OAuth codes/grant families/tokens through its authentication generation, but **does not revoke API keys** or affect other accounts. Shares keep their owner and recovery preserves the account role. Review and revoke suspect keys separately. Existing public share URLs do not require login. Anyone with a valid capability can read, including a user signed in to another account.
 
 To switch accounts, log out, then select the intended passkey at `/login`. The UI shows account identity, refreshes it on focus and visibility restoration, and invalidates other tabs with secret-free `BroadcastChannel` events. Identity changes clear private state, saved links, one-time keys, and invitation links. Successful private browser responses carry a server-derived `X-Morsel-Account-ID`; missing or mismatched markers discard the response and refresh identity. Unauthenticated account state and errors need no marker. Bearer share writes and public capability reads do not use this browser identity marker. Mutations are not automatically replayed. This header is never an ownership selector.
+
+## Connected apps
+
+Open **Connected apps** under `/account` to inspect only your account's OAuth connections. Each row shows the unverified app name, client ID, connection ID, resource, scope, creation time, expiry, and revocation state. Names are not verified identities and need not be unique. Match IDs, not names, when two apps or accounts use the same name.
+
+Select **Revoke**, inspect the connection, then **Confirm revoke app**. The server requires a browser session, exact configured Origin, session-bound CSRF, and passkey verification within twelve hours. Revocation stops that family's access and refresh tokens on subsequent requests. It does not cancel an already-authorized operation, revoke another connection, revoke API keys, or remove existing shares. Reconnect from the app to authorize a new family. **Retry connected apps** repeats only the list read, never a revocation.
+
+API keys and OAuth tokens cannot list or revoke these browser-managed connections. Successful private responses use `Cache-Control: no-store` and `X-Morsel-Account-ID`; stale or mismatched responses are discarded, not replayed.
 
 ## Invite a new user
 
@@ -128,9 +136,64 @@ See the [OpenAPI contract](../packages/server/openapi.yaml) for the complete RES
 
 Connect to `/mcp` with stateless Streamable HTTP. Normal responses are JSON; there are no persistent sessions, `Mcp-Session-Id` responses, or persistent SSE streams. Authenticated GET and DELETE return `405` with `Allow: POST`. The official Go MCP SDK is pinned to v1.8.0. Supported and tested protocol versions are `2025-11-25`, `2025-06-18`, and `2025-03-26`.
 
-Every request, including `initialize` and `tools/list`, requires `Authorization: Bearer <UI-created API key>`. Each request checks the active key in PostgreSQL. Cookie-only access is not allowed. There is no OAuth or dynamic client registration; OAuth-only clients cannot connect. Never send raw keys in chat or put them in browser code, URLs, or logs.
+Every request, including `initialize` and `tools/list`, requires a Bearer OAuth access token or a UI-created API key. PostgreSQL validates the credential and account on every request; browser cookies alone cannot authorize MCP. OAuth is restricted to `/mcp`: its tokens cannot authorize REST `/v1/shares` writes, passkeys, invitations, keys, or connected-app management. Existing API keys retain their REST/MCP permissions and non-expiring lifetime until explicit revocation, including after account recovery. Never send credentials in chat or put them in browser code, URLs, or logs.
 
-For POST requests, send `Content-Type: application/json` and `Accept: application/json, text/event-stream`, even though normal responses are JSON. After initialization, send `MCP-Protocol-Version` with the negotiated version. Use the public URL configured by `MORSEL_URL`: request authority/Host must match it after hostname-case and default-port normalization. An arbitrary backend bind hostname is not accepted. An omitted Origin is allowed; a supplied Origin must be exactly the canonical configured origin. Duplicate, `null`, and foreign Origins are forbidden. CORS is not enabled.
+For POST requests, send `Content-Type: application/json` and `Accept: application/json, text/event-stream`, even though normal responses are JSON. After initialization, send `MCP-Protocol-Version` with the negotiated version. Use the public URL configured by `MORSEL_URL`: request authority/Host must match it after hostname-case and default-port normalization. An arbitrary backend bind hostname is not accepted. An omitted Origin is allowed; a supplied Origin must be exactly the canonical configured origin. Duplicate, `null`, and foreign Origins are forbidden. MCP CORS is not enabled. Only public OAuth metadata supports credential-free GET/OPTIONS CORS.
+
+### OAuth and Pi
+
+For a disposable local service configured with `MORSEL_URL=http://localhost:12647`, use this Pi project configuration:
+
+```json
+{
+  "mcpServers": {
+    "morsel": { "url": "http://localhost:12647/mcp" }
+  }
+}
+```
+
+Pi reads trusted project `.pi/mcp.json` and user `~/.pi/agent/mcp.json`. A full project entry replaces a same-name user entry. The repository example uses only the public URL; changing it does not change user-global settings. Remove an explicit `Authorization` header from the selected entry: it takes precedence and disables Pi OAuth. Do not configure `clientRegistration: "cimd"`; Morsel supports Dynamic Client Registration (DCR), not Client ID Metadata Documents (CIMD). CIMD is deliberately omitted despite the MCP recommendation, to avoid client-controlled metadata fetches and a new SSRF surface. Morsel does not fetch client URLs, logos, or callback targets.
+
+1. In an approved client session, select **Sign in** for Morsel in `/mcp`, or run `/mcp login morsel`. The client discovers Morsel and registers a public native client with `token_endpoint_auth_method=none`; no client secret is issued.
+2. Sign in with the intended Morsel account's passkey. The **Connect app** page shows the account name and UUID, unverified app name and client ID, redirect host, canonical resource, and permissions. A name or loopback callback does not prove who operates an app. Approve only a connection you started and trust.
+3. Review `mcp:shares`: create account-owned shares, read any share for which the app holds a valid capability (one view per success), and revoke this account's shares. It grants no account-management or REST-write permission. `offline_access` adds rotating refresh tokens for persistent access, including after browser logout, for at most thirty days from approval. Pi's initial challenge requests both scopes so URL-only login can refresh without reopening the browser.
+4. Select **Approve access**, with fresh passkey verification if required. **Deny access** requires the same session, exact Origin, and CSRF, but not fresh verification. Opening the page, GET requests, login alone, and previews never issue a grant or code.
+5. Inspect or revoke the connection in [Connected apps](#connected-apps). Pi sign-out deletes its local credentials; use Morsel revocation to terminate the server-side connection.
+
+Consent expires after ten minutes. Its first authenticated read binds the server-owned request handle to the displayed account and exact browser session. Account switching, logout, recovery, or even a new session for the same account requires restarting from the client. A stale page or duplicate submission cannot approve another account silently. The narrow `/oauth/consent?request=<opaque handle>` login destination is not an arbitrary `next` URL; do not put tokens or PKCE verifiers there.
+
+Pi stores OAuth credentials in `~/.pi/agent/mcp-auth.json` by default, separate from `mcp.json`. Protect that file, private test profiles, backups, and process access. File storage is not proof of OS keyring integration. Do not commit tokens or copy them into chat. Native browser launching, physical passkeys, callback ownership, and native credential storage need the [external handoff](deployment.md#external-mcp-handoff). The last production probe returned `/mcp` HTTP 404; local discovery is not evidence that production is deployed or that an untested client is compatible.
+
+### OAuth protocol and lifetimes
+
+The issuer is the canonical `MORSEL_URL` origin; the sole resource is `<origin>/mcp`. They never come from Host or forwarded headers.
+
+| Route | Contract |
+| --- | --- |
+| `GET /.well-known/oauth-protected-resource/mcp` | Resource metadata and authorization-server discovery. |
+| `GET /.well-known/oauth-authorization-server` | Issuer, endpoints, scopes, public-client authentication, `S256`, and RFC 9207 `iss` support. |
+| `POST /oauth/register` | Bounded JSON native/public registration with name, redirects, and `token_endpoint_auth_method=none`. |
+| `GET /oauth/authorize` | Authorization code request with client, redirect, `state`, scope, resource, and `S256` challenge; redirects only to the internal consent page after validation. |
+| `POST /oauth/token` | Form-encoded code exchange or refresh; `client_id` and exact resource are required. Code exchange also requires the exact authorized redirect and verifier. Optional `scope` must match the grant after order normalization; narrowing or widening returns `invalid_scope`. |
+| `POST /oauth/revoke` | Form-encoded `client_id`, token, and optional token-type hint; revokes that client's family and returns `{}` for unknown/foreign tokens too. |
+
+Only exact registered redirects are accepted, except that an HTTP `127.0.0.1` or `[::1]` callback may change only its port. `localhost` and HTTPS redirects require exact matching. No wildcards, prefixes, credentials, fragments, query strings, or encoded paths are allowed. Error redirects are not sent before validation. Protocol fields are bounded and single-valued; unknown or duplicate fields are rejected. Only authorization code, `S256` PKCE, and refresh are supported; no implicit, password, client credentials, JWT, or client assertions are supported. Responses return `iss` and preserve bounded client `state`.
+
+| State | Maximum lifetime |
+| --- | --- |
+| Pending authorization request | 10 minutes |
+| One-use authorization code (`moc_`) | 1 minute |
+| Access token (`moa_`) | 10 minutes, capped by family expiry |
+| Family with `offline_access` and rotating refresh token (`mor_`) | 30 days absolute from approval, not sliding |
+| Family without `offline_access` | 10 minutes from approval; no refresh token |
+
+A refresh request normally omits `scope`, as Pi and the configured Go integration do. If supplied, it must match the granted canonical scope after order normalization: narrowing and widening both return `invalid_scope`. Downscoping is not implemented. To stop refresh capability, revoke the old connection and authorize a new request without `offline_access`.
+
+The official Go MCP SDK v1.8.0 needs an explicit resource-aware refresh HTTP transport/`NewTokenSource` hook: its default `oauth2.Config.TokenSource` omits `resource` and receives HTTP 400. Keep the mandatory resource check; do not assume default SDK refresh works without that integration. Pi 1.4.0 sends resource on refresh.
+
+Exchange and refresh are atomic. Rotation invalidates the old refresh and access credentials. Concurrent use or detected reuse of a consumed code/refresh token revokes the family, including its access tokens. If a code or refresh response is lost, the outcome is uncertain: do not automatically retry redemption. Restart authorization when the client cannot safely continue. Restarting the Go process does not reset registrations or grants; PostgreSQL persists them.
+
+OAuth has finite admission and cleanup limits. Registrations expire after ninety days, extended by valid authorization/token traffic. All retained rows count toward limits: 10,000 clients, 10,000 requests, 10,000 grants, 100 grants per account, and 10,000 token rows per family. Revocation is not immediate deletion. Expired-row cleanup runs at most once per minute per process, with at most 2,000 rows per statement. Code/refresh replay tombstones remain for active families until family expiry; expired access rows can be pruned. Grant rows remain until family expiry. At a capacity limit, stop, allow eligible expiry/cleanup to free capacity, then explicitly reauthorize; do not add an automatic retry loop. See [operations](deployment.md#oauth-storage-and-admission-limits) for rate limits and correction paths.
 
 ### Custom-header configuration
 
@@ -154,7 +217,7 @@ The uppercase value is a secret placeholder, not a working credential. Use the c
 
 ### Tools and results
 
-`tools/list` publishes explicit input and output schemas. OpenAPI remains REST-only. Unknown fields, including owner selectors, are rejected.
+`tools/list` publishes explicit MCP input and output schemas. OpenAPI covers REST and manual OAuth/account routes, not MCP tool schemas. Unknown fields, including owner selectors, are rejected.
 
 | Tool | Arguments | Result and effect |
 | --- | --- | --- |
@@ -164,9 +227,9 @@ The uppercase value is a secret placeholder, not a working credential. Use the c
 
 Creation uses the existing [preview and Instant View rules](#link-previews). `expires_in` is an integer from 1 to 315360000 seconds; `max_views` is an integer from 1 to 9223372036854775807. For these two optional fields, `null` means absent. `preview` must be an object with required `title` and `description`; boolean and null values are invalid. `telegram_instant_view` must be a boolean; when true, it requires preview without expiration or view limits. Existing document and request-body limits apply.
 
-The key determines creation ownership and permits revocation only within its account. A foreign and a missing revocation UUID produce the same `not_found` tool error. Retrieval uses the capability, not ownership: a valid token can read another account's share without exposing the owner's identity. There are no account, list, or admin tools.
+The validated access token or API key determines creation ownership and permits revocation only within its account. A foreign and a missing revocation UUID produce the same `not_found` tool error. Retrieval uses the capability, not ownership: a valid token can read another account's share without exposing the owner's identity. There are no account, list, or admin tools.
 
-Tool results include `structuredContent` and the same JSON as text for clients without structured-result display. Share-operation and argument failures return `isError: true` with safe `code` and `message` fields. Expired, revoked, and exhausted capabilities retain distinct errors. Protocol failures use SDK JSON-RPC or HTTP validation errors; malformed and unregistered legacy requests can return HTTP `400`. Missing or invalid keys return HTTP `401` with a Bearer challenge, and authentication database failures return safe HTTP `503` before tool execution. MCP tool errors are not REST HTTP status responses. Responses, including failures, use `Cache-Control: no-store`; existing time limits apply. If the request deadline ends before a response is committed, the server returns safe HTTP `504`.
+Tool results include `structuredContent` and the same JSON as text for clients without structured-result display. Share-operation and argument failures return `isError: true` with safe `code` and `message` fields. Expired, revoked, and exhausted capabilities retain distinct errors. Protocol failures use SDK JSON-RPC or HTTP validation errors; malformed and unregistered legacy requests can return HTTP `400`. Missing or invalid credentials return HTTP `401` with a Bearer challenge containing `resource_metadata` and `scope="mcp:shares offline_access"`. An otherwise valid access token without share permission returns HTTP `403` with `insufficient_scope`. Authentication database failures return safe HTTP `503` before tool execution, without falling back to another credential type. MCP tool errors are not REST HTTP status responses. Responses, including failures, use `Cache-Control: no-store`; existing time limits apply. If the request deadline ends before a response is committed, the server returns safe HTTP `504`.
 
 Never retrieve a newly created share to validate its URL. Do not automatically retry `create_share` or `get_share`: an interrupted call can already have created a share or consumed a view. There is no exactly-once delivery guarantee.
 

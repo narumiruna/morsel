@@ -69,7 +69,7 @@ func run() int {
 	}
 	handler := morselapi.NewService(repository, share.TokenGenerator{}, cfg.PublicViewerURL, cfg.MaxDocumentBytes, logger)
 	router := morselapi.NewRouter(handler, morselapi.RouterConfig{
-		Authenticator: accounts, Account: accounts, Viewer: viewer,
+		Authenticator: accounts, Account: accounts, OAuth: accounts.OAuthHandler(), Viewer: viewer,
 		MCP:            morselapi.NewMCPHandler(handler, accounts, cfg.MaxRequestBytes),
 		MaxRequestBody: cfg.MaxRequestBytes, RequestTimeout: cfg.RequestTimeout, Logger: logger,
 	})

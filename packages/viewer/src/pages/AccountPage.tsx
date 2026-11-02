@@ -12,6 +12,7 @@ import {
   type Passkey,
   supportsPasskeys,
 } from "../account/accountApi"
+import { ConnectedApps } from "../account/ConnectedApps"
 import { InvitationManagement } from "../account/InvitationManagement"
 import {
   type AccountMutation,
@@ -222,6 +223,7 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
   }
 
   const mutate: AccountMutation = (action) => mutateAction(action, "Revoking share…")
+  const mutateApp: AccountMutation = (action) => mutateAction(action, "Revoking app access…")
 
   const logout = () => {
     controller.current?.abort()
@@ -665,6 +667,16 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                 )}
               </Card>
             )}
+            {section === "security" &&
+              !(busy && busyAction === "Signing out…") &&
+              controller.current && (
+                <ConnectedApps
+                  busy={busy}
+                  canVerify={supported}
+                  mutate={mutateApp}
+                  sessionSignal={controller.current.signal}
+                />
+              )}
             {section !== "security" && (
               <Text as="p" size="1" className="management-account-id">
                 Account ID: <code>{account.account_id}</code>

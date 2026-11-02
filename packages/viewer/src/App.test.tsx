@@ -64,6 +64,7 @@ function managementFetch(initiallySignedIn = true) {
       body = [{ id: "first", name: "Laptop", created_at: "2026-10-21T10:00:00Z" }]
     else if (path === "api-keys")
       body = init?.method === "POST" ? { id: "key", key: "raw-one-time-key" } : []
+    else if (path === "account/oauth/grants") body = []
     else if (path.startsWith("account/shares?")) body = { items: [], matching_count: 0 }
     else if (path === "auth/login/begin") body = { publicKey: { challenge: "challenge" } }
     else if (path === "auth/login/finish") {

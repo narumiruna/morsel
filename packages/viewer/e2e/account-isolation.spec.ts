@@ -69,6 +69,8 @@ async function mockAccounts(context: BrowserContext, baseURL: string) {
         ],
       })
     }
+    if (path === "/v1/account/oauth/grants" && request.method() === "GET")
+      return route.fulfill({ headers, json: [] })
     if (path === "/v1/passkeys")
       return route.fulfill({
         headers,

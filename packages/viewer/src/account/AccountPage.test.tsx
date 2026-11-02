@@ -88,6 +88,7 @@ beforeEach(() => {
         fail.status,
       )
     if (path === "account") return json(account)
+    if (path === "account/oauth/grants") return json([])
     if (path.startsWith("account/shares?")) return json({ items: [], matching_count: 0 })
     if (path === "passkeys" && init?.method === "GET") return json(passkeys)
     if (path === "api-keys" && init?.method === "GET") return json(keys)

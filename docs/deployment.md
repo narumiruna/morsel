@@ -9,7 +9,7 @@ The API reads these environment variables:
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `MORSEL_DATABASE_URL` | yes | — | PostgreSQL connection URL. |
-| `MORSEL_URL` | yes | — | Public origin for share links, invitation links, WebAuthn, and MCP Host/Origin checks. Non-root paths, queries, fragments, and credentials are rejected. |
+| `MORSEL_URL` | yes | — | Public origin for share/invitation links, WebAuthn, MCP Host/Origin checks, OAuth issuer, and resource `<origin>/mcp`. Non-root paths, queries, fragments, and credentials are rejected. |
 | `MORSEL_VIEWER_DIR` | no | `../viewer/dist` | Viewer directory, relative to the usual `packages/server/` working directory. The container uses `/srv/viewer`. |
 | `MORSEL_ENVIRONMENT` | no | `development` | Set to `production` to require HTTPS. |
 | `MORSEL_ADDRESS` | no | `:12647` | API listen address. |
@@ -23,7 +23,7 @@ The API reads these environment variables:
 | `MORSEL_SHUTDOWN_TIMEOUT` | no | `10s` | Graceful shutdown deadline. |
 | `MORSEL_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error`. |
 
-Startup rejects insecure public URLs, empty viewer paths, and invalid limits or timeouts. Errors do not echo configured secrets. Server API key environment configuration and key-file loading are removed. Clients and scripts can still use `MORSEL_API_KEY` for a key created in the UI; do not pass it to the server.
+Startup rejects insecure public URLs, empty viewer paths, and invalid limits or timeouts. Errors do not echo configured secrets. Server API key environment configuration and key-file loading are removed. Clients and scripts can still use `MORSEL_API_KEY` for a key created in the UI; do not pass it to the server. Native OAuth runs in this Go process with PostgreSQL; Fosite v0.49.0 uses custom 256-bit opaque credentials and SHA-256 signatures, not an HMAC secret or JWT signing keys. There is no OAuth secret, signing-key environment variable, or external authorization-server service to provision.
 
 The WebAuthn RP ID is derived from the hostname in `MORSEL_URL`, without a scheme or port. The allowed origin includes its scheme and port. Production uses `MORSEL_URL=https://morsel.narumi.dev`, RP ID `morsel.narumi.dev`, and origin `https://morsel.narumi.dev`. These values are not derived from request headers. WebAuthn requires a hostname RP ID; numeric IP origins are not supported. Use `localhost`, not `127.0.0.1` or `::1`, for the configured development browser origin. REST clients can still connect through loopback IPs. MCP clients must use the configured public authority/Host, not an arbitrary backend bind host; direct local MCP use requires the configured localhost URL. Keep the hostname stable: an RP ID change can require passkey re-enrollment. Development uses [the exact localhost origin](development.md#interactive-account-development).
 
@@ -37,7 +37,7 @@ Historical migration-10 recovery prerequisites still apply:
 
 1. Back up PostgreSQL and test recovery on a restored copy.
 2. If the database used the encrypted-storage release, recover its retained tokens with that release and its original key **before the multi-account cutover**, while its single-account data is compatible. Copy recovered tokens to `link_token` in an operator-controlled data migration after applying migration 10; verify each token against its existing `token_hash`. Do not discard the original key or backup until recovery is verified. Never start that old release against multi-account data to recover tokens.
-3. Use the maintenance upgrade below for migrations 11 and 12. Deploy the API and viewer together; never mix old and new writers.
+3. Use the maintenance upgrade below for migrations 11 and 12, and the [additive OAuth migration-13 procedure](#oauth-upgrade-rollback-and-restore). Deploy the API and viewer together; never mix old and new writers.
 4. Confirm that Copy link and Show link survive a page reload without changing view counts.
 
 Legacy rows without a plaintext token show **Link unavailable**. Their original public URLs remain valid subject to existing limits and revocation. Hashes cannot restore original tokens. Migration 10 does not regenerate tokens, change public URLs, or automatically decrypt old data. It preserves migration 9's `link_ciphertext` column for recovery; the new server does not read it.
@@ -83,9 +83,9 @@ docker compose run --rm --no-deps --entrypoint /usr/local/bin/account morsel -ki
 
 Obtain the UUID from the authenticated `/v1/account` response or the read-only operator query below. Never select a target by display name. The browser resolves recovery from the grant, not an owner argument. Issuing a replacement cancels older recovery grants for that account only.
 
-Enter the single-use token in the recovery form at `/recover` within one hour and enroll a replacement passkey. Recovery completion replaces that account's old credentials, advances its authentication generation, and invalidates its old sessions, bound authentication flows, verification grants, and recovery grants. Other accounts and their unbound login flows are unaffected. Shares keep their owner and the account keeps its role. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
+Enter the single-use token in the recovery form at `/recover` within one hour and enroll a replacement passkey. Recovery completion replaces that account's old credentials, advances its authentication generation, and invalidates its old sessions, bound authentication flows, verification grants, recovery grants, and all older OAuth codes/grant families/tokens. Other accounts and their unbound login flows are unaffected. Shares keep their owner and the account keeps its role. It does not delete shares or reset the database. **Recovery does not revoke API keys.** Review and revoke suspect keys separately, update affected clients, and enroll a backup passkey again.
 
-Sessions expire 30 days after login, without sliding renewal. Their persistent cookies survive browser restarts; logout and account recovery still revoke sessions immediately. Key creation, key revocation, share revocation, invitation issuance, and passkey changes reuse passkey verification for 12 hours, then require verification again. The UI checks the current server session before each change. Production session cookies remain `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
+Sessions expire 30 days after login, without sliding renewal. Their persistent cookies survive browser restarts; logout and account recovery still revoke sessions immediately. Key creation/revocation, share revocation, invitation issuance, passkey changes, OAuth approval, and connected-app revocation reuse passkey verification for 12 hours, then require verification again. OAuth denial needs the bound browser session, exact Origin, and CSRF, but no fresh verification. Logout invalidates pending session-bound consent, not existing OAuth grants or API keys. The UI checks the current server session before each change. Production session cookies remain `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`.
 
 Existing sessions keep their original database expiry and cookie lifetime. After deployment, log out and sign in again to receive a 30-day persistent session. Tokens already issued keep their stored expiry. Longer lifetimes increase the time that a stolen session or unused grant can remain valid. Revoke compromised sessions; a replacement recovery grant cancels earlier recovery grants for that account, but issuing a new invitation never revokes earlier invitations.
 
@@ -105,38 +105,107 @@ HTTPS and reverse-proxy provisioning are already in place and are not changed he
 
 The reverse proxy must:
 
-- Route `/mcp` to the Go service, including unsupported methods; do not send it to a static viewer fallback. Preserve the configured public Host rather than replacing it with the upstream bind address. See [MCP routing and handoff](#mcp-routing-and-external-handoff).
+- Route `/mcp`, `/oauth/authorize`, `/oauth/token`, `/oauth/register`, `/oauth/revoke`, `/.well-known/oauth-protected-resource/mcp`, and `/.well-known/oauth-authorization-server` to Go, including unsupported methods. Do not send protocol paths to a static viewer fallback. `/oauth/consent` is a viewer route; keep its direct navigation/refresh available. Preserve the configured public Host rather than replacing it with the upstream bind address. See [MCP routing and handoff](#mcp-routing-and-external-handoff).
 - Preserve the browser `Origin` header unchanged and preserve `X-Request-ID` and `X-Morsel-Account-ID` response headers. The account marker is server-derived, never a request-side owner selector.
-- Never cache `/mcp`, `/v1/*` (including authentication and management), `/manage/*`, `/account`, `/account/*`, `/login`, `/recover`, `/setup`, `/invite`, or `/s/*`; honor `Cache-Control: no-store`.
-- Exclude authorization headers, cookies, setup/invitation/recovery tokens, WebAuthn payloads, raw keys, request bodies, and raw `/s/<token>` paths from logs. Do not enable shell tracing around secret operations.
+- Never cache `/mcp`, `/oauth/*`, the OAuth well-known documents, `/v1/*` (including authentication and management), `/manage/*`, `/account`, `/account/*`, `/login`, `/recover`, `/setup`, `/invite`, or `/s/*`; honor `Cache-Control: no-store` and OAuth `Pragma: no-cache`.
+- Exclude authorization headers, cookies, setup/invitation/recovery tokens, WebAuthn payloads, raw keys, OAuth codes/tokens/verifiers, authorization/callback queries, consent handles, request/response bodies, and raw `/s/<token>` paths from logs. Do not enable shell tracing around secret operations.
 - Not replace the configured WebAuthn origin with forwarded request headers. Do not assume arbitrary forwarded client IP headers are trusted.
 
-The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. CORS remains disabled. Default hash routing keeps capabilities out of initial document requests. Preview metadata intentionally uses a path capability; the Go logger does not log the raw path.
+The Go server sends a Content Security Policy, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. Application and MCP CORS remain disabled; only public OAuth metadata permits credential-free GET/OPTIONS CORS. Default hash routing keeps capabilities out of initial document requests. Preview metadata intentionally uses a path capability; the Go logger does not log the raw path.
 
 ## MCP routing and external handoff
 
-MCP uses the same process, database, UI-managed API keys, and configured public origin as REST. It adds no environment variable or migration. See [client setup](usage.md#mcp-clients) for the three tools and local examples. OpenAPI remains REST-only; authenticated `tools/list` is the MCP schema source.
+MCP and its native OAuth authorization server use the same Go process, PostgreSQL, account system, and configured public origin as REST. OAuth adds migration 13, not an environment variable or signing secret. Legacy UI-managed API keys remain supported unchanged. See [client setup](usage.md#mcp-clients) for URL-only Pi, the custom-header alternative, and local curl examples. OpenAPI includes manual OAuth/account contracts; authenticated `tools/list` remains the MCP tool-schema source.
 
-For an approved HTTPS deployment, route `/mcp` unchanged to Go and preserve `Authorization`, `Origin`, `Accept`, `Content-Type`, and `MCP-Protocol-Version`. Preserve the public Host matching `MORSEL_URL` after hostname-case/default-port normalization; do not substitute `localhost:12647` for the public authority or rely on forwarded headers to select it. If Origin is present, preserve its single exact canonical value. Omitted Origin is allowed; duplicate, `null`, and foreign values are forbidden. Do not add CORS.
+For an approved HTTPS deployment, route `/mcp` unchanged to Go and preserve `Authorization`, `Origin`, `Accept`, `Content-Type`, and `MCP-Protocol-Version`. Preserve the public Host matching `MORSEL_URL` after hostname-case/default-port normalization; do not substitute `localhost:12647` for the public authority or rely on forwarded headers to select it. If Origin is present, preserve its single exact canonical value. Omitted Origin is allowed for native protocol/MCP requests; duplicate, `null`, and foreign values are forbidden. Do not add application-wide CORS.
+
+Route the four explicit OAuth protocol endpoints and both well-known documents above through the same HTTPS origin. The canonical issuer is the `MORSEL_URL` origin and the resource is `<origin>/mcp`; Host/forwarded headers must not change them. Preserve `WWW-Authenticate`, including `resource_metadata`, scope, and `insufficient_scope`, plus `Location`, no-store, and protocol error bodies. Initial MCP 401 challenges include `mcp:shares offline_access` for Pi URL-only refresh. Public metadata GET/OPTIONS uses `Access-Control-Allow-Origin: *` without credentials; do not extend that policy to MCP, token, registration, consent, or account routes. Verify that the WAF permits JSON registration and form-encoded token/revocation bodies, as well as the internal consent page and browser account requests.
 
 The endpoint uses stateless Streamable HTTP with normal JSON responses, not persistent SSE streams or sessions. It issues no `Mcp-Session-Id`; authenticated GET/DELETE return `405` with `Allow: POST`. POST clients must accept `application/json` and `text/event-stream` and send JSON Content-Type. Preserve the negotiated version header on subsequent requests. Supported and tested versions are `2025-11-25`, `2025-06-18`, and `2025-03-26` with official Go SDK v1.8.0.
 
-Disable proxy/CDN caching for every `/mcp` response, including errors, and honor `Cache-Control: no-store`. Disable request/response body logging, SDK payload logging, and header capture that could expose keys. Tool payloads and responses can contain Markdown, capabilities, and complete share URLs. Preserve existing request/body/document limits and timeouts. Verify the actual proxy/WAF timeout policy; application cancellation is restored through the SDK, and a deadline before response commitment returns safe HTTP `504`. Do not configure automatic mutation retries in the proxy or client. Creation can make another share, and retrieval can consume another view after an interrupted response.
+Disable proxy/CDN caching for every `/mcp` response, including errors, and honor `Cache-Control: no-store`. Disable request/response body logging, SDK payload logging, query logging, and header capture that could expose keys, OAuth credentials, consent handles, or PKCE verifiers. Tool payloads and responses can contain Markdown, capabilities, and complete share URLs. Preserve existing request/body/document limits and timeouts. Verify the actual proxy/WAF timeout policy; application cancellation is restored through the SDK, and a deadline before response commitment returns safe HTTP `504`. Do not configure automatic mutation retries in the proxy or client. Creation can make another share, and retrieval can consume another view after an interrupted response.
 
 ### External MCP handoff
 
-These checks are external responsibilities, not completed agent checks or authorization to deploy. Local evidence does not establish production deployment or external-client acceptance.
+These checks retain the native OAuth external handoff. They are external responsibilities, not completed agent checks or authorization to deploy. Local virtual-authenticator/discovery results do not establish production readiness or native/product acceptance. The previously observed production `/mcp` HTTP 404 remains unresolved until an authorized deployment check. No component-required secret is needed by the selected opaque strategy.
 
 | Responsible role | Prerequisite | Action | Expected result | Unverified behavior | Release restriction |
 | --- | --- | --- | --- | --- | --- |
-| Deployment operator | An approved release and passing local/CI evidence | Route `/mcp` through the actual HTTPS proxy; preserve Host and the headers above; disable caching and payload/secret logging; perform an authorized fixture smoke test | Authenticated protocol calls reach Go, invalid origins fail, and existing REST/browser routes remain available | Production proxy/WAF routing, Host behavior, header preservation, and timeout policy | No production readiness claim before this check; this task does not authorize deployment or release dispatch |
-| Account owner / client operator | A custom-header-capable client and an approved reachable endpoint | Create or select a UI-managed key; store it in the client's secret mechanism; check discovery and only explicitly requested fixture operations | Only that account's share writes are authorized; capability reads and their view consumption are understood | The selected external client's configuration, credential storage, and retry behavior | No compatibility claim for an untested client or OAuth-only clients; never request raw keys in chat |
+| Deployment operator | Approved server/schema release, passing local/CI evidence, protected backup, and any component-required secret prepared outside chat (none for this strategy) | Apply the tested migration/rollback procedure; route `/mcp`, OAuth, and well-known paths through the actual HTTPS proxy; preserve Host/Origin and challenges; suppress credential/query/payload logs and caching; run an authorized fixture smoke | Discovery and OAuth work at the configured issuer/resource; legacy key clients remain usable | Production proxy/WAF policy, TLS, load, backups, clock behavior, deployment duration, and the previously observed `/mcp` 404 | Do not claim production OAuth readiness before these checks; no deployment or release dispatch is authorized by this work |
+| Account owner / client operator | Approved reachable endpoint and supported client version | Start a real OAuth login, verify client/permissions, approve with a physical passkey, inspect client credential storage, test disconnect/relogin | The intended account authorizes the intended client without copying an API key | Native browser launching, loopback callback ownership, physical passkey UX, OS credential/keyring storage, and subjective consent clarity | Local virtual-authenticator tests do not establish native/product acceptance; do not share tokens in chat or claim compatibility with untested clients |
+
+For the API-key alternative, the client operator must select a custom-header-capable client, store its UI-created key securely, and verify its retry policy. Preserve the existing REST/MCP key lifetime and recovery behavior; do not replace every client with OAuth or ask for real keys in chat.
 
 ### MCP rollback
 
-MCP does not change the schema or existing share data. For an approved rollback, use the previous account-isolation-capable application release compatible with the current schema. Do not downgrade migrations or start an older unscoped server. Remove the affected client's MCP configuration or return it to REST. Do not revoke all keys, regenerate capabilities, delete shares, or restore the database merely to remove MCP. Use existing explicit key rotation/share revocation procedures only if a secret was disclosed.
+The MCP transport does not change existing share data. For a transport-only corrective release, use an account-isolation-capable application compatible with the current schema. OAuth persistence requires the separate [migration-13 rollback/restore procedure](#oauth-upgrade-rollback-and-restore); an older migration runner can reject schema 13. Revert an affected OAuth client to the documented API-key mode when returning to a server without OAuth, or remove its MCP entry and use REST. Never start an old unscoped server, remove migrations 12/11 to disable OAuth, revoke all API keys, regenerate capabilities, delete shares, or restore the database merely to remove MCP.
 
 Never automatically retry mutations during rollback or recovery. A timeout or lost response does not prove failure: creation can already have committed, and retrieval can already have consumed a view. There is no exactly-once delivery guarantee. Remove only named disposable test resources after local failures.
+
+## OAuth storage and admission limits
+
+Migration 13 stores clients, pending requests, account-bound grant families, and hashed/signature-only token state in four additive tables. OAuth credentials are independent random 256-bit values: `moc_` codes, `moa_` access tokens, and `mor_` refresh tokens. SHA-256 signatures alone are stored; no PKCE verifier, raw token, HMAC secret, or JWT key is stored. Existing share storage still retains raw capabilities. Protect the complete database and backups as secrets.
+
+Pending requests last ten minutes, codes one minute, and access tokens at most ten minutes. An `offline_access` family expires thirty days after approval with no sliding extension; an access-only family expires ten minutes after approval. All token deadlines are capped by the family. PostgreSQL supplies authoritative protocol time. Monitor database and host clock behavior; local timing tests do not establish production clock correctness. Clients, grants, rotation state, and replay tombstones survive process restarts.
+
+| Bound | Limit / cleanup rule |
+| --- | --- |
+| Client registration | 90-day expiry, extended by valid authorization/token traffic; at most five redirects and a 1–200-byte UTF-8 name. |
+| Retained clients / pending requests / grants | 10,000 rows in each table, including retained revoked/expired rows. |
+| Grants per account | 100 retained families; revoking one does not immediately free its slot. |
+| Tokens per family | 10,000 retained rows, including consumed code/refresh tombstones. |
+| Protocol input | 16 KiB body/authorization parameters; at most 2,048 bytes per parameter; strict single values and allowed fields. |
+| Cleanup | On protocol traffic, at most once per minute per process; at most 2,000 rows per DELETE statement. |
+| Cleanup retention | Expired access rows can be pruned. Active-family code/refresh tombstones remain until family expiry. Revoked-family tokens can be removed; grants remain until family expiry and token removal. Expired clients require no retained grant/request references. |
+| OAuth rate limiter | Separate from browser ceremonies: 60 requests per source IP and fixed OAuth endpoint kind per minute, plus 1,000 globally per minute within that process's OAuth limiter. |
+
+Forwarded client IP headers are not trusted. A reverse proxy's clients share its source-IP budget; use trusted proxy abuse controls where needed without changing application identity rules. Cleanup limits apply per process, not as a cluster-wide scheduler. All retained rows count toward admission; cleanup can need several passes. A rate-limit response includes `Retry-After`; a capacity response need not. Do not repeatedly retry issuance or refresh. Allow eligible expiry/cleanup to free capacity, then explicitly reauthorize. Revocation does not bypass retention, and a new registration does not bypass an account grant cap.
+
+## OAuth upgrade, rollback, and restore
+
+The disposable built-image migration/rollback/restore rehearsal passed; commands, preservation assertions, and local evidence locations are retained in [development evidence](development.md#native-oauth-validation-evidence). This does not establish production readiness or authorize deployment. Use these procedures only for an approved operation.
+
+1. Retain immutable, account-isolation-capable API/viewer images, the migration-13 runner, and a protected tested backup. Rehearse schema 12 → 13 → 12 → 13 on fixture/restored data. Migration 13 creates only `oauth_clients`, `oauth_requests`, `oauth_grants`, and `oauth_tokens`; up/down must preserve legacy shares, capability hashes/raw tokens, roles, passkeys, sessions, API keys, existing authentication grants, generations, and ordering.
+2. Pause all relevant writers and stop all application instances before the approved migration or rollback. Use the [guarded maintenance sequence](#maintenance-sequence); an additive schema is not permission for mixed-version deployment. Keep the configured issuer/resource stable. Old migration runners can reject unknown schema versions, so use the compatible new runner, not an old image's automatic migration.
+3. Apply migration up, confirm clean schema 13, and start the paired new API/viewer only after success. Verify both well-known documents, unauthenticated MCP challenge, local fixture OAuth approval/refresh/revocation, and unchanged API-key REST/MCP behavior. Resume writes only after approved operator checks.
+4. Prefer an OAuth-capable corrective release. If removing OAuth schema is approved, confirm clean migration **13 is latest**, stop all writers/instances, and use the new runner for **exactly one** down step to schema 12. Never run down-12 or down-11 to roll back OAuth. Down-13 discards only OAuth clients, requests, grants, and tokens; all legacy data remains. Use only the paired account-isolation/admin-capable schema-12 release. Revert affected MCP clients to API-key mode. Reapplying migration 13 starts with no OAuth registrations/grants; clients must register and authorize again.
+
+### Invalidate restored OAuth state before startup
+
+A backup can revive a revoked family, a consumed code, or an old refresh token. With all application instances and writers stopped, restore into an isolated database and confirm a clean schema 13 using the compatible runner. Before any OAuth-capable service starts, run this OAuth-only transaction against the restored database:
+
+```sql
+BEGIN;
+UPDATE oauth_grants
+SET revoked_at = COALESCE(revoked_at, clock_timestamp());
+UPDATE oauth_tokens SET active = false;
+DELETE FROM oauth_requests;
+COMMIT;
+```
+
+Verify these read-only assertions before startup:
+
+```sql
+BEGIN READ ONLY;
+SELECT count(*) AS unrevoked_oauth_families
+FROM oauth_grants WHERE revoked_at IS NULL;
+SELECT count(*) AS active_oauth_tokens
+FROM oauth_tokens WHERE active;
+SELECT count(*) AS pending_oauth_requests FROM oauth_requests;
+COMMIT;
+```
+
+All three counts must be zero. Keep this step separate from account recovery: do not advance all account generations, remove legacy authentication records, or invalidate raw API keys merely to invalidate OAuth. This SQL does not alter shares, roles, passkeys, sessions, API keys, or existing `auth_grants`. Reconcile any unrelated session/key/account changes lost in the restore through the existing authorized recovery process. Require reauthorization for every restored OAuth connection. Revoked families still count toward retention until expiry/cleanup. The local rehearsal executed this exact transaction before startup and verified old code/access/refresh denial with unchanged legacy clients and data. Repeat it on an approved restored production copy; this example alone does not establish production recovery.
+
+### OAuth failure correction paths
+
+| Failure | Required correction |
+| --- | --- |
+| Migration failure | Leave the application stopped. Inspect schema/dirty state and transactional outcome; do not clear dirty metadata blindly or automatically run the old image. Apply an approved correction with the compatible runner. |
+| Partial API/viewer/proxy cutover | Keep writers paused. Restore a compatible API/viewer pair and explicit protocol/consent routing at the same issuer. Do not loosen Origin/CSRF or resource checks to make a client connect. |
+| Expired/reset client registration | Stop the connection attempt; reset only the affected client's local registration/credentials and explicitly reconnect through DCR and consent. Respect capacity/cleanup limits; do not delete live families to force admission. |
+| Lost code/token response or concurrent refresh | Treat the result as uncertain. Never automatically redeem the same code/refresh token again; reuse can revoke even the winning access token. Explicitly reauthorize when safe continuation is not possible. |
+| Family revocation/recovery/absolute expiry | Reconnect from the intended client/account and approve a new family. Existing shares and API keys remain unchanged. Wait for eligible expiry/cleanup if retained-row admission is full; no automatic retry loop. |
 
 ## Multi-account maintenance upgrade
 
@@ -216,7 +285,7 @@ Compare the admin UUID with the preflight result and verify that all other exist
    ```
 
    PostgreSQL must be healthy before migration. Migration must complete before the combined new API/viewer starts. Dependencies are not restarted during application startup. Any failure must leave the application stopped; never automatically restart the old image or downgrade. A local Compose stop does not replace stopping external replicas in step 3.
-5. Before reopening service, run the ownership checks below and compare the original account's count with the recorded legacy count. Verify clean schema 12 and the selected admin UUID and user roles with the role queries above. Verify the new API and viewer together, direct navigation to `/login`, `/setup`, `/invite`, `/recover`, `/account`, `/manage/shares`, `/manage/api-keys`, and admin-only `/manage/invitations`, and unchanged public capability behavior.
+5. Before reopening service, run the ownership checks below and compare the original account's count with the recorded legacy count. Verify clean schema 13 for this release, the selected admin UUID and user roles with the role queries above, and the [OAuth upgrade checks](#oauth-upgrade-rollback-and-restore). Verify the new API and viewer together, direct navigation to `/login`, `/setup`, `/invite`, `/recover`, `/account`, `/manage/shares`, `/manage/api-keys`, and admin-only `/manage/invitations`, and unchanged public capability behavior.
 6. With operator-supplied real keys, check that two keys in A can manage A's shares, B cannot inspect or revoke A's UUID (uniform 404), and B's list/count/search excludes A. Check saved-link retrieval and verification, key revocation, identity switching, and v1/v2 cursor rejection with page-one reset. A valid public capability still permits reads from either account. Resume writes only after operator verification.
 
 After schema 11, these queries are read-only. The first query enumerates accounts **for operators only**; the application has no enumeration route. Display names are not unique selectors:
@@ -313,7 +382,7 @@ Historical label-only rollback applied only with version 8 as latest and no late
 
 ## Backup, restore, and rollback
 
-PostgreSQL is authoritative for shares, plaintext share tokens, accounts, passkeys, API key hashes, sessions, and temporary authentication grants. Database backups include retained share tokens and can restore saved-link retrieval without a separate encryption key. Protect backups as secrets and define recovery point and recovery time objectives. Retain the original key and backup for any legacy encrypted tokens until their recovery is verified.
+PostgreSQL is authoritative for shares, plaintext share tokens, accounts, passkeys, API key hashes, sessions, temporary authentication grants, and OAuth clients/requests/grant families/token signatures. A schema-13 restore requires [OAuth-family invalidation and pending-request deletion before startup](#invalidate-restored-oauth-state-before-startup). Database backups include retained share tokens and can restore saved-link retrieval without a separate encryption key. Protect backups as secrets and define recovery point and recovery time objectives. Retain the original key and backup for any legacy encrypted tokens until their recovery is verified.
 
 ```sh
 pg_dump --format=custom --dbname="$MORSEL_DATABASE_URL" --file=morsel.dump
@@ -326,7 +395,7 @@ Back up before every schema change and test migrations on a restored copy. Prefe
 
 ### Role-only rollback (down-12)
 
-Prefer an admin-capable corrective release. If a downgrade is necessary, stop all writes and application instances. Confirm migration 12 is the latest applied version and is clean before using the new runner for exactly one down step. Retain a tested backup and a protected role snapshot:
+This separate historical role rollback requires schema 12 to be latest. It is not an OAuth rollback: use only down-13 to disable OAuth and keep migrations 12 and 11. Prefer an admin-capable corrective release. If a downgrade is necessary, stop all writes and application instances. Confirm migration 12 is the latest applied version and is clean before using the new runner for exactly one down step. Retain a tested backup and a protected role snapshot:
 
 ```sql
 BEGIN READ ONLY;

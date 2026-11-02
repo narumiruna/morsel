@@ -2,6 +2,7 @@ export type Route =
   | { kind: "home" }
   | { kind: "authentication"; mode: "login" | "recover" | "setup" | "invite" }
   | { kind: "account" }
+  | { kind: "oauth-consent" }
   | { kind: "management"; section: "shares" | "api-keys" | "invitations" }
   | { kind: "example" }
   | { kind: "share"; token: string }
@@ -20,6 +21,7 @@ export function parseRoute(pathname: string, hash: string): Route {
       mode: pathname.slice(1) as "login" | "recover" | "setup" | "invite",
     }
   if (pathname === "/account") return { kind: "account" }
+  if (pathname === "/oauth/consent") return { kind: "oauth-consent" }
   if (pathname === "/manage/shares") return { kind: "management", section: "shares" }
   if (pathname === "/manage/api-keys") return { kind: "management", section: "api-keys" }
   if (pathname === "/manage/invitations") return { kind: "management", section: "invitations" }
