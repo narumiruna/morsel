@@ -1,7 +1,13 @@
 name: Deploy
 
-# Verify maintenance prerequisites before pushing a version tag or dispatching.
+# Verify maintenance prerequisites before publishing, pushing a version tag, or dispatching.
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Git tag to deploy
+        required: true
+        type: string
   workflow_dispatch:
   push:
     tags:
@@ -18,14 +24,16 @@ jobs:
   deploy:
     if: github.event_name == 'push' || github.ref == 'refs/heads/main'
     runs-on: self-hosted
-    env:
-      MORSEL_IMAGE: morsel:${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
           persist-credentials: false
       - name: Build image
-        run: docker build --pull --tag "${MORSEL_IMAGE}" .
+        run: |
+          MORSEL_IMAGE="morsel:$(git rev-parse HEAD)"
+          docker build --pull --tag "${MORSEL_IMAGE}" .
+          echo "MORSEL_IMAGE=${MORSEL_IMAGE}" >> "$GITHUB_ENV"
       - name: Deploy in verified maintenance window
         shell: bash
         env:

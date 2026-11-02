@@ -209,9 +209,19 @@ All three counts must be zero. Keep this step separate from account recovery: do
 
 ## Multi-account maintenance upgrade
 
-**Changing the workflow does not authorize a production deployment.** The **Deploy** workflow runs on pushes of version tags matching `v*.*.*` and supports manual `workflow_dispatch` from `main`; pushes to `main` do not deploy. Verify required checks and the operator prerequisites below before pushing a version tag or dispatching a deployment. The **Publish** workflow creates release artifacts automatically, but tags pushed with its `GITHUB_TOKEN` do not trigger **Deploy**. Dispatch approved releases manually in that case. Do not deploy intermediate implementation commits. Every deployment and rollback path must preserve account isolation.
+**Changing the workflow does not authorize a production deployment.** **Publish** calls the reusable **Deploy** workflow after the tagged container and GitHub release succeed. The call passes the published tag explicitly; checkout uses that tag, and the local image name uses its actual commit SHA. This also applies when Publish recovers an older unreleased tag. Tags pushed with `GITHUB_TOKEN` do not trigger another workflow; the direct call avoids that restriction. The deployment job appears inside the **Publish** run, not as a separate tag-triggered **Deploy** run.
+
+**Deploy** also runs on version-tag pushes matching `v*.*.*` from other credentials and supports manual `workflow_dispatch` from `main`. Ordinary pushes that only prepare a version PR or find an already completed release do not deploy. Verify required checks and the operator prerequisites below before merging a version PR, starting release recovery, pushing a version tag, or dispatching deployment. If deployment fails after GitHub release creation, rerun the failed deployment job in the original **Publish** run; a new Publish run for that completed release does not retry deployment. Do not deploy intermediate implementation commits. Every deployment and rollback path must preserve account isolation.
 
 Migrations 11 and 12 require a coordinated outage. Stop **all** old instances and all writes, including setup and invitation writers, before running the new migration. An old server can still perform global reads and revocation with the new schema present. Do not use mixed-version or zero-downtime deployment.
+
+### Workflow validation handoff
+
+- Repository maintainer:
+  - Prerequisite: local release/deployment tests and workflow lint pass; the deployment operator has verified the maintenance requirements before an authorized release.
+  - Action: inspect the next authorized **Publish** run after merge. Confirm that container and GitHub release creation succeed before `deploy / deploy`, that its input matches the published tag, and that checkout and `MORSEL_IMAGE` identify that tag's commit. Confirm that a run without a release tag skips deployment.
+  - Expected result: the released tag is deployed through the unchanged guarded sequence, without a separate tag-push event.
+  - Unverified behavior: live reusable-workflow execution, inherited deployment secrets, and the self-hosted runner. Local checks do not establish a successful live deployment. Do not dispatch or deploy merely to validate the implementation.
 
 ### Legacy preflight and ownership
 
@@ -255,7 +265,7 @@ COMMIT;
 
 An empty result requires first setup after upgrade, not an inferred promotion. Stop if the selected UUID is not the intended admin; role editing and additional-admin provisioning are outside this phase. Do not substitute a display-name match or add an undocumented promotion endpoint.
 
-Migration 12 preserves shares, ownership, capability hashes/tokens, previews, counts, labels, passkeys, sessions, API keys, existing valid grants, authentication generation, and ordering. It adds no plaintext invitation storage. Stop every old instance before applying it, even on an empty database: an old setup writer omits the role and would create only a user after the empty bootstrap migration. Do not use a mixed-version bootstrap. Keep the existing guarded manual deployment sequence below unchanged; no automatic deployment or workflow dispatch is authorized here.
+Migration 12 preserves shares, ownership, capability hashes/tokens, previews, counts, labels, passkeys, sessions, API keys, existing valid grants, authentication generation, and ordering. It adds no plaintext invitation storage. Stop every old instance before applying it, even on an empty database: an old setup writer omits the role and would create only a user after the empty bootstrap migration. Do not use a mixed-version bootstrap. Keep the existing guarded deployment sequence below unchanged; workflow implementation does not authorize a live deployment or workflow dispatch.
 
 After migration, verify clean schema 12 and roles before reopening service:
 
@@ -311,8 +321,8 @@ Both invalid-owner counts must be zero. The sole legacy account must own every l
 ### External multi-account handoff
 
 - Responsible deployment operator:
-  - Prerequisite: required agent checks pass; automatic deployment is disabled; immutable images and a tested backup are available; restored-production ownership/counts and legacy setup prerequisites are verified.
-  - Action: choose the maintenance window, stop all old instances and writes, manually dispatch only the approved guarded release, verify ownership counts and API/viewer behavior, and deliver invitation/recovery tokens through a secure channel. Supply real client keys and perform production create/revoke checks. Automated agents must not enroll production owners, issue production grants, create real keys, or perform production writes.
+  - Prerequisite: required agent checks pass; release publication is paused until the maintenance window; immutable images and a tested backup are available; restored-production ownership/counts and legacy setup prerequisites are verified.
+  - Action: choose the maintenance window, stop all old instances and writes, start only the approved guarded release through Publish or manual Deploy, verify ownership counts and API/viewer behavior, and deliver invitation/recovery tokens through a secure channel. Supply real client keys and perform production create/revoke checks. Automated agents must not enroll production owners, issue production grants, create real keys, or perform production writes.
   - Expected result: original shares retain the sole legacy owner, invited accounts start empty, and public capabilities retain their existing behavior without owner metadata.
   - Unverified behavior: production-scale backfill/index lock duration, live backup recovery, instance coordination, and real account-owner enrollment. Do not release until ownership, backup recovery, and old-instance shutdown are verified. Local checks authorize no production changes.
 - Account owners:
@@ -324,7 +334,7 @@ Both invalid-owner counts must be zero. The sole legacy account must own every l
 
 - Deployment operator:
   - Prerequisite: required local checks and disposable rehearsal pass; immutable images and a tested backup are available. Verify the schema-11 selected-admin query on a restored production copy, then compare the UUID with the deployment.
-  - Action: arrange the maintenance window, stop every old instance and writer, use the existing guarded manual deployment, and confirm clean schema 12, the intended admin UUID, user roles, unchanged ownership/capabilities, and role-preserving recovery before reopening service.
+  - Action: arrange the maintenance window, stop every old instance and writer, use the approved guarded deployment, and confirm clean schema 12, the intended admin UUID, user roles, unchanged ownership/capabilities, and role-preserving recovery before reopening service.
   - Expected result: only the intended legacy account is promoted; other accounts retain their data as users; all invitation recipients become users. No key rotation or passkey re-enrollment is required.
   - Unverified behavior: actual production history, backup recovery, lock duration, and instance coordination. Do not release until admin selection, recovery, and old-instance shutdown are verified. This task authorizes no production writes, deployment, release, or workflow dispatch.
 - Admin and recipient:

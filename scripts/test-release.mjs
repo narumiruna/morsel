@@ -515,10 +515,77 @@ test("workflow uses the action only for root version PRs", async () => {
   assert.doesNotMatch(workflow, /publish-script:|npm publish|registry-url:|id-token:/)
 })
 
-test("deployment runs on version tag pushes and manual dispatch from main", async () => {
+test("publication deploys its tag only after the GitHub release succeeds", async () => {
+  const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
+  const deploy = workflow.split("\n  deploy:\n")[1]
+  assert.ok(deploy, "Publish must call Deploy directly")
+  assert.match(deploy, /^ {4}needs: \[publish, release\]$/m)
+  assert.match(deploy, /^ {4}if: needs\.publish\.outputs\.tag != ''$/m)
+  assert.match(deploy, /^ {4}permissions:\n {6}contents: read$/m)
+  assert.match(deploy, /^ {4}uses: \.\/\.github\/workflows\/deploy\.yml$/m)
+  assert.match(deploy, /^ {4}with:\n {6}tag: \$\{\{ needs\.publish\.outputs\.tag \}\}$/m)
+  assert.match(deploy, /^ {4}secrets: inherit$/m)
+  assert.doesNotMatch(deploy, /always\(\)|continue-on-error:/)
+})
+
+test("deployment accepts a required release tag and preserves tag-push and manual triggers", async () => {
   const deploy = await readFile(join(repositoryRoot, ".github/workflows/deploy.yml"), "utf8")
+  assert.ok(
+    deploy.includes(
+      "  workflow_call:\n    inputs:\n      tag:\n        description: Git tag to deploy\n        required: true\n        type: string\n",
+    ),
+  )
   assert.ok(deploy.includes("  workflow_dispatch:\n"))
   assert.ok(deploy.includes('  push:\n    tags:\n      - "v*.*.*"\n'))
   assert.ok(deploy.includes("if: github.event_name == 'push' || github.ref == 'refs/heads/main'"))
+  assert.match(
+    deploy,
+    /ref: \$\{\{ inputs\.tag && format\('refs\/tags\/\{0\}', inputs\.tag\) \|\| github\.sha \}\}/,
+  )
+  assert.ok(deploy.includes("persist-credentials: false"))
+  assert.ok(deploy.includes("concurrency:\n  group: deploy\n  cancel-in-progress: false\n"))
   assert.doesNotMatch(deploy, /branches:/)
+})
+
+test("deployment image identifies the checked-out tag instead of a newer triggering commit", async (t) => {
+  const root = await fixture(t)
+  const taggedSha = git(root, "rev-parse", "HEAD")
+  git(root, "tag", "v0.0.1")
+  git(root, "commit", "--quiet", "--allow-empty", "-m", "test: advance main beyond release")
+  const triggeringSha = git(root, "rev-parse", "HEAD")
+  assert.notEqual(taggedSha, triggeringSha)
+  git(root, "checkout", "--quiet", "--detach", "refs/tags/v0.0.1")
+
+  const bin = join(root, "bin")
+  const log = join(root, "docker.json")
+  const output = join(root, "github-env")
+  await mkdir(bin)
+  await writeFile(output, "")
+  await writeFile(
+    join(bin, "docker"),
+    `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs")
+writeFileSync(process.env.DEPLOY_TEST_LOG, JSON.stringify(process.argv.slice(2)))
+`,
+  )
+  await chmod(join(bin, "docker"), 0o700)
+
+  const deploy = await readFile(join(repositoryRoot, ".github/workflows/deploy.yml"), "utf8")
+  const build = deploy.match(/ {6}- name: Build image\n {8}run: \|\n((?: {10}.*\n)+)/)
+  assert.ok(build, "Build image must derive and export the checked-out image")
+  const result = spawnSync("bash", ["-euo", "pipefail", "-c", build[1].replace(/^ {10}/gm, "")], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH}`,
+      GITHUB_SHA: triggeringSha,
+      GITHUB_ENV: output,
+      DEPLOY_TEST_LOG: log,
+    },
+  })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(await json(log), ["build", "--pull", "--tag", `morsel:${taggedSha}`, "."])
+  assert.equal(await readFile(output, "utf8"), `MORSEL_IMAGE=morsel:${taggedSha}\n`)
 })
