@@ -7,12 +7,13 @@ require (
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/oapi-codegen/runtime v1.8.0
 	github.com/ory/fosite v0.49.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/yuin/goldmark v1.8.6
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/text v0.43.0
 )
 
@@ -49,7 +50,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mattn/goveralls v0.0.12 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
@@ -101,7 +102,6 @@ require (
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
