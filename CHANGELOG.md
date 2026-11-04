@@ -1,5 +1,11 @@
 # @narumitw/morsel
 
+## 0.2.1
+
+### Patch Changes
+
+- 0311d7b: Update Mermaid and npm development dependencies.
+
 ## 0.2.0
 
 ### Minor Changes
