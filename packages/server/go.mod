@@ -12,7 +12,7 @@ require (
 	github.com/oapi-codegen/runtime v1.8.0
 	github.com/ory/fosite v0.49.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
-	github.com/yuin/goldmark v1.8.6
+	github.com/yuin/goldmark v1.8.7
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/text v0.43.0
 )
