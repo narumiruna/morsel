@@ -122,8 +122,10 @@ test("loads Gist Markdown directly from GitHub without credentials", async ({ pa
 })
 
 test("applies custom panel colors to portaled selectors", async ({ page }) => {
-  await page.route(`https://api.github.com/gists/${gist}`, (route) =>
-    route.fulfill({
+  let requests = 0
+  await page.route(`https://api.github.com/gists/${gist}`, (route) => {
+    requests += 1
+    return route.fulfill({
       json: {
         files: {
           "01-first.md": {
@@ -138,8 +140,8 @@ test("applies custom panel colors to portaled selectors", async ({ page }) => {
           },
         },
       },
-    }),
-  )
+    })
+  })
   await page.goto(`/gist/#${gist}`)
   await expect(page.getByRole("heading", { name: "First document" })).toBeVisible()
 
@@ -151,10 +153,27 @@ test("applies custom panel colors to portaled selectors", async ({ page }) => {
     ["Sage", "sage", "#f8fbf6"],
     ["Midnight", "midnight", "#14212b"],
   ] as const) {
+    await page.getByRole("link", { name: "Settings", exact: true }).click()
+    await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
     await theme.click()
-    await page.getByRole("option", { name: label }).click()
+    await page.getByRole("option", { name: label, exact: true }).click()
     await expect(themeRoot).toHaveAttribute("data-theme-mode", mode)
-    await theme.click()
+    for (const selector of [theme, page.getByRole("combobox", { name: "Mermaid style" })]) {
+      await selector.click()
+      await expect(portal).toBeVisible()
+      await expect
+        .poll(() =>
+          portal.evaluate((element) =>
+            getComputedStyle(element).getPropertyValue("--color-panel-solid").trim(),
+          ),
+        )
+        .toBe(panelColor)
+      await page.keyboard.press("Escape")
+    }
+
+    await page.goBack()
+    await expect(page.getByRole("heading", { name: "First document" })).toBeVisible()
+    await page.getByRole("combobox", { name: "Markdown file" }).click()
     await expect(portal).toBeVisible()
     await expect
       .poll(() =>
@@ -165,16 +184,7 @@ test("applies custom panel colors to portaled selectors", async ({ page }) => {
       .toBe(panelColor)
     await page.keyboard.press("Escape")
   }
-
-  await page.getByRole("combobox", { name: "Markdown file" }).click()
-  await expect(portal).toBeVisible()
-  await expect
-    .poll(() =>
-      portal.evaluate((element) =>
-        getComputedStyle(element).getPropertyValue("--color-panel-solid").trim(),
-      ),
-    )
-    .toBe("#14212b")
+  expect(requests).toBe(1)
 })
 
 for (const width of [1280, 375]) {

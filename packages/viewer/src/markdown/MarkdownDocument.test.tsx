@@ -3,10 +3,11 @@ import { act, fireEvent, render as renderComponent, screen, waitFor } from "@tes
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { SettingsPage } from "../pages/SettingsPage"
 import { ThemeProvider as BaseThemeProvider, ThemeControl } from "../theme"
 import { MarkdownDocument } from "./MarkdownDocument"
 import { MermaidDiagram } from "./MermaidDiagram"
-import { MermaidLookProvider } from "./mermaidLook"
+import { MermaidLookProvider as BaseMermaidLookProvider } from "./mermaidLook"
 import { VegaLiteChart } from "./VegaLiteChart"
 
 const mermaidMock = vi.hoisted(() => ({
@@ -34,6 +35,15 @@ function ThemeProvider({ children }: { children: ReactNode }) {
       <ThemeControl />
       {children}
     </BaseThemeProvider>
+  )
+}
+
+function MermaidLookProvider({ children }: { children: ReactNode }) {
+  return (
+    <BaseMermaidLookProvider>
+      <SettingsPage />
+      {children}
+    </BaseMermaidLookProvider>
   )
 }
 
@@ -563,20 +573,19 @@ alert("escaped")
       </MermaidLookProvider>,
     )
     await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(2))
-    const controls = screen.getAllByRole("combobox", { name: "Diagram style" })
-    const [firstControl, secondControl] = controls
-    if (!firstControl || !secondControl) throw new Error("Style controls missing")
-    expect(controls.every((control) => control.textContent?.includes("Source style"))).toBe(true)
+    const control = screen.getByRole("combobox", { name: "Mermaid style" })
+    expect(control).toHaveTextContent("Source style")
+    expect(container.querySelector(".diagram-controls [role=combobox]")).toBeNull()
     const user = userEvent.setup()
-    await user.click(firstControl)
+    await user.click(control)
     await user.click(screen.getByRole("option", { name: "Hand-drawn" }))
     await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(4))
-    expect(controls.every((control) => control.textContent?.includes("Hand-drawn"))).toBe(true)
+    expect(control).toHaveTextContent("Hand-drawn")
     expect(mermaidMock.configuration).toMatchObject({ look: "handDrawn", secure: ["look"] })
     expect(localStorage.getItem("morsel-mermaid-look")).toBe("handDrawn")
     expect(container.querySelector(".diagram-card > pre > code")).toHaveTextContent(source)
     expect(renderDiagram.mock.calls[2]?.[1]).toBe(source)
-    await user.click(secondControl)
+    await user.click(control)
     await user.click(screen.getByRole("option", { name: "Source style" }))
     await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(6))
     expect(mermaidMock.configuration).not.toHaveProperty("look")
@@ -587,14 +596,14 @@ alert("escaped")
     localStorage.setItem("morsel-theme", "light")
     localStorage.setItem("morsel-mermaid-look", "handDrawn")
     render(
-      <ThemeProvider>
+      <BaseThemeProvider>
         <MermaidLookProvider>
           <MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />
         </MermaidLookProvider>
-      </ThemeProvider>,
+      </BaseThemeProvider>,
     )
     await screen.findByRole("img", { name: "Mermaid diagram" })
-    expect(screen.getByRole("combobox", { name: "Diagram style" })).toHaveTextContent("Hand-drawn")
+    expect(screen.getByRole("combobox", { name: "Mermaid style" })).toHaveTextContent("Hand-drawn")
     expect(mermaidMock.configuration).toMatchObject({ look: "handDrawn", theme: "default" })
     const user = userEvent.setup()
     await user.click(screen.getByRole("combobox", { name: "Theme" }))
@@ -619,7 +628,7 @@ alert("escaped")
       </MermaidLookProvider>,
     )
     expect(await screen.findByText("Original")).toBeVisible()
-    const control = screen.getByRole("combobox", { name: "Diagram style" })
+    const control = screen.getByRole("combobox", { name: "Mermaid style" })
     const user = userEvent.setup()
     await user.click(control)
     await user.keyboard("{End}{Enter}")
@@ -646,7 +655,7 @@ alert("escaped")
     )
     expect(await screen.findByText("Original")).toBeVisible()
     const user = userEvent.setup()
-    await user.click(screen.getByRole("combobox", { name: "Diagram style" }))
+    await user.click(screen.getByRole("combobox", { name: "Mermaid style" }))
     await user.click(screen.getByRole("option", { name: "Hand-drawn" }))
     expect(await screen.findByText("This Mermaid diagram could not be rendered.")).toBeVisible()
     expect(screen.getByText("Original")).toBeVisible()

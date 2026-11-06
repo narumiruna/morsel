@@ -5,6 +5,7 @@ export type Route =
   | { kind: "oauth-consent" }
   | { kind: "management"; section: "shares" | "api-keys" | "invitations" }
   | { kind: "example" }
+  | { kind: "settings" }
   | { kind: "share"; token: string }
   | { kind: "gist"; id: string }
   | { kind: "invalid-share" }
@@ -26,6 +27,7 @@ export function parseRoute(pathname: string, hash: string): Route {
   if (pathname === "/manage/api-keys") return { kind: "management", section: "api-keys" }
   if (pathname === "/manage/invitations") return { kind: "management", section: "invitations" }
   if (pathname === "/example") return { kind: "example" }
+  if (pathname === "/settings") return { kind: "settings" }
   if (pathname.startsWith("/s/")) {
     const token = pathname.slice(3)
     if (!tokenPattern.test(token)) return { kind: "invalid-share" }

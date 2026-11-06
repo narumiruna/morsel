@@ -81,18 +81,16 @@ describe("DiagramViewer", () => {
     expect(screen.getByRole("img")).toBeVisible()
   })
 
-  it("keeps Mermaid style controls out of Vega-Lite charts", () => {
-    render(
-      <DiagramViewer
-        kind="vega-lite"
-        svg={svg}
-        source='{"mark":"bar"}'
-        mermaidLook="handDrawn"
-        onMermaidLookChange={vi.fn()}
-      />,
-    )
-    expect(screen.queryByRole("combobox", { name: "Diagram style" })).not.toBeInTheDocument()
-  })
+  it.each(["mermaid", "vega-lite"] as const)(
+    "keeps %s controls consistent without preference selectors",
+    (kind) => {
+      render(<DiagramViewer kind={kind} svg={svg} source="graph TD; A-->B" />)
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
+      for (const button of screen.getAllByRole("button")) {
+        expect(button).toHaveClass("diagram-control")
+      }
+    },
+  )
 
   it("preserves Mermaid presentation and SVG export", () => {
     const retryRender = vi.fn()
@@ -205,6 +203,27 @@ describe("DiagramViewer", () => {
     expect(document.documentElement.style.overflow).toBe("")
     await waitFor(() => expect(button).toHaveFocus())
     outside.remove()
+  })
+
+  it("exits fallback fullscreen when a parent preview reserves Escape", async () => {
+    const { container } = renderViewer()
+    const card = container.querySelector(".diagram-card")
+    if (!(card instanceof HTMLDivElement)) throw new Error("card missing")
+    card.requestFullscreen = vi.fn().mockRejectedValue(new Error("Use fallback"))
+    const reserveEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") event.preventDefault()
+    }
+    document.addEventListener("keydown", reserveEscape, true)
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Fullscreen" }))
+      })
+      await waitFor(() => expect(card).toHaveClass("diagram-expanded"))
+      fireEvent.keyDown(document, { key: "Escape" })
+      await waitFor(() => expect(card).not.toHaveClass("diagram-expanded"))
+    } finally {
+      document.removeEventListener("keydown", reserveEscape, true)
+    }
   })
 
   it("copies source and reports clipboard failures", async () => {

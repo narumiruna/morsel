@@ -1,0 +1,37 @@
+.settings-page {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 42rem);
+  margin-inline: auto;
+}
+
+.settings-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.25rem;
+}
+
+.settings-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: var(--font-size-2);
+}
+
+.settings-control > button {
+  min-width: 11rem;
+  min-height: 2.75rem;
+}
+
+@media (max-width: 480px) {
+  .settings-control {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .settings-control > button {
+    width: 100%;
+  }
+}

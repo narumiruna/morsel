@@ -60,7 +60,7 @@ function initialMode(): ThemeMode {
 export function ThemeControl() {
   const { mode, updateMode } = useContext(ThemeControlContext)
   return (
-    <div className="header-theme-control">
+    <div className="settings-control">
       <span>Theme</span>
       <Select.Root value={mode} onValueChange={updateMode}>
         <Select.Trigger aria-label="Theme" />

@@ -2,4 +2,4 @@
 "@narumitw/morsel": minor
 ---
 
-Add saved classic and hand-drawn style controls for Mermaid diagrams.
+Add a Settings page for saved themes and Mermaid styles while keeping diagram toolbars consistent.

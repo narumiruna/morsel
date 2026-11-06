@@ -41,6 +41,22 @@ async function mockShare(page: Page, markdown = content) {
   )
 }
 
+async function setPreference(page: Page, name: "Theme" | "Mermaid style", value: string) {
+  const documentURL = page.url()
+  await page.getByRole("link", { name: "Settings", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
+  const preference = page.getByRole("combobox", { name, exact: true })
+  await preference.click()
+  await page.getByRole("option", { name: value, exact: true }).click()
+  await expect(preference).toHaveText(value)
+  await page.goBack()
+  await expect(page).toHaveURL(documentURL)
+  await page.getByRole("button", { name: "Show raw Markdown" }).scrollIntoViewIfNeeded()
+  await expect(
+    page.locator(".diagram-card").first().getByRole("img", { name: "Mermaid diagram" }),
+  ).toBeVisible()
+}
+
 test.beforeEach(async ({ page }) => {
   await mockShare(page)
 })
@@ -91,8 +107,7 @@ test("fits, navigates, rerenders by theme, exports PNG, and stays local", async 
 
   const diagramSvg = card.locator(".mermaid-diagram > svg")
   const lightSvg = await diagramSvg.evaluate((element) => element.outerHTML)
-  await page.getByRole("combobox", { name: "Theme" }).click()
-  await page.getByRole("option", { name: "Dark" }).click()
+  await setPreference(page, "Theme", "Dark")
   await expect(page.locator('[data-appearance="dark"]')).toBeVisible()
   await expect.poll(() => diagramSvg.evaluate((element) => element.outerHTML)).not.toBe(lightSvg)
   await expect(card.locator("script, foreignObject, [onload], a[href]")).toHaveCount(0)
@@ -125,40 +140,30 @@ test("remembers style changes and overrides source settings without changing sou
   const first = cards.first()
   const second = cards.nth(1)
   await expect(cards).toHaveCount(2)
-  await expect(first.getByRole("combobox", { name: "Diagram style" })).toHaveText("Source style")
   await expect(first.locator(".rough-node")).toHaveCount(2)
   await expect(second.locator(".rough-node")).toHaveCount(0)
 
-  await first.getByRole("combobox", { name: "Diagram style" }).click()
-  await page.getByRole("option", { name: "Classic", exact: true }).click()
+  await setPreference(page, "Mermaid style", "Classic")
   for (const card of [first, second]) {
-    await expect(card.getByRole("combobox", { name: "Diagram style" })).toHaveText("Classic")
     await expect(card).toHaveAttribute("aria-busy", "false")
     await expect(card.locator(".rough-node")).toHaveCount(0)
   }
   expect(await page.evaluate(() => localStorage.getItem("morsel-mermaid-look"))).toBe("classic")
   await page.reload()
-  await expect(first.getByRole("combobox", { name: "Diagram style" })).toHaveText("Classic")
+  await expect(first).toHaveAttribute("aria-busy", "false")
   await expect(first.locator(".rough-node")).toHaveCount(0)
 
-  await first.getByRole("button", { name: "Fullscreen", exact: true }).click()
-  await expect(first.getByRole("button", { name: "Exit fullscreen" })).toBeVisible()
-  await first.getByRole("combobox", { name: "Diagram style" }).click()
-  await first.getByRole("option", { name: "Hand-drawn", exact: true }).click()
-  await expect(first.locator(".rough-node")).toHaveCount(2)
-  await first.getByRole("button", { name: "Exit fullscreen" }).click()
+  await setPreference(page, "Mermaid style", "Hand-drawn")
   for (const card of [first, second]) {
-    await expect(card.getByRole("combobox", { name: "Diagram style" })).toHaveText("Hand-drawn")
+    await expect(card).toHaveAttribute("aria-busy", "false")
     await expect(card.locator(".rough-node")).toHaveCount(2)
   }
 
-  await page.getByRole("combobox", { name: "Theme", exact: true }).click()
-  await page.getByRole("option", { name: "Dark", exact: true }).click()
+  await setPreference(page, "Theme", "Dark")
   await expect(page.locator('[data-appearance="dark"]')).toBeVisible()
   await expect(first).toHaveAttribute("aria-busy", "false")
   await expect(first.locator(".rough-node")).toHaveCount(2)
   await page.reload()
-  await expect(first.getByRole("combobox", { name: "Diagram style" })).toHaveText("Hand-drawn")
   await expect(first.locator(".rough-node")).toHaveCount(2)
   await expect(second.locator(".rough-node")).toHaveCount(2)
 
@@ -181,10 +186,11 @@ test("remembers style changes and overrides source settings without changing sou
   await page.getByLabel("Waiting to render Mermaid diagram").scrollIntoViewIfNeeded()
   await expect(cards).toHaveCount(3)
   await expect(cards.last().locator(".rough-node")).toHaveCount(2)
-  await cards.last().getByRole("combobox", { name: "Diagram style" }).click()
-  await page.getByRole("option", { name: "Source style", exact: true }).click()
+  await setPreference(page, "Mermaid style", "Source style")
+  await expect(second).toHaveAttribute("aria-busy", "false")
+  await page.getByText(/^Paragraph 119:/).scrollIntoViewIfNeeded()
+  await expect(cards).toHaveCount(3)
   for (const card of [first, second, cards.last()]) {
-    await expect(card.getByRole("combobox", { name: "Diagram style" })).toHaveText("Source style")
     await expect(card).toHaveAttribute("aria-busy", "false")
   }
   await expect(first.locator(".rough-node")).toHaveCount(2)
@@ -218,14 +224,11 @@ for (const width of [375, 1280]) {
   }) => {
     await page.setViewportSize({ width, height: 800 })
     await page.goto(`#/s/${token}`)
-    const waiting = page.getByLabel("Waiting to render Mermaid diagram").last()
-    await waiting.scrollIntoViewIfNeeded()
-    await expect(page.locator(".diagram-card")).toHaveCount(2)
-
     for (const appearance of ["Light", "Dark"] as const) {
-      await page.getByRole("combobox", { name: "Theme" }).click()
-      await page.getByRole("option", { name: appearance }).click()
+      await setPreference(page, "Theme", appearance)
       await expect(page.locator(`[data-appearance="${appearance.toLowerCase()}"]`)).toBeVisible()
+      await page.getByText(/^Paragraph 119:/).scrollIntoViewIfNeeded()
+      await expect(page.locator(".diagram-card")).toHaveCount(2)
       for (const card of await page.locator(".diagram-card").all()) {
         await card.getByRole("button", { name: "Fit to screen" }).click()
         await expect
@@ -336,23 +339,6 @@ test.describe("touch fullscreen fallback", () => {
     await fullscreen.click()
     await expect(card).toHaveClass(/diagram-expanded/)
     await expect(page.locator(".app-header")).toHaveJSProperty("inert", true)
-
-    const style = card.getByRole("combobox", { name: "Diagram style" })
-    await style.click()
-    await expect(card.getByRole("option", { name: "Hand-drawn", exact: true })).toBeVisible()
-    await page.keyboard.press("Escape")
-    await expect(page.getByRole("listbox")).toHaveCount(0)
-    await expect(card).toHaveClass(/diagram-expanded/)
-    await expect(style).toBeFocused()
-    await style.press("Enter")
-    await expect(card.getByRole("option", { name: "Source style", exact: true })).toBeFocused()
-    await page.keyboard.press("End")
-    await expect(card.getByRole("option", { name: "Hand-drawn", exact: true })).toBeFocused()
-    await page.keyboard.press("Enter")
-    await expect(style).toHaveText("Hand-drawn")
-    await expect(card).toHaveAttribute("aria-busy", "false")
-    await expect(style).toBeFocused()
-    await expect(card.locator(".rough-node")).not.toHaveCount(0)
 
     const beforePan = await stage.getAttribute("style")
     await viewport.evaluate((element) => {

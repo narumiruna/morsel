@@ -1,5 +1,4 @@
 import { DropdownMenu } from "@radix-ui/themes"
-import { ThemeControl } from "../theme"
 import "../styles/shell.css"
 
 export function AppHeader({
@@ -20,9 +19,9 @@ export function AppHeader({
       </a>
       <nav aria-label="Main navigation">
         <a href="/manage/shares">Manage</a>
+        <a href="/settings">Settings</a>
       </nav>
       <div className="app-header-controls">
-        <ThemeControl />
         {authenticated && (
           <DropdownMenu.Root>
             <DropdownMenu.Trigger>

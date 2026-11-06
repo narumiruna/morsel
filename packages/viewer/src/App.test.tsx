@@ -10,6 +10,7 @@ import { StrictMode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { App } from "./App"
 import { clearRequestCacheForTests } from "./api"
+import { MermaidLookProvider } from "./markdown/mermaidLook"
 import { ThemeProvider } from "./theme"
 
 vi.mock("mermaid", () => ({
@@ -33,7 +34,9 @@ const gist = "7dbaf8170c7292354678069a9acb061f"
 function renderApp(strict = false) {
   const app = (
     <ThemeProvider>
-      <App />
+      <MermaidLookProvider>
+        <App />
+      </MermaidLookProvider>
     </ThemeProvider>
   )
   return render(strict ? <StrictMode>{app}</StrictMode> : app)
@@ -376,7 +379,7 @@ describe("App", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === "/v1/auth/login/finish")).toBe(false)
   })
 
-  it("uses one public header with a theme control and an accessible account menu only in management", async () => {
+  it("uses one public header with Settings and an account menu only in management", async () => {
     window.history.replaceState({}, "", "/account")
     managementFetch()
     const { container } = renderApp()
@@ -384,8 +387,9 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Passkeys" })
     expect(screen.getAllByRole("banner")).toHaveLength(1)
     expect(
-      within(screen.getByRole("banner")).getByRole("combobox", { name: "Theme" }),
-    ).toBeInTheDocument()
+      within(screen.getByRole("banner")).getByRole("link", { name: "Settings" }),
+    ).toHaveAttribute("href", "/settings")
+    expect(within(screen.getByRole("banner")).queryByRole("combobox")).not.toBeInTheDocument()
     const menu = screen.getByRole("button", { name: "Account" })
     await user.click(menu)
     expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument()
@@ -394,6 +398,19 @@ describe("App", () => {
     expect(await axe.run(container).then((result) => result.violations)).toEqual([])
     await user.click(screen.getByRole("link", { name: "Morsel home" }))
     expect(screen.queryByRole("button", { name: "Account" })).not.toBeInTheDocument()
+  })
+
+  it("opens Settings for guests without account or document requests", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    renderApp()
+    await userEvent.setup().click(screen.getByRole("link", { name: "Settings" }))
+    expect(window.location.pathname).toBe("/settings")
+    expect(screen.getByRole("heading", { name: "Settings", level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: "Theme" })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: "Mermaid style" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Account" })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("opens the bundled example through the header shell without requests", async () => {
@@ -488,6 +505,7 @@ describe("App", () => {
     expect(container.querySelector('[data-theme-mode="system"]')).toBeInTheDocument()
 
     const user = userEvent.setup()
+    await user.click(screen.getByRole("link", { name: "Settings" }))
     await user.click(screen.getByRole("combobox", { name: "Theme" }))
     await user.click(screen.getByRole("option", { name: "Dark" }))
     await waitFor(() =>

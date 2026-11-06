@@ -44,7 +44,7 @@ function DiagramError({
 
 export function MermaidDiagram({ source, index }: { source: string; index: number }) {
   const appearance = useAppearance()
-  const { look, updateLook } = useMermaidLook()
+  const { look } = useMermaidLook()
   const [result, setResult] = useState<{
     appearance: Appearance
     source: string
@@ -119,8 +119,6 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
     <DiagramViewer
       kind="mermaid"
       appearance={visibleResult.appearance}
-      mermaidLook={look}
-      onMermaidLookChange={updateLook}
       refreshing={rendering}
       renderError={error}
       retryRender={() => {

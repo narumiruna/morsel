@@ -65,19 +65,22 @@ func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing
 	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") == "" {
 		t.Fatalf("Gist HEAD status=%d length=%q body=%q", head.Code, head.Header().Get("Content-Length"), head.Body.String())
 	}
-	for _, appPath := range []string{"/account", "/manage/shares", "/manage/api-keys", "/manage/invitations", "/example", "/login", "/recover", "/setup", "/invite", "/invite?next=%2Faccount", "/login?next=%2Faccount", "/recover?next=%2Fmanage%2Fapi-keys", "/setup?next=%2Fmanage%2Fshares"} {
+	for _, appPath := range []string{"/account", "/settings", "/manage/shares", "/manage/api-keys", "/manage/invitations", "/example", "/login", "/recover", "/setup", "/invite", "/invite?next=%2Faccount", "/login?next=%2Faccount", "/recover?next=%2Fmanage%2Fapi-keys", "/setup?next=%2Fmanage%2Fshares"} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			account := httptest.NewRecorder()
 			handler.ServeHTTP(account, httptest.NewRequest(method, appPath, nil))
 			if account.Code != http.StatusOK || account.Header().Get("Cache-Control") != "no-cache" || account.Header().Get("Content-Length") == "" {
 				t.Fatalf("account shell %s status=%d headers=%v", method, account.Code, account.Header())
 			}
+			if method == http.MethodGet && !strings.Contains(account.Body.String(), `<div id="root"></div>`) {
+				t.Fatalf("app shell %s returned no viewer root: %q", appPath, account.Body.String())
+			}
 			if method == http.MethodHead && account.Body.Len() != 0 {
 				t.Fatal("account HEAD returned a body")
 			}
 		}
 	}
-	for _, path := range []string{"/login/", "/recover/", "/setup/", "/invite/", "/invite/unknown", "/login/unknown", "/recover/unknown", "/setup/unknown", "/account/", "/account/unknown", "/manage/shares/", "/manage/api-keys/extra", "/manage/invitations/", "/manage/invitations/extra", "/manage/unknown", "/example/", "/missing-asset.js"} {
+	for _, path := range []string{"/login/", "/recover/", "/setup/", "/invite/", "/invite/unknown", "/login/unknown", "/recover/unknown", "/setup/unknown", "/account/", "/account/unknown", "/settings/", "/settings/unknown", "/manage/shares/", "/manage/api-keys/extra", "/manage/invitations/", "/manage/invitations/extra", "/manage/unknown", "/example/", "/missing-asset.js"} {
 		missing := httptest.NewRecorder()
 		handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, path, nil))
 		if missing.Code != http.StatusNotFound {
