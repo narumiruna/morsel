@@ -15,6 +15,7 @@ import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import { runInNewContext } from "node:vm"
 import { runChangeset } from "./changeset.mjs"
 import { publishRepository } from "./release.mjs"
 
@@ -528,7 +529,7 @@ test("publication deploys its tag only after the GitHub release succeeds", async
   assert.doesNotMatch(deploy, /always\(\)|continue-on-error:/)
 })
 
-test("deployment accepts a required release tag and preserves tag-push and manual triggers", async () => {
+test("deployment accepts release tags and manual branches without automatic PR deployments", async () => {
   const deploy = await readFile(join(repositoryRoot, ".github/workflows/deploy.yml"), "utf8")
   assert.ok(
     deploy.includes(
@@ -537,14 +538,32 @@ test("deployment accepts a required release tag and preserves tag-push and manua
   )
   assert.ok(deploy.includes("  workflow_dispatch:\n"))
   assert.ok(deploy.includes('  push:\n    tags:\n      - "v*.*.*"\n'))
-  assert.ok(deploy.includes("if: github.event_name == 'push' || github.ref == 'refs/heads/main'"))
+  const condition = deploy.match(/^ {4}if: (.+)$/m)?.[1]
+  assert.equal(
+    condition,
+    "github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.ref == 'refs/heads/main'",
+  )
+  for (const [event, ref, expected] of [
+    ["workflow_dispatch", "refs/heads/main", true],
+    ["workflow_dispatch", "refs/heads/narumi/feat/deploy-test", true],
+    ["workflow_dispatch", "refs/tags/v0.2.1", true],
+    ["push", "refs/tags/v0.2.1", true],
+    ["push", "refs/heads/main", true],
+    ["pull_request", "refs/pull/123/merge", false],
+  ]) {
+    assert.equal(
+      runInNewContext(condition, { github: { event_name: event, ref } }),
+      expected,
+      `${event} from ${ref}`,
+    )
+  }
   assert.match(
     deploy,
     /ref: \$\{\{ inputs\.tag && format\('refs\/tags\/\{0\}', inputs\.tag\) \|\| github\.sha \}\}/,
   )
   assert.ok(deploy.includes("persist-credentials: false"))
   assert.ok(deploy.includes("concurrency:\n  group: deploy\n  cancel-in-progress: false\n"))
-  assert.doesNotMatch(deploy, /branches:/)
+  assert.doesNotMatch(deploy, /branches:|pull_request(?:_target)?:/)
 })
 
 test("deployment image identifies the checked-out tag instead of a newer triggering commit", async (t) => {
