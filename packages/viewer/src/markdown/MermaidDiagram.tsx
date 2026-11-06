@@ -3,6 +3,7 @@ import { Button, Callout } from "@radix-ui/themes"
 import { useEffect, useState } from "react"
 import { type Appearance, useAppearance } from "../theme"
 import { DiagramViewer } from "./DiagramViewer"
+import { useMermaidLook } from "./mermaidLook"
 import { maxMermaidBytes, renderMermaid } from "./mermaidRenderer"
 import { useDiagramVisibility } from "./useDiagramVisibility"
 
@@ -43,6 +44,7 @@ function DiagramError({
 
 export function MermaidDiagram({ source, index }: { source: string; index: number }) {
   const appearance = useAppearance()
+  const { look, updateLook } = useMermaidLook()
   const [result, setResult] = useState<{
     appearance: Appearance
     source: string
@@ -63,7 +65,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
     let active = true
     setRendering(true)
     setError("")
-    void renderMermaid(source, appearance).then(
+    void renderMermaid(source, appearance, look).then(
       (svg) => {
         if (!active) return
         setResult({ appearance, source, svg })
@@ -78,7 +80,7 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
     return () => {
       active = false
     }
-  }, [appearance, eligible, retry, source, withinLimits])
+  }, [appearance, eligible, look, retry, source, withinLimits])
 
   if (index >= maxMermaidDiagrams) {
     return (
@@ -117,6 +119,8 @@ export function MermaidDiagram({ source, index }: { source: string; index: numbe
     <DiagramViewer
       kind="mermaid"
       appearance={visibleResult.appearance}
+      mermaidLook={look}
+      onMermaidLookChange={updateLook}
       refreshing={rendering}
       renderError={error}
       retryRender={() => {

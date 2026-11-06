@@ -13,15 +13,19 @@ import {
   SizeIcon,
 } from "@radix-ui/react-icons"
 import * as Tooltip from "@radix-ui/react-tooltip"
+import { Select } from "@radix-ui/themes"
 import { type RefObject, useCallback, useEffect, useId, useRef, useState } from "react"
 import { ActionButton } from "../components/ActionButton"
 import type { Appearance } from "../theme"
 import { createPngExport, downloadDiagram } from "./diagramExport"
 import { createDiagramView, type DiagramViewController } from "./diagramView"
+import type { MermaidLook } from "./mermaidLook"
 
 interface DiagramViewerProps {
   appearance?: Appearance
   kind: "mermaid" | "vega-lite"
+  mermaidLook?: MermaidLook
+  onMermaidLookChange?: (look: MermaidLook | undefined) => void
   ready?: boolean
   refreshing?: boolean
   renderError?: string
@@ -45,6 +49,8 @@ interface ScrollLockRecord {
 export function DiagramViewer({
   appearance = "light",
   kind,
+  mermaidLook,
+  onMermaidLookChange,
   ready = true,
   refreshing = false,
   renderError = "",
@@ -198,12 +204,12 @@ export function DiagramViewer({
   useEffect(() => {
     if (!fallback) return
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !closeFallback()) return
+      if (event.key !== "Escape" || event.defaultPrevented || !closeFallback()) return
       event.preventDefault()
       event.stopPropagation()
     }
-    document.addEventListener("keydown", closeOnEscape, true)
-    return () => document.removeEventListener("keydown", closeOnEscape, true)
+    document.addEventListener("keydown", closeOnEscape)
+    return () => document.removeEventListener("keydown", closeOnEscape)
   }, [closeFallback, fallback])
 
   useEffect(
@@ -292,7 +298,7 @@ export function DiagramViewer({
   }
 
   const tooltipContainer = expanded ? card.current : undefined
-  const liveStatus = refreshing ? `Refreshing ${type} theme…` : renderError || status
+  const liveStatus = refreshing ? `Refreshing ${type}…` : renderError || status
   const cardClasses = `diagram-card${isChart ? " vega-lite-card" : ""}${
     fallback ? " diagram-expanded" : ""
   }`
@@ -351,6 +357,24 @@ export function DiagramViewer({
           >
             {expanded ? <ExitFullScreenIcon /> : <EnterFullScreenIcon />}
           </ActionButton>
+          {!isChart && onMermaidLookChange && (
+            <Select.Root
+              value={mermaidLook ?? "source"}
+              disabled={!ready}
+              onValueChange={(value) =>
+                onMermaidLookChange(
+                  value === "classic" || value === "handDrawn" ? value : undefined,
+                )
+              }
+            >
+              <Select.Trigger aria-label="Diagram style" variant="soft" />
+              <Select.Content container={tooltipContainer}>
+                <Select.Item value="source">Source style</Select.Item>
+                <Select.Item value="classic">Classic</Select.Item>
+                <Select.Item value="handDrawn">Hand-drawn</Select.Item>
+              </Select.Content>
+            </Select.Root>
+          )}
           <ActionButton
             className="diagram-control"
             label={showSource ? `Show ${type}` : "Show source"}

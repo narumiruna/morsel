@@ -26,13 +26,13 @@ flowchart TD
   Start --> One --> Two --> Three --> Four --> Five --> Six --> Finish
 \`\`\``
 
-async function mockShare(page: Page) {
+async function mockShare(page: Page, markdown = content) {
   await page.route(`**/v1/shares/${token}`, (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        content,
+        content: markdown,
         created_at: "2026-01-01T00:00:00Z",
         view_count: 1,
         views_remaining: 4,
@@ -109,6 +109,88 @@ test("fits, navigates, rerenders by theme, exports PNG, and stays local", async 
 
   expect(response?.headers()["content-security-policy"]).toContain("connect-src 'self'")
   expect(externalRequests).toEqual([])
+})
+
+test("remembers style changes and overrides source settings without changing source", async ({
+  page,
+}) => {
+  const sources = [
+    "---\nconfig:\n  flowchart:\n    look: handDrawn\n---\nflowchart LR\nA-->B",
+    '%%{init: {"look":"classic","flowchart":{"look":"classic"}}}%%\nflowchart LR\nC-->D',
+  ] as const
+  const diagrams = sources.map((source) => `\`\`\`mermaid\n${source}\n\`\`\``).join("\n\n")
+  await mockShare(page, `${diagrams}\n\n${spacer}\n\n\`\`\`mermaid\nflowchart LR\nE-->F\n\`\`\``)
+  await page.goto(`#/s/${token}`)
+  const cards = page.locator(".diagram-card")
+  const first = cards.first()
+  const second = cards.nth(1)
+  await expect(cards).toHaveCount(2)
+  await expect(first.getByRole("combobox", { name: "Diagram style" })).toHaveText("Source style")
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await expect(second.locator(".rough-node")).toHaveCount(0)
+
+  await first.getByRole("combobox", { name: "Diagram style" }).click()
+  await page.getByRole("option", { name: "Classic", exact: true }).click()
+  for (const card of [first, second]) {
+    await expect(card.getByRole("combobox", { name: "Diagram style" })).toHaveText("Classic")
+    await expect(card).toHaveAttribute("aria-busy", "false")
+    await expect(card.locator(".rough-node")).toHaveCount(0)
+  }
+  expect(await page.evaluate(() => localStorage.getItem("morsel-mermaid-look"))).toBe("classic")
+  await page.reload()
+  await expect(first.getByRole("combobox", { name: "Diagram style" })).toHaveText("Classic")
+  await expect(first.locator(".rough-node")).toHaveCount(0)
+
+  await first.getByRole("button", { name: "Fullscreen", exact: true }).click()
+  await expect(first.getByRole("button", { name: "Exit fullscreen" })).toBeVisible()
+  await first.getByRole("combobox", { name: "Diagram style" }).click()
+  await first.getByRole("option", { name: "Hand-drawn", exact: true }).click()
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await first.getByRole("button", { name: "Exit fullscreen" }).click()
+  for (const card of [first, second]) {
+    await expect(card.getByRole("combobox", { name: "Diagram style" })).toHaveText("Hand-drawn")
+    await expect(card.locator(".rough-node")).toHaveCount(2)
+  }
+
+  await page.getByRole("combobox", { name: "Theme", exact: true }).click()
+  await page.getByRole("option", { name: "Dark", exact: true }).click()
+  await expect(page.locator('[data-appearance="dark"]')).toBeVisible()
+  await expect(first).toHaveAttribute("aria-busy", "false")
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await page.reload()
+  await expect(first.getByRole("combobox", { name: "Diagram style" })).toHaveText("Hand-drawn")
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await expect(second.locator(".rough-node")).toHaveCount(2)
+
+  const svgPromise = page.waitForEvent("download")
+  await first.getByRole("button", { name: "Download SVG" }).click()
+  const svg = await svgPromise
+  const svgPath = await svg.path()
+  if (!svgPath) throw new Error("SVG download missing")
+  expect(await readFile(svgPath, "utf8")).toContain("rough-node")
+  const pngPromise = page.waitForEvent("download")
+  await first.getByRole("button", { name: "Download PNG" }).click()
+  const png = await pngPromise
+  const pngPath = await png.path()
+  if (!pngPath) throw new Error("PNG download missing")
+  expect([...(await readFile(pngPath)).subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+
+  await first.getByRole("button", { name: "Show source" }).click()
+  await expect(first.locator("pre > code")).toHaveText(sources[0])
+  await first.getByRole("button", { name: "Show diagram" }).click()
+  await page.getByLabel("Waiting to render Mermaid diagram").scrollIntoViewIfNeeded()
+  await expect(cards).toHaveCount(3)
+  await expect(cards.last().locator(".rough-node")).toHaveCount(2)
+  await cards.last().getByRole("combobox", { name: "Diagram style" }).click()
+  await page.getByRole("option", { name: "Source style", exact: true }).click()
+  for (const card of [first, second, cards.last()]) {
+    await expect(card.getByRole("combobox", { name: "Diagram style" })).toHaveText("Source style")
+    await expect(card).toHaveAttribute("aria-busy", "false")
+  }
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await expect(second.locator(".rough-node")).toHaveCount(0)
+  await expect(cards.last().locator(".rough-node")).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem("morsel-mermaid-look"))).toBeNull()
 })
 
 test("defers distant diagrams and preserves invalid source across retry", async ({ page }) => {
@@ -254,6 +336,23 @@ test.describe("touch fullscreen fallback", () => {
     await fullscreen.click()
     await expect(card).toHaveClass(/diagram-expanded/)
     await expect(page.locator(".app-header")).toHaveJSProperty("inert", true)
+
+    const style = card.getByRole("combobox", { name: "Diagram style" })
+    await style.click()
+    await expect(card.getByRole("option", { name: "Hand-drawn", exact: true })).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("listbox")).toHaveCount(0)
+    await expect(card).toHaveClass(/diagram-expanded/)
+    await expect(style).toBeFocused()
+    await style.press("Enter")
+    await expect(card.getByRole("option", { name: "Source style", exact: true })).toBeFocused()
+    await page.keyboard.press("End")
+    await expect(card.getByRole("option", { name: "Hand-drawn", exact: true })).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(style).toHaveText("Hand-drawn")
+    await expect(card).toHaveAttribute("aria-busy", "false")
+    await expect(style).toBeFocused()
+    await expect(card.locator(".rough-node")).not.toHaveCount(0)
 
     const beforePan = await stage.getAttribute("style")
     await viewport.evaluate((element) => {

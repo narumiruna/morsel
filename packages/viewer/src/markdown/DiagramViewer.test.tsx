@@ -81,6 +81,19 @@ describe("DiagramViewer", () => {
     expect(screen.getByRole("img")).toBeVisible()
   })
 
+  it("keeps Mermaid style controls out of Vega-Lite charts", () => {
+    render(
+      <DiagramViewer
+        kind="vega-lite"
+        svg={svg}
+        source='{"mark":"bar"}'
+        mermaidLook="handDrawn"
+        onMermaidLookChange={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole("combobox", { name: "Diagram style" })).not.toBeInTheDocument()
+  })
+
   it("preserves Mermaid presentation and SVG export", () => {
     const retryRender = vi.fn()
     const { container } = renderViewer({ renderError: "Render failed.", retryRender })

@@ -1,6 +1,7 @@
 import DOMPurify from "dompurify"
 import mermaid from "mermaid"
 import type { Appearance } from "../theme"
+import type { MermaidLook } from "./mermaidLook"
 
 export const maxMermaidBytes = 50 * 1024
 
@@ -47,7 +48,11 @@ export function sanitizeMermaidSVG(svg: string): string {
   return holder.innerHTML
 }
 
-export function renderMermaid(source: string, appearance: Appearance): Promise<string> {
+export function renderMermaid(
+  source: string,
+  appearance: Appearance,
+  look?: MermaidLook,
+): Promise<string> {
   return enqueue(async () => {
     const id = `morsel-mermaid-${++nextDiagramID}`
     try {
@@ -58,6 +63,11 @@ export function renderMermaid(source: string, appearance: Appearance): Promise<s
         maxTextSize: maxMermaidBytes,
         theme: appearance === "dark" ? "dark" : "default",
         htmlLabels: false,
+        ...(look && {
+          look,
+          // Reader preferences override source directives without weakening the default security rules.
+          secure: ["look"],
+        }),
       })
       const rendered = await mermaid.render(id, source)
       return sanitizeMermaidSVG(rendered.svg)

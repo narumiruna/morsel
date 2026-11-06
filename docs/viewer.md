@@ -36,9 +36,11 @@ Fragment cleanup cannot erase message previews, URL rewriting, retained external
 
 Mermaid diagrams open fitted to the available space without upscaling. Use **Reset zoom** to restore a readable size, which may crop a large diagram, or **Fit to screen** to display the entire diagram. Pan by dragging or using the arrow keys. Zoom with the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel. Press `0` to fit the diagram.
 
+Use **Diagram style** to select **Classic** or **Hand-drawn**. The choice applies to all Mermaid diagrams and is saved in local storage for the same browser profile and origin. Reloading or opening another document restores the saved choice; it does not change Markdown or sync across devices. Select **Source style** to clear the saved choice and use each diagram's own configuration. If browser storage is unavailable, the choice applies only while the viewer remains open.
+
 Fullscreen uses the browser API when available and an in-page fallback otherwise. Inline one-finger gestures continue scrolling the document. In fullscreen, one finger pans and two fingers pan and zoom. Escape closes fallback fullscreen and returns focus to the control that opened it.
 
-The toolbar can show or copy source, copy or download sanitized SVG, and create a local PNG. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearances while retaining the last successful SVG if a theme refresh fails.
+The toolbar can show or copy source, copy or download sanitized SVG, and create a local PNG. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearances and style changes. The last successful SVG remains visible if an update fails; exports use that SVG until a new render succeeds.
 
 Diagrams near the viewport render on demand. Failed renders preserve their source and expose **Retry diagram**. Morsel allows up to 20 diagrams per document and 50 KiB of UTF-8 source per diagram. Rendering is sequential and uses Mermaid's `securityLevel: "strict"`, `htmlLabels: false`, and DOMPurify SVG sanitation.
 
