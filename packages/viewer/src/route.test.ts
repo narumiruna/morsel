@@ -59,6 +59,15 @@ describe("parseRoute", () => {
     expect(parseRoute("/", "#/manage/shares")).toEqual({ kind: "not-found" })
   })
 
+  it("matches only the public settings path", () => {
+    expect(parseRoute("/settings", "")).toEqual({ kind: "settings" })
+    expect(parseRoute("/settings", "#ignored")).toEqual({ kind: "settings" })
+    for (const path of ["/settings/", "/settings/unknown", "/v1/settings"]) {
+      expect(parseRoute(path, "")).toEqual({ kind: "not-found" })
+    }
+    expect(parseRoute("/", "#/settings")).toEqual({ kind: "not-found" })
+  })
+
   it("parses path-based preview routes before hash routes", () => {
     expect(parseRoute(`/s/${token}`, "")).toEqual({ kind: "share", token })
     expect(parseRoute("/s/short", "")).toEqual({ kind: "invalid-share" })

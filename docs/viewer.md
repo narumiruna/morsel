@@ -2,6 +2,17 @@
 
 Morsel renders GitHub Flavored Markdown, syntax highlighting, KaTeX, Mermaid, and Vega-Lite charts. It offers system-aware light and dark modes plus Sepia, Sage, and Midnight reader themes. Authored HTML is disabled and output is sanitized; see the [security model](design.md#security-model).
 
+## Settings
+
+Open **Settings** in the header or visit `/settings`. The page is public and needs no account.
+
+- **Theme** offers System, Light, Sepia, Sage, Dark, and Midnight. System follows the device's light or dark appearance.
+- **Mermaid style** offers Source style, Classic, and Hand-drawn. The choice applies to all Mermaid diagrams. Source style clears the saved choice and uses each diagram's own configuration.
+
+Changes apply immediately and are saved automatically in local storage for the same browser profile and origin. Existing saved choices are retained. Preferences do not change Markdown or sync across devices. If storage is unavailable, changes apply only while the viewer remains open.
+
+Theme and style controls appear only on Settings, not in the header or diagram toolbars. Diagram action buttons retain their square layout. Use browser Back to return to a document; its successful read remains cached for the page lifetime. Reloading a share starts a new read and can consume another view.
+
 ## Authentication and management
 
 Management uses `/manage/shares`, `/manage/api-keys`, `/account` (Security), and admin-only `/manage/invitations` (Invitations). Signed-out visits go to `/login`; management navigation is hidden until sign-in completes. Login shows a Passkey button and a link to `/recover`, not a recovery form.
@@ -36,9 +47,11 @@ Fragment cleanup cannot erase message previews, URL rewriting, retained external
 
 Mermaid diagrams open fitted to the available space without upscaling. Use **Reset zoom** to restore a readable size, which may crop a large diagram, or **Fit to screen** to display the entire diagram. Pan by dragging or using the arrow keys. Zoom with the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel. Press `0` to fit the diagram.
 
+Select the global Mermaid style on the [Settings page](#settings). Diagram toolbars contain actions only, with no per-diagram style selector.
+
 Fullscreen uses the browser API when available and an in-page fallback otherwise. Inline one-finger gestures continue scrolling the document. In fullscreen, one finger pans and two fingers pan and zoom. Escape closes fallback fullscreen and returns focus to the control that opened it.
 
-The toolbar can show or copy source, copy or download sanitized SVG, and create a local PNG. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearances while retaining the last successful SVG if a theme refresh fails.
+The toolbar can show or copy source, copy or download sanitized SVG, and create a local PNG. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearances and style changes. The last successful SVG remains visible if an update fails; exports use that SVG until a new render succeeds.
 
 Diagrams near the viewport render on demand. Failed renders preserve their source and expose **Retry diagram**. Morsel allows up to 20 diagrams per document and 50 KiB of UTF-8 source per diagram. Rendering is sequential and uses Mermaid's `securityLevel: "strict"`, `htmlLabels: false`, and DOMPurify SVG sanitation.
 

@@ -1,10 +1,13 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { Theme } from "@radix-ui/themes"
+import { act, fireEvent, render as renderComponent, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { SettingsPage } from "../pages/SettingsPage"
 import { ThemeProvider as BaseThemeProvider, ThemeControl } from "../theme"
 import { MarkdownDocument } from "./MarkdownDocument"
 import { MermaidDiagram } from "./MermaidDiagram"
+import { MermaidLookProvider as BaseMermaidLookProvider } from "./mermaidLook"
 import { VegaLiteChart } from "./VegaLiteChart"
 
 const mermaidMock = vi.hoisted(() => ({
@@ -33,6 +36,19 @@ function ThemeProvider({ children }: { children: ReactNode }) {
       {children}
     </BaseThemeProvider>
   )
+}
+
+function MermaidLookProvider({ children }: { children: ReactNode }) {
+  return (
+    <BaseMermaidLookProvider>
+      <SettingsPage />
+      {children}
+    </BaseMermaidLookProvider>
+  )
+}
+
+function render(ui: ReactNode) {
+  return renderComponent(ui, { wrapper: Theme })
 }
 
 const renderDiagram = mermaidMock.render
@@ -504,7 +520,7 @@ alert("escaped")
     const user = userEvent.setup()
     await user.click(screen.getByRole("combobox", { name: "Theme" }))
     await user.click(screen.getByRole("option", { name: "Dark" }))
-    await screen.findByText("Refreshing diagram theme…")
+    await screen.findByText("Refreshing diagram…")
     expect(screen.getByText("Light")).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Download PNG" }))
     await waitFor(() =>
@@ -545,6 +561,108 @@ alert("escaped")
     expect(screen.getByText("Original")).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Retry diagram" }))
     expect(await screen.findByText("Retried")).toBeVisible()
+  })
+
+  it("shares and persists style changes without changing diagram source", async () => {
+    const source = "flowchart LR; A-->B"
+    const { container } = render(
+      <MermaidLookProvider>
+        <MarkdownDocument
+          content={`\`\`\`mermaid\n${source}\n\`\`\`\n\n\`\`\`mermaid\nflowchart TD; C-->D\n\`\`\``}
+        />
+      </MermaidLookProvider>,
+    )
+    await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(2))
+    const control = screen.getByRole("combobox", { name: "Mermaid style" })
+    expect(control).toHaveTextContent("Source style")
+    expect(container.querySelector(".diagram-controls [role=combobox]")).toBeNull()
+    const user = userEvent.setup()
+    await user.click(control)
+    await user.click(screen.getByRole("option", { name: "Hand-drawn" }))
+    await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(4))
+    expect(control).toHaveTextContent("Hand-drawn")
+    expect(mermaidMock.configuration).toMatchObject({ look: "handDrawn", secure: ["look"] })
+    expect(localStorage.getItem("morsel-mermaid-look")).toBe("handDrawn")
+    expect(container.querySelector(".diagram-card > pre > code")).toHaveTextContent(source)
+    expect(renderDiagram.mock.calls[2]?.[1]).toBe(source)
+    await user.click(control)
+    await user.click(screen.getByRole("option", { name: "Source style" }))
+    await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(6))
+    expect(mermaidMock.configuration).not.toHaveProperty("look")
+    expect(localStorage.getItem("morsel-mermaid-look")).toBeNull()
+  })
+
+  it("keeps a saved style through theme changes", async () => {
+    localStorage.setItem("morsel-theme", "light")
+    localStorage.setItem("morsel-mermaid-look", "handDrawn")
+    render(
+      <BaseThemeProvider>
+        <MermaidLookProvider>
+          <MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />
+        </MermaidLookProvider>
+      </BaseThemeProvider>,
+    )
+    await screen.findByRole("img", { name: "Mermaid diagram" })
+    expect(screen.getByRole("combobox", { name: "Mermaid style" })).toHaveTextContent("Hand-drawn")
+    expect(mermaidMock.configuration).toMatchObject({ look: "handDrawn", theme: "default" })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("combobox", { name: "Theme" }))
+    await user.click(screen.getByRole("option", { name: "Dark" }))
+    await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(2))
+    expect(mermaidMock.configuration).toMatchObject({ look: "handDrawn", theme: "dark" })
+  })
+
+  it("keeps keyboard focus on the style control while rendering", async () => {
+    let finishStyle: ((value: { svg: string }) => void) | undefined
+    renderDiagram
+      .mockResolvedValueOnce({ svg: '<svg viewBox="0 0 10 10"><text>Original</text></svg>' })
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ svg: string }>((resolve) => {
+            finishStyle = resolve
+          }),
+      )
+    render(
+      <MermaidLookProvider>
+        <MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />
+      </MermaidLookProvider>,
+    )
+    expect(await screen.findByText("Original")).toBeVisible()
+    const control = screen.getByRole("combobox", { name: "Mermaid style" })
+    const user = userEvent.setup()
+    await user.click(control)
+    await user.keyboard("{End}{Enter}")
+    await screen.findByText("Refreshing diagram…")
+    expect(control).toHaveTextContent("Hand-drawn")
+    expect(control).toBeEnabled()
+    await waitFor(() => expect(control).toHaveFocus())
+    await act(async () =>
+      finishStyle?.({ svg: '<svg viewBox="0 0 10 10"><text>Updated</text></svg>' }),
+    )
+    expect(await screen.findByText("Updated")).toBeVisible()
+    expect(control).toHaveFocus()
+  })
+
+  it("keeps the previous SVG and retries a failed style refresh", async () => {
+    renderDiagram
+      .mockResolvedValueOnce({ svg: '<svg viewBox="0 0 10 10"><text>Original</text></svg>' })
+      .mockRejectedValueOnce(new Error("style failed"))
+      .mockResolvedValueOnce({ svg: '<svg viewBox="0 0 10 10"><text>Hand-drawn</text></svg>' })
+    render(
+      <MermaidLookProvider>
+        <MarkdownDocument content={"```mermaid\ngraph TD; A-->B\n```"} />
+      </MermaidLookProvider>,
+    )
+    expect(await screen.findByText("Original")).toBeVisible()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("combobox", { name: "Mermaid style" }))
+    await user.click(screen.getByRole("option", { name: "Hand-drawn" }))
+    expect(await screen.findByText("This Mermaid diagram could not be rendered.")).toBeVisible()
+    expect(screen.getByText("Original")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Retry diagram" }))
+    await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(3))
+    expect(mermaidMock.configuration).toMatchObject({ look: "handDrawn" })
+    expect(screen.queryByText("Original")).not.toBeInTheDocument()
   })
 
   it("discards a stale render after the source changes", async () => {

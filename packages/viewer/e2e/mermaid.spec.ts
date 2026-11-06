@@ -26,19 +26,35 @@ flowchart TD
   Start --> One --> Two --> Three --> Four --> Five --> Six --> Finish
 \`\`\``
 
-async function mockShare(page: Page) {
+async function mockShare(page: Page, markdown = content) {
   await page.route(`**/v1/shares/${token}`, (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        content,
+        content: markdown,
         created_at: "2026-01-01T00:00:00Z",
         view_count: 1,
         views_remaining: 4,
       }),
     }),
   )
+}
+
+async function setPreference(page: Page, name: "Theme" | "Mermaid style", value: string) {
+  const documentURL = page.url()
+  await page.getByRole("link", { name: "Settings", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
+  const preference = page.getByRole("combobox", { name, exact: true })
+  await preference.click()
+  await page.getByRole("option", { name: value, exact: true }).click()
+  await expect(preference).toHaveText(value)
+  await page.goBack()
+  await expect(page).toHaveURL(documentURL)
+  await page.getByRole("button", { name: "Show raw Markdown" }).scrollIntoViewIfNeeded()
+  await expect(
+    page.locator(".diagram-card").first().getByRole("img", { name: "Mermaid diagram" }),
+  ).toBeVisible()
 }
 
 test.beforeEach(async ({ page }) => {
@@ -91,8 +107,7 @@ test("fits, navigates, rerenders by theme, exports PNG, and stays local", async 
 
   const diagramSvg = card.locator(".mermaid-diagram > svg")
   const lightSvg = await diagramSvg.evaluate((element) => element.outerHTML)
-  await page.getByRole("combobox", { name: "Theme" }).click()
-  await page.getByRole("option", { name: "Dark" }).click()
+  await setPreference(page, "Theme", "Dark")
   await expect(page.locator('[data-appearance="dark"]')).toBeVisible()
   await expect.poll(() => diagramSvg.evaluate((element) => element.outerHTML)).not.toBe(lightSvg)
   await expect(card.locator("script, foreignObject, [onload], a[href]")).toHaveCount(0)
@@ -109,6 +124,79 @@ test("fits, navigates, rerenders by theme, exports PNG, and stays local", async 
 
   expect(response?.headers()["content-security-policy"]).toContain("connect-src 'self'")
   expect(externalRequests).toEqual([])
+})
+
+test("remembers style changes and overrides source settings without changing source", async ({
+  page,
+}) => {
+  const sources = [
+    "---\nconfig:\n  flowchart:\n    look: handDrawn\n---\nflowchart LR\nA-->B",
+    '%%{init: {"look":"classic","flowchart":{"look":"classic"}}}%%\nflowchart LR\nC-->D',
+  ] as const
+  const diagrams = sources.map((source) => `\`\`\`mermaid\n${source}\n\`\`\``).join("\n\n")
+  await mockShare(page, `${diagrams}\n\n${spacer}\n\n\`\`\`mermaid\nflowchart LR\nE-->F\n\`\`\``)
+  await page.goto(`#/s/${token}`)
+  const cards = page.locator(".diagram-card")
+  const first = cards.first()
+  const second = cards.nth(1)
+  await expect(cards).toHaveCount(2)
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await expect(second.locator(".rough-node")).toHaveCount(0)
+
+  await setPreference(page, "Mermaid style", "Classic")
+  for (const card of [first, second]) {
+    await expect(card).toHaveAttribute("aria-busy", "false")
+    await expect(card.locator(".rough-node")).toHaveCount(0)
+  }
+  expect(await page.evaluate(() => localStorage.getItem("morsel-mermaid-look"))).toBe("classic")
+  await page.reload()
+  await expect(first).toHaveAttribute("aria-busy", "false")
+  await expect(first.locator(".rough-node")).toHaveCount(0)
+
+  await setPreference(page, "Mermaid style", "Hand-drawn")
+  for (const card of [first, second]) {
+    await expect(card).toHaveAttribute("aria-busy", "false")
+    await expect(card.locator(".rough-node")).toHaveCount(2)
+  }
+
+  await setPreference(page, "Theme", "Dark")
+  await expect(page.locator('[data-appearance="dark"]')).toBeVisible()
+  await expect(first).toHaveAttribute("aria-busy", "false")
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await page.reload()
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await expect(second.locator(".rough-node")).toHaveCount(2)
+
+  const svgPromise = page.waitForEvent("download")
+  await first.getByRole("button", { name: "Download SVG" }).click()
+  const svg = await svgPromise
+  const svgPath = await svg.path()
+  if (!svgPath) throw new Error("SVG download missing")
+  expect(await readFile(svgPath, "utf8")).toContain("rough-node")
+  const pngPromise = page.waitForEvent("download")
+  await first.getByRole("button", { name: "Download PNG" }).click()
+  const png = await pngPromise
+  const pngPath = await png.path()
+  if (!pngPath) throw new Error("PNG download missing")
+  expect([...(await readFile(pngPath)).subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+
+  await first.getByRole("button", { name: "Show source" }).click()
+  await expect(first.locator("pre > code")).toHaveText(sources[0])
+  await first.getByRole("button", { name: "Show diagram" }).click()
+  await page.getByLabel("Waiting to render Mermaid diagram").scrollIntoViewIfNeeded()
+  await expect(cards).toHaveCount(3)
+  await expect(cards.last().locator(".rough-node")).toHaveCount(2)
+  await setPreference(page, "Mermaid style", "Source style")
+  await expect(second).toHaveAttribute("aria-busy", "false")
+  await page.getByText(/^Paragraph 119:/).scrollIntoViewIfNeeded()
+  await expect(cards).toHaveCount(3)
+  for (const card of [first, second, cards.last()]) {
+    await expect(card).toHaveAttribute("aria-busy", "false")
+  }
+  await expect(first.locator(".rough-node")).toHaveCount(2)
+  await expect(second.locator(".rough-node")).toHaveCount(0)
+  await expect(cards.last().locator(".rough-node")).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem("morsel-mermaid-look"))).toBeNull()
 })
 
 test("defers distant diagrams and preserves invalid source across retry", async ({ page }) => {
@@ -136,14 +224,11 @@ for (const width of [375, 1280]) {
   }) => {
     await page.setViewportSize({ width, height: 800 })
     await page.goto(`#/s/${token}`)
-    const waiting = page.getByLabel("Waiting to render Mermaid diagram").last()
-    await waiting.scrollIntoViewIfNeeded()
-    await expect(page.locator(".diagram-card")).toHaveCount(2)
-
     for (const appearance of ["Light", "Dark"] as const) {
-      await page.getByRole("combobox", { name: "Theme" }).click()
-      await page.getByRole("option", { name: appearance }).click()
+      await setPreference(page, "Theme", appearance)
       await expect(page.locator(`[data-appearance="${appearance.toLowerCase()}"]`)).toBeVisible()
+      await page.getByText(/^Paragraph 119:/).scrollIntoViewIfNeeded()
+      await expect(page.locator(".diagram-card")).toHaveCount(2)
       for (const card of await page.locator(".diagram-card").all()) {
         await card.getByRole("button", { name: "Fit to screen" }).click()
         await expect

@@ -292,7 +292,7 @@ export function DiagramViewer({
   }
 
   const tooltipContainer = expanded ? card.current : undefined
-  const liveStatus = refreshing ? `Refreshing ${type} theme…` : renderError || status
+  const liveStatus = refreshing ? `Refreshing ${type}…` : renderError || status
   const cardClasses = `diagram-card${isChart ? " vega-lite-card" : ""}${
     fallback ? " diagram-expanded" : ""
   }`

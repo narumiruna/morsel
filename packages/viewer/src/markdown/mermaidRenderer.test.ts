@@ -14,7 +14,7 @@ beforeEach(() => {
 })
 
 describe("Mermaid renderer", () => {
-  it("serializes jobs and applies each requested theme", async () => {
+  it("serializes jobs and applies each requested theme and style", async () => {
     let finishFirst: ((value: { svg: string }) => void) | undefined
     mermaidMock.render
       .mockImplementationOnce(
@@ -25,8 +25,8 @@ describe("Mermaid renderer", () => {
       )
       .mockResolvedValueOnce({ svg: "<svg><text>second</text></svg>" })
 
-    const first = renderMermaid("graph TD; A-->B", "light")
-    const second = renderMermaid("graph TD; C-->D", "dark")
+    const first = renderMermaid("graph TD; A-->B", "light", "classic")
+    const second = renderMermaid("graph TD; C-->D", "dark", "handDrawn")
     await vi.waitFor(() => expect(mermaidMock.render).toHaveBeenCalledTimes(1))
     finishFirst?.({ svg: "<svg><text>first</text></svg>" })
     await expect(first).resolves.toContain("first")
@@ -36,8 +36,23 @@ describe("Mermaid renderer", () => {
       htmlLabels: false,
       securityLevel: "strict",
       theme: "default",
+      look: "classic",
+      secure: ["look"],
     })
-    expect(mermaidMock.initialize.mock.calls[1]?.[0]).toMatchObject({ theme: "dark" })
+    expect(mermaidMock.initialize.mock.calls[1]?.[0]).toMatchObject({
+      theme: "dark",
+      look: "handDrawn",
+      secure: ["look"],
+    })
+  })
+
+  it("preserves source settings when no reader preference is selected", async () => {
+    const source = "---\nconfig:\n  look: handDrawn\n---\nflowchart LR\nA-->B"
+    mermaidMock.render.mockResolvedValueOnce({ svg: "<svg><text>safe</text></svg>" })
+    await renderMermaid(source, "light")
+    expect(mermaidMock.render).toHaveBeenCalledWith(expect.any(String), source)
+    expect(mermaidMock.initialize.mock.calls[0]?.[0]).not.toHaveProperty("look")
+    expect(mermaidMock.initialize.mock.calls[0]?.[0]).not.toHaveProperty("secure")
   })
 
   it("continues the queue after a rejected render", async () => {
