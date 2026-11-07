@@ -310,9 +310,9 @@ Use `minor` for a feature or `major` for a breaking change. Each generated `.cha
 
 The **Publish** workflow runs on pushes to `main` and through manual dispatch:
 
-1. With pending changesets, `changesets/action@v2` creates or updates a version pull request using `npm run release:version`.
-   - The action uses Git CLI to commit and push its version branch. PR creation still uses the GitHub API and requires the existing PR permissions.
-   - The command uses the highest pending bump, updates the root version, root lockfile version metadata, and root `CHANGELOG.md`, and removes the consumed changesets.
+1. `node scripts/prepare-release.mjs` checks the root release plan. If the release list is empty, including changesets without release targets, it leaves version files unchanged and skips version PR creation.
+   - With a root release, preparation uses the highest pending bump, updates the root version, root lockfile version metadata, and root `CHANGELOG.md`, and removes the consumed changesets.
+   - `peter-evans/create-pull-request@v8` commits these files and creates or updates the existing `changeset-release/main` PR branch. The PR body includes the new root changelog entry, not workspace releases. PR creation uses the GitHub API and requires the existing PR permissions.
    - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
 2. After the version pull request is merged and no changesets remain, `npm run release` creates and pushes one `vX.Y.Z` tag from the checked-out `main` commit.
    - The workflow publishes the container from that tag, creates the GitHub release, then calls **Deploy** with the same tag. GitHub release notes use generated commit notes; Changesets summaries remain in the root changelog.
@@ -323,9 +323,16 @@ The **Publish** workflow runs on pushes to `main` and through manual dispatch:
 
 GitHub Actions must have permission to create pull requests in the repository's **Actions > General** settings. CI runs for a version pull request created with the default GitHub token can require **Approve workflows to run**. Approve and verify the required checks before merging.
 
+Local release tests do not verify Actions authentication or updates to an existing PR. After a workflow change is merged, the release maintainer must inspect the next authorized **Publish** run.
+
+- An empty root release list must skip PR creation.
+- A nonempty list must create or update a version PR with root release notes.
+
+Do not dispatch publication or merge a version PR only to test this behavior.
+
 To review a version change locally, run `npm run release:version` on a branch, then `npm run ci` and inspect the diff. This version command does not commit, tag, publish, or deploy. In contrast, `npm run release` is a CI publication command that can push a remote tag; do not use it to preview a release.
 
-Use the repository commands rather than the stock `npx changeset` CLI, which discovers individual npm workspaces. The action uses the custom root-only version command; its built-in npm publisher, package tags, and GitHub releases are disabled. Repository tag publication runs before the action can check out its version branch. No npm registry URL, npm token, or OIDC permission is needed. Run `npm run test:release` for isolated tests.
+Use the repository commands rather than the stock `npx changeset` CLI, which discovers individual npm workspaces. PR preparation uses the custom root-only version command. The PR action does not publish npm packages, create package tags, or create GitHub releases. Repository tag publication runs before version files are prepared. No npm registry URL, npm token, or OIDC permission is needed. Run `npm run test:release` for isolated tests.
 
 **Deploy** is a reusable workflow called only after container publication and GitHub release creation succeed with a nonempty release tag. It checks out that exact tag and names the local image with the checked-out commit SHA, including recovery of an older unreleased tag. Tags pushed with `GITHUB_TOKEN` do not trigger another workflow; the direct call does not depend on that event. The deployment job appears inside the **Publish** run. Ordinary pushes that only prepare a version PR or find an already completed release do not deploy. Version-tag pushes from other credentials remain supported. Manual **Deploy** dispatch can select a trusted repository branch, including a PR head branch, and checks out the commit recorded for that dispatch. Use **Actions > Deploy > Run workflow > Use workflow from** to select the branch. This uses the existing deployment target, not an isolated preview; PR events and branch pushes do not deploy.
 

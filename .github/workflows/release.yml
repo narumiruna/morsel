@@ -34,21 +34,29 @@ jobs:
         run: |
           git fetch origin main --tags
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
-      # The action checks out its version branch. Tag only the main commit before that.
+      # Tag the main commit before preparing version files.
       - name: Publish repository tag
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: npm run release
       - name: Prepare version PR
-        uses: changesets/action@v2
+        id: version
+        run: node scripts/prepare-release.mjs
+      - name: Create version PR
+        if: steps.version.outputs.has-releases == 'true'
+        uses: peter-evans/create-pull-request@v8
         with:
-          version-script: npm run release:version
-          push-with-git-cli: true
+          branch: changeset-release/main
+          base: main
           commit-message: "chore(release): version repository"
-          pr-title: "chore(release): version repository"
-          create-github-releases: false
-          push-git-tags: false
+          title: "chore(release): version repository"
+          body-path: ${{ steps.version.outputs.body-path }}
+          add-paths: |
+            .changeset/*.md
+            CHANGELOG.md
+            package.json
+            package-lock.json
 
   container:
     needs: publish
