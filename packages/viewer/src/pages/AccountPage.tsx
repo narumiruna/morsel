@@ -21,18 +21,13 @@ import {
   ShareManagement,
 } from "../account/ShareManagement"
 import { AppHeader } from "../components/AppHeader"
+import { SettingsNavigation } from "../components/SettingsNavigation"
 import { formatDate } from "../formatDate"
 import { useKeyDiscardWarning } from "../navigation"
+import { SettingsPage } from "./SettingsPage"
 import { LoadingPage } from "./StatusPage"
 
-export type AccountSection = "security" | "shares" | "api-keys" | "invitations"
-
-const sections = [
-  { section: "shares", href: "/manage/shares", label: "Shares" },
-  { section: "api-keys", href: "/manage/api-keys", label: "API keys" },
-  { section: "security", href: "/account", label: "Security" },
-  { section: "invitations", href: "/manage/invitations", label: "Invitations" },
-] as const
+export type AccountSection = "preferences" | "security" | "shares" | "api-keys" | "invitations"
 
 export function AccountPage({ section = "security" }: { section?: AccountSection }) {
   const {
@@ -249,26 +244,32 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
   return (
     <>
       <AppHeader
-        authenticated={account?.authenticated}
+        activeSection={section === "shares" ? "shares" : "settings"}
+        authenticated={account.authenticated}
         displayName={account.display_name}
         busy={busyAction === "Signing out…" && busy}
         onLogout={logout}
       />
       <main className="app-shell">
-        {loading ? (
+        {section === "preferences" ? (
+          <SettingsPage isAdmin={account.role === "admin"}>
+            {error && (
+              <div role="alert" className="account-error">
+                {error}
+              </div>
+            )}
+            {(busy || notice) && (
+              <div role="status" aria-live="polite">
+                {busy ? busyAction : notice}
+              </div>
+            )}
+          </SettingsPage>
+        ) : loading ? (
           <LoadingPage subject="account" />
         ) : (
           <div className={`account-page${section === "shares" ? " management-shell" : ""}`}>
             <div className="management-title">
-              <Heading as="h1">
-                {section === "security"
-                  ? "Morsel account"
-                  : section === "shares"
-                    ? "Manage shares"
-                    : section === "invitations"
-                      ? "Manage invitations"
-                      : "Manage API keys"}
-              </Heading>
+              <Heading as="h1">{section === "shares" ? "Manage shares" : "Settings"}</Heading>
               <Text as="span" size="2" className="management-identity">
                 Account: {account.display_name}
               </Text>
@@ -278,19 +279,9 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                 Account ID: <code>{account.account_id}</code>
               </Text>
             )}
-            <nav className="management-navigation" aria-label="Management sections">
-              {sections
-                .filter((item) => item.section !== "invitations" || account.role === "admin")
-                .map((item) => (
-                  <a
-                    key={item.section}
-                    href={item.href}
-                    aria-current={section === item.section ? "page" : undefined}
-                  >
-                    {item.label}
-                  </a>
-                ))}
-            </nav>
+            {section !== "shares" && (
+              <SettingsNavigation section={section} isAdmin={account.role === "admin"} />
+            )}
             <div role="alert" className="account-error">
               {error}
             </div>
@@ -302,6 +293,11 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
                 This browser does not support passkeys. Use a browser with WebAuthn support on HTTPS
                 or localhost.
               </Text>
+            )}
+            {section === "invitations" && (
+              <Heading as="h2" size="5">
+                Manage invitations
+              </Heading>
             )}
             {section === "invitations" &&
               (account.role === "admin" ? (

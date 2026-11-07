@@ -49,7 +49,7 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/")
 })
 
-function managementFetch(initiallySignedIn = true) {
+function managementFetch(initiallySignedIn = true, role: "admin" | "user" = "user") {
   let authenticated = initiallySignedIn
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const path = String(input).replace("/v1/", "")
@@ -59,6 +59,7 @@ function managementFetch(initiallySignedIn = true) {
         authenticated,
         account_id: "10000000-0000-4000-8000-000000000001",
         display_name: "Owner",
+        role,
         setup_required: false,
         csrf_token: "csrf",
         verification_required: false,
@@ -95,7 +96,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock)
     const { rerender } = renderApp()
     expect(screen.getByRole("heading", { name: "Open a document" })).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Manage" })).toHaveAttribute("href", "/manage/shares")
+    expect(screen.getByRole("link", { name: "Shares" })).toHaveAttribute("href", "/manage/shares")
     expect(screen.getByRole("link", { name: "Morsel home" })).toHaveAttribute("href", "/")
     window.location.hash = "#/s/short"
     fireEvent(window, new HashChangeEvent("hashchange"))
@@ -120,9 +121,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument()
     expect(window.location.pathname).toBe("/login")
     expect(new URLSearchParams(window.location.search).get("next")).toBe("/account")
-    expect(
-      screen.queryByRole("navigation", { name: "Management sections" }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Sign in with passkey" })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
       "/v1/account",
@@ -379,7 +378,7 @@ describe("App", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === "/v1/auth/login/finish")).toBe(false)
   })
 
-  it("uses one public header with Settings and an account menu only in management", async () => {
+  it("uses one header with Shares, Settings, and the current account menu", async () => {
     window.history.replaceState({}, "", "/account")
     managementFetch()
     const { container } = renderApp()
@@ -400,9 +399,8 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "Account" })).not.toBeInTheDocument()
   })
 
-  it("opens Settings for guests without account or document requests", async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal("fetch", fetchMock)
+  it("opens Settings for guests with only an account identity check", async () => {
+    const fetchMock = managementFetch(false)
     renderApp()
     await userEvent.setup().click(screen.getByRole("link", { name: "Settings" }))
     expect(window.location.pathname).toBe("/settings")
@@ -410,7 +408,139 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Theme" })).toBeInTheDocument()
     expect(screen.getByRole("combobox", { name: "Mermaid style" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Account" })).not.toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/v1/account")
+    expect(screen.getByRole("navigation", { name: "Settings sections" })).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Invitations" })).not.toBeInTheDocument()
+  })
+
+  it.each(["pending", "offline", "unauthorized", "setup"] as const)(
+    "keeps public preferences usable when the identity check is %s",
+    async (state) => {
+      window.history.replaceState({}, "", "/settings")
+      const fetchMock = vi.fn<typeof fetch>(() => {
+        if (state === "pending") return new Promise<Response>(() => {})
+        if (state === "offline") return Promise.reject(new TypeError("Failed to fetch"))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              state === "setup"
+                ? { authenticated: false, setup_required: true }
+                : { code: "unauthorized" },
+            ),
+            { status: state === "setup" ? 200 : 401 },
+          ),
+        )
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      renderApp()
+      expect(screen.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
+      const user = userEvent.setup()
+      await user.click(screen.getByRole("combobox", { name: "Theme" }))
+      await user.click(screen.getByRole("option", { name: "Sepia" }))
+      await user.click(screen.getByRole("combobox", { name: "Mermaid style" }))
+      await user.click(screen.getByRole("option", { name: "Hand-drawn" }))
+      expect(localStorage.getItem("morsel-theme")).toBe("sepia")
+      expect(localStorage.getItem("morsel-mermaid-look")).toBe("handDrawn")
+      expect(window.location.pathname).toBe("/settings")
+      expect(screen.queryByRole("heading", { name: "Sign in" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("link", { name: "Invitations" })).not.toBeInTheDocument()
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/v1/account"])
+    },
+  )
+
+  it.each(["admin", "user"] as const)(
+    "groups account settings separately from Shares for an %s",
+    async (role) => {
+      window.history.replaceState({}, "", "/settings")
+      managementFetch(true, role)
+      const { container } = renderApp()
+      const user = userEvent.setup()
+      await screen.findByRole("button", { name: "Account" })
+      const navigation = () => within(screen.getByRole("navigation", { name: "Settings sections" }))
+      expect(
+        navigation()
+          .getAllByRole("link")
+          .map((link) => link.textContent),
+      ).toEqual([
+        "Appearance",
+        "API keys",
+        "Security",
+        ...(role === "admin" ? ["Invitations"] : []),
+      ])
+      expect(navigation().getByRole("link", { name: "Appearance" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      )
+      const main = () => within(screen.getByRole("navigation", { name: "Main navigation" }))
+      expect(main().getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page")
+      await user.click(navigation().getByRole("link", { name: "API keys" }))
+      await screen.findByRole("heading", { name: "API keys" })
+      expect(screen.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
+      expect(navigation().getByRole("link", { name: "API keys" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      )
+      await user.click(navigation().getByRole("link", { name: "Security" }))
+      await screen.findByRole("heading", { name: "Passkeys" })
+      expect(navigation().getByRole("link", { name: "Security" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      )
+      await user.click(main().getByRole("link", { name: "Shares" }))
+      await screen.findByRole("heading", { name: "Manage shares" })
+      expect(
+        screen.queryByRole("navigation", { name: "Settings sections" }),
+      ).not.toBeInTheDocument()
+      expect(main().getByRole("link", { name: "Shares" })).toHaveAttribute("aria-current", "page")
+      await user.click(main().getByRole("link", { name: "Settings" }))
+      expect(screen.getByRole("combobox", { name: "Theme" })).toBeVisible()
+      expect(screen.getByRole("button", { name: "Account" })).toBeVisible()
+      expect(navigation().queryByRole("link", { name: "Invitations" }) !== null).toBe(
+        role === "admin",
+      )
+      expect(await axe.run(container).then((result) => result.violations)).toEqual([])
+    },
+  )
+
+  it("clears admin navigation after sign-out without blocking public preferences", async () => {
+    window.history.replaceState({}, "", "/settings")
+    const fetchMock = managementFetch(true, "admin")
+    renderApp()
+    await screen.findByRole("link", { name: "Invitations" })
+    fetchMock.mockImplementation(
+      async () => new Response(JSON.stringify({ authenticated: false, setup_required: false })),
+    )
+    fireEvent.focus(window)
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: "Invitations" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Account" })).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole("combobox", { name: "Theme" })).toBeVisible()
+    expect(window.location.pathname).toBe("/settings")
+    expect(fetchMock.mock.calls.every(([url]) => url === "/v1/account")).toBe(true)
+    await userEvent.setup().click(screen.getByRole("link", { name: "Security" }))
+    await screen.findByRole("heading", { name: "Sign in" })
+    expect(new URLSearchParams(window.location.search).get("next")).toBe("/account")
+  })
+
+  it("warns before opening preferences discards a one-time key", async () => {
+    window.history.replaceState({}, "", "/manage/api-keys")
+    managementFetch()
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    renderApp()
+    await newKey()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("link", { name: "Settings" }))
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(screen.getByLabelText("New API key")).toHaveValue("raw-one-time-key")
+    confirm.mockReturnValue(true)
+    await user.click(screen.getByRole("link", { name: "Settings" }))
+    expect(screen.getByRole("combobox", { name: "Theme" })).toBeVisible()
+    expect(screen.queryByLabelText("New API key")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("link", { name: "API keys" }))
+    await screen.findByRole("heading", { name: "API keys" })
+    expect(screen.queryByLabelText("New API key")).not.toBeInTheDocument()
   })
 
   it("opens the bundled example through the header shell without requests", async () => {
@@ -494,7 +624,7 @@ describe("App", () => {
   })
 
   it("falls back when theme storage is unavailable", async () => {
-    vi.stubGlobal("fetch", vi.fn())
+    const fetchMock = managementFetch(false)
     const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new DOMException("denied", "SecurityError")
     })
@@ -511,7 +641,7 @@ describe("App", () => {
     await waitFor(() =>
       expect(container.querySelector('[data-theme-mode="dark"]')).toBeInTheDocument(),
     )
-    expect(fetch).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/v1/account"])
     getItem.mockRestore()
     setItem.mockRestore()
   })

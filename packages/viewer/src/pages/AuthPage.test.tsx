@@ -70,7 +70,7 @@ describe("authentication routes", () => {
       await user.type(screen.getByLabelText("Account name"), "Research team")
       await user.type(screen.getByLabelText("Passkey name"), "Laptop")
       await user.click(screen.getByRole("button", { name: "Create account" }))
-      await screen.findByRole("navigation", { name: "Management sections" })
+      await screen.findByRole("button", { name: "Account" })
       expect(window.location.pathname).toBe(destination)
       expect(
         JSON.parse(
@@ -109,7 +109,7 @@ describe("authentication routes", () => {
         expect(window.location.pathname).toBe(`/${mode}`)
         expect(screen.getByRole("heading", { name: title })).toHaveFocus()
         expect(
-          screen.queryByRole("navigation", { name: "Management sections" }),
+          screen.queryByRole("navigation", { name: "Settings sections" }),
         ).not.toBeInTheDocument()
         expect(
           fetchMock.mock.calls.filter(([url]) =>
@@ -130,7 +130,7 @@ describe("authentication routes", () => {
           )
           await user.click(screen.getByRole("button", { name: title }))
         }
-        await screen.findByRole("navigation", { name: "Management sections" })
+        await screen.findByRole("button", { name: "Account" })
         expect(window.location.pathname).toBe(destination)
         expect(window.location.search).toBe("")
         expect(window.location.href).not.toContain("operator-secret")
@@ -189,6 +189,9 @@ describe("authentication routes", () => {
         .setup()
         .click(await screen.findByRole("button", { name: "Sign in with passkey" }))
       await screen.findByRole("heading", { name: "Shares" })
+      expect(
+        screen.queryByRole("navigation", { name: "Settings sections" }),
+      ).not.toBeInTheDocument()
       expect(window.location.pathname).toBe("/manage/shares")
     },
   )
@@ -203,9 +206,7 @@ describe("authentication routes", () => {
     )
     show("/account")
     expect(screen.getByLabelText("Loading account")).toBeInTheDocument()
-    expect(
-      screen.queryByRole("navigation", { name: "Management sections" }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Sign in with passkey" })).not.toBeInTheDocument()
     await userEvent.setup().click(screen.getByRole("link", { name: "Morsel home" }))
     expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)

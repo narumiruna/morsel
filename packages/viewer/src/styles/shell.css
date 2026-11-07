@@ -15,7 +15,7 @@
 }
 
 .app-header a:hover,
-.management-navigation a:hover {
+.settings-navigation a:hover {
   text-decoration: underline;
 }
 
@@ -63,18 +63,19 @@
   overflow-wrap: anywhere;
 }
 
-.management-navigation {
+.settings-navigation {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 1.25rem;
   padding-block: 0.5rem;
 }
 
-.management-navigation a {
+.settings-navigation a {
   color: var(--accent-12);
 }
 
-.management-navigation [aria-current="page"] {
+.app-header [aria-current="page"],
+.settings-navigation [aria-current="page"] {
   font-weight: 700;
   text-decoration-thickness: 0.15em;
   text-underline-offset: 0.3em;
@@ -92,10 +93,6 @@
 
   .app-header-controls {
     gap: 0.375rem;
-  }
-
-  .app-header--authenticated > nav > a[href="/manage/shares"] {
-    display: none;
   }
 
   .app-header + .app-shell {

@@ -99,11 +99,23 @@ async function logOut(page: Page) {
 async function openSection(page: Page, name: "Shares" | "API keys" | "Security" | "Invitations") {
   const dismiss = page.getByRole("button", { name: "Dismiss API key", exact: true })
   if (await dismiss.isVisible()) await dismiss.click()
-  await page.getByRole("link", { name, exact: true }).click()
-  await expect(page.getByRole("link", { name, exact: true })).toHaveAttribute(
-    "aria-current",
-    "page",
-  )
+  const header = page.getByRole("banner")
+  const sections = page.getByRole("navigation", { name: "Settings sections" })
+  if (name === "Shares") {
+    const shares = header.getByRole("link", { name: "Shares", exact: true })
+    await shares.click()
+    await expect(shares).toHaveAttribute("aria-current", "page")
+    await expect(page.getByRole("heading", { name: "Manage shares", level: 1 })).toBeVisible()
+    await expect(sections).toHaveCount(0)
+  } else {
+    if (!(await sections.isVisible())) {
+      await header.getByRole("link", { name: "Settings", exact: true }).click()
+    }
+    const link = sections.getByRole("link", { name, exact: true })
+    await link.click()
+    await expect(link).toHaveAttribute("aria-current", "page")
+    await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
+  }
 }
 
 async function login(page: Page, destination = "/account") {
@@ -283,7 +295,7 @@ test("required real-backend account and API key lifecycle", async ({
     expect((await account(page)).setup_required).toBe(true)
     await expect(page).toHaveURL(/\/setup\?next=%2Faccount$/)
     await page.reload()
-    await expect(page.getByRole("navigation", { name: "Management sections" })).toHaveCount(0)
+    await expect(page.getByRole("navigation", { name: "Settings sections" })).toHaveCount(0)
     await page.getByLabel("Setup token", { exact: true }).fill(token)
     await page.getByLabel("Passkey name", { exact: true }).fill("Primary browser passkey")
     await page.bringToFront()
@@ -1268,7 +1280,7 @@ test("required real-backend account and API key lifecycle", async ({
       await expect(page).toHaveURL(/\/login$/)
       await page.goto(destination)
       await expect(page).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(destination)}$`))
-      await expect(page.getByRole("navigation", { name: "Management sections" })).toHaveCount(0)
+      await expect(page.getByRole("navigation", { name: "Settings sections" })).toHaveCount(0)
       await page.reload()
       await page.bringToFront()
       await page.getByRole("button", { name: "Sign in with passkey", exact: true }).click()

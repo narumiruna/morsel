@@ -4,7 +4,9 @@ Morsel renders GitHub Flavored Markdown, syntax highlighting, KaTeX, Mermaid, an
 
 ## Settings
 
-Open **Settings** in the header or visit `/settings`. The page is public and needs no account.
+The main header links to **Morsel**, **Shares**, and **Settings**. Open **Settings** or visit `/settings` for **Appearance**, **API keys**, **Security**, and admin-only **Invitations**. Shares remains separate from Settings.
+
+Reader preferences are public and need no account. Settings checks the current account to show the account menu and admin-only Invitations. Preferences remain available while this check is pending or fails. Account settings require sign-in.
 
 - **Theme** offers System, Light, Sepia, Sage, Dark, and Midnight. System follows the device's light or dark appearance.
 - **Mermaid style** offers Source style, Classic, and Hand-drawn. The choice applies to all Mermaid diagrams. Source style clears the saved choice and uses each diagram's own configuration.
@@ -15,13 +17,13 @@ Theme and style controls appear only on Settings, not in the header or diagram t
 
 ## Authentication and management
 
-Management uses `/manage/shares`, `/manage/api-keys`, `/account` (Security), and admin-only `/manage/invitations` (Invitations). Signed-out visits go to `/login`; management navigation is hidden until sign-in completes. Login shows a Passkey button and a link to `/recover`, not a recovery form.
+**Shares** uses `/manage/shares`. **Settings** groups `/manage/api-keys`, `/account` (Security), and admin-only `/manage/invitations` (Invitations) with the public preferences at `/settings`. These URLs are unchanged. Signed-out visits to private sections go to `/login`; private content and Settings section navigation stay hidden on authentication pages. Login shows a Passkey button and a link to `/recover`, not a recovery form.
 
 Initial setup uses `/setup` only while the server reports that setup is required and creates an `admin`. Later accounts register as `user` at `/invite` with a one-use admin link or operator token. **Invitation token**, **Account name**, **Passkey name**, and **Create account** remain the registration labels; there is no role choice. Display names need not be unique; the account UUID is the stable identity. Neither role has access to other accounts' management data. Recovery at `/recover` uses an account-targeted operator token and a replacement passkey. It replaces that account's passkeys and invalidates its other sessions, but preserves its role and does not revoke its API keys or affect other accounts.
 
 Authentication links preserve the destination in `?next=`. Only the four exact management paths above are accepted. Missing, repeated, or invalid values use `/manage/shares`. Setup, invitation registration, and recovery also return to this destination. Setup/recovery tokens and credentials belong in forms, never in URLs. Only invitation tokens can enter through `/invite#token=<43-character base64url token>`; no grant token is accepted in a query or path.
 
-Automatic redirects replace the current history entry. Session expiry clears private UI state and sends the user to login with the current management destination. Successful logout goes to `/login` with Shares as the default destination. Failed logout reports an error without claiming success. Network failures during the initial account check show a retry control rather than a login form.
+Automatic redirects replace the current history entry. Session expiry clears private UI state and sends the user to login with the current management destination. Successful logout goes to `/login` with Shares as the default destination. Failed logout reports an error without claiming success. Network failures during the initial account check on private pages show a retry control rather than a login form. Public reader preferences stay usable without a successful account check.
 
 The Go server serves all four authentication paths on direct visits and refreshes. Configure reverse proxies to bypass caching for these paths, including query-string variants, as for management pages.
 
