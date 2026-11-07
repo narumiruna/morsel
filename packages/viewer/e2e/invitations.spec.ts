@@ -178,9 +178,20 @@ test("signed-in recipients get explicit instructions and no invitation survives 
 }) => {
   const backend = await mock(page)
   await page.goto(`/invite#token=${token}`)
-  await expect(page.getByText(/use a private window/)).toBeVisible()
+  await expect(page.getByText(/use a private window/)).toContainText(
+    "Open Settings, then use the Account menu to log out.",
+  )
   await expect(page).toHaveURL(/\/invite$/)
   await expect(page.getByLabel("Invitation token", { exact: true })).toHaveCount(0)
+  expect(backend.posts).toEqual([])
+  await page.getByRole("banner").getByRole("link", { name: "Settings", exact: true }).click()
+  await expect(page).toHaveURL(/\/settings$/)
+  await page.getByRole("button", { name: "Account", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Log out", exact: true })).toBeVisible()
+  await page.keyboard.press("Escape")
+  await page.goBack()
+  await expect(page).toHaveURL(/\/invite$/)
+  await expect(page.getByText(/use a private window/)).toBeVisible()
   expect(backend.posts).toEqual([])
   backend.state.authenticated = false
   await page.evaluate(() => window.dispatchEvent(new Event("focus")))
