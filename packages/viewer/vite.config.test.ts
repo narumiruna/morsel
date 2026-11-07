@@ -31,6 +31,7 @@ it("proxies only exact OAuth protocol and well-known routes while consent stays 
       proxyRules[key] = { ...value, target: `http://127.0.0.1:${backendPort}` }
     }
     proxy = await createViteServer({
+      root: import.meta.dirname,
       configFile: false,
       logLevel: "silent",
       optimizeDeps: { noDiscovery: true },
@@ -143,6 +144,7 @@ it("preserves the public MCP Host and protocol headers through the Vite proxy", 
   try {
     const backendPort = (backend.address() as AddressInfo).port
     proxy = await createViteServer({
+      root: import.meta.dirname,
       configFile: false,
       logLevel: "silent",
       optimizeDeps: { noDiscovery: true },

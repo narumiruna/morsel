@@ -107,7 +107,7 @@ describe("authentication routes", () => {
           mode === "login" ? "Sign in" : mode === "setup" ? "Set up account" : "Recover account"
         await screen.findByRole("heading", { name: title })
         expect(window.location.pathname).toBe(`/${mode}`)
-        expect(screen.getByRole("heading", { name: title })).toHaveFocus()
+        await waitFor(() => expect(screen.getByRole("heading", { name: title })).toHaveFocus())
         expect(
           screen.queryByRole("navigation", { name: "Settings sections" }),
         ).not.toBeInTheDocument()
