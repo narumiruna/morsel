@@ -313,6 +313,7 @@ The **Publish** workflow runs on pushes to `main` and through manual dispatch:
 1. With pending changesets, `changesets/action@v2` creates or updates a version pull request using `npm run release:version`.
    - The action uses Git CLI to commit and push its version branch. PR creation still uses the GitHub API and requires the existing PR permissions.
    - The command uses the highest pending bump, updates the root version, root lockfile version metadata, and root `CHANGELOG.md`, and removes the consumed changesets.
+   - After the action prepares its version branch, `scripts/release-pr.mjs` builds the PR description from the exact root-version changelog entry. The workflow updates only the PR number returned by the action. Missing or empty notes fail before the description update. This replaces the action's workspace-only release list and npm publication instructions.
    - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
 2. After the version pull request is merged and no changesets remain, `npm run release` creates and pushes one `vX.Y.Z` tag from the checked-out `main` commit.
    - The workflow publishes the container from that tag, creates the GitHub release, then calls **Deploy** with the same tag. GitHub release notes use generated commit notes; Changesets summaries remain in the root changelog.
@@ -322,6 +323,8 @@ The **Publish** workflow runs on pushes to `main` and through manual dispatch:
    - If `main` already contains a newer prepared version, rerun **Publish** after recovery to publish that version.
 
 GitHub Actions must have permission to create pull requests in the repository's **Actions > General** settings. CI runs for a version pull request created with the default GitHub token can require **Approve workflows to run**. Approve and verify the required checks before merging.
+
+After merging a description-workflow change, the repository maintainer must verify the next authorized **Publish** run. Confirm that its version PR contains the root version and its changelog notes. Local tests do not verify live GitHub authentication or PR updates. Do not dispatch **Publish** only to test descriptions; it can publish and deploy.
 
 To review a version change locally, run `npm run release:version` on a branch, then `npm run ci` and inspect the diff. This version command does not commit, tag, publish, or deploy. In contrast, `npm run release` is a CI publication command that can push a remote tag; do not use it to preview a release.
 

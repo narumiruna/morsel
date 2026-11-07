@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url"
 import { runInNewContext } from "node:vm"
 import { runChangeset } from "./changeset.mjs"
 import { publishRepository } from "./release.mjs"
+import { releasePrBody } from "./release-pr.mjs"
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url))
 const name = "@narumitw/morsel"
@@ -218,6 +219,112 @@ test("CLI invocation from a workspace still targets the repository root", async 
   assert.deepEqual(plan.changesets[0].releases, [{ name, type: "patch" }])
   assert.deepEqual(await readdir(join(root, "packages/viewer")), ["package.json"])
 })
+
+test("release PR notes describe a generated root-only release without older entries", async (t) => {
+  const root = await fixture(t)
+  await add(root, "minor", "Add saved themes and Mermaid styles.")
+  await add(root, "patch", "Keep diagram toolbars consistent.")
+  await runChangeset(["version"], root)
+  const before = git(root, "status", "--porcelain")
+
+  const body = await releasePrBody(root)
+  assert.ok(body.includes(`# Releases\n\n## ${name}@0.1.0\n`))
+  assert.ok(body.includes("### Minor Changes"))
+  assert.ok(body.includes("Add saved themes and Mermaid styles."))
+  assert.ok(body.includes("Keep diagram toolbars consistent."))
+  assert.ok(body.includes("No npm packages are published."))
+  assert.doesNotMatch(body, /Initial release|## 0\.0\.1|publish to npm|setup this action/)
+  for (const workspace of workspaceNames) {
+    assert.ok(!body.includes(`@narumitw/morsel-${workspace}`))
+    assert.equal((await json(join(root, "packages", workspace, "package.json"))).version, "0.1.0")
+  }
+  assert.equal(git(root, "status", "--porcelain"), before)
+})
+
+for (const newline of ["\n", "\r\n"]) {
+  test(`release PR notes select the exact version and preserve fenced Markdown (${JSON.stringify(newline)})`, async (t) => {
+    const root = await fixture(t, "0.0.2")
+    const notes = [
+      "### Patch Changes",
+      "",
+      "- Current release notes.",
+      "",
+      "```markdown",
+      "## Example heading",
+      "```",
+      "",
+      "~~~markdown",
+      "## Another example",
+      "~~~",
+      "",
+      "Current final paragraph.",
+    ].join("\n")
+    await writeFile(
+      join(root, "CHANGELOG.md"),
+      [
+        "# Morsel",
+        "",
+        "## 0.0.20",
+        "",
+        "Unrelated notes.",
+        "",
+        "```markdown",
+        "## 0.0.2",
+        "Not the real entry.",
+        "```",
+        "",
+        "## 0.0.2",
+        "",
+        notes,
+        "",
+        "## 0.0.1",
+        "",
+        "Old notes.",
+      ]
+        .join("\n")
+        .replaceAll("\n", newline),
+    )
+    const body = await releasePrBody(root)
+    assert.ok(body.endsWith(`${notes}\n`))
+    assert.doesNotMatch(body, /Unrelated notes|Not the real entry|Old notes/)
+  })
+}
+
+for (const [description, changelog] of [
+  ["missing", "## 0.0.1\n\nOld notes.\n"],
+  ["empty", "## 0.0.2\n\n## 0.0.1\n\nOld notes.\n"],
+  ["heading-only", "## 0.0.2\n\n### Patch Changes\n\n## 0.0.1\n\nOld notes.\n"],
+]) {
+  test(`release PR notes reject ${description} current-version entries`, async (t) => {
+    const root = await fixture(t, "0.0.2")
+    await writeFile(join(root, "CHANGELOG.md"), changelog)
+    const before = git(root, "status", "--porcelain")
+    await assert.rejects(releasePrBody(root), /must contain release notes for 0\.0\.2/)
+    assert.equal(git(root, "status", "--porcelain"), before)
+  })
+}
+
+for (const valid of [true, false]) {
+  test(`release PR CLI ${valid ? "prints root notes from a workspace" : "fails without printing an empty body"}`, async (t) => {
+    const root = await fixture(t)
+    await mkdir(join(root, "scripts"))
+    const script = join(root, "scripts/release-pr.mjs")
+    await copyFile(join(repositoryRoot, "scripts/release-pr.mjs"), script)
+    if (!valid) await writeFile(join(root, "CHANGELOG.md"), "# Morsel\n")
+    const result = spawnSync(process.execPath, [script], {
+      cwd: join(root, "packages/viewer"),
+      encoding: "utf8",
+    })
+    assert.equal(result.status, valid ? 0 : 1, result.stderr)
+    if (valid) {
+      assert.equal(result.stdout, await releasePrBody(root))
+      assert.equal(result.stderr, "")
+    } else {
+      assert.equal(result.stdout, "")
+      assert.match(result.stderr, /must contain release notes/)
+    }
+  })
+}
 
 async function publication(t, root, state = {}) {
   const bin = await mkdtemp(join(tmpdir(), "morsel-release-commands-"))
@@ -506,7 +613,7 @@ test("workflow uses the action only for root version PRs", async () => {
   assert.ok(workflow.includes("push-with-git-cli: true"))
   assert.ok(workflow.includes("create-github-releases: false"))
   assert.ok(workflow.includes("push-git-tags: false"))
-  assert.match(workflow, /name: Prepare version PR\n\s+uses: changesets\/action@v2/)
+  assert.match(workflow, /name: Prepare version PR\n\s+id: version\n\s+uses: changesets\/action@v2/)
   assert.ok(
     workflow.indexOf("run: npm run release\n") < workflow.indexOf("uses: changesets/action@v2"),
   )
@@ -515,6 +622,73 @@ test("workflow uses the action only for root version PRs", async () => {
   assert.ok(workflow.includes("needs: [publish, container]"))
   assert.doesNotMatch(workflow, /publish-script:|npm publish|registry-url:|id-token:/)
 })
+
+test("version PR descriptions use the root changelog after the action prepares the branch", async () => {
+  const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
+  assert.match(workflow, /name: Prepare version PR\n\s+id: version\n\s+uses: changesets\/action@v2/)
+  const describe = workflow
+    .split("      - name: Describe repository release\n")[1]
+    ?.split("\n  container:")[0]
+  assert.ok(describe, "The workflow must replace the workspace-only description")
+  assert.ok(describe.includes("if: steps.version.outputs.pr-number != ''"))
+  assert.match(describe, /GH_TOKEN: \$\{\{ github\.token \}\}/)
+  assert.match(describe, /GH_REPO: \$\{\{ github\.repository \}\}/)
+  assert.match(describe, /PR_NUMBER: \$\{\{ steps\.version\.outputs\.pr-number \}\}/)
+  assert.ok(describe.includes('node scripts/release-pr.mjs > "$RUNNER_TEMP/release-pr.md"'))
+  assert.ok(describe.includes('gh pr edit "$PR_NUMBER" --body-file "$RUNNER_TEMP/release-pr.md"'))
+})
+
+for (const valid of [true, false]) {
+  test(`the description step ${valid ? "updates the returned PR with root notes" : "does not call GitHub when notes are empty"}`, async (t) => {
+    const root = await fixture(t, "0.0.2")
+    await mkdir(join(root, "scripts"))
+    await copyFile(
+      join(repositoryRoot, "scripts/release-pr.mjs"),
+      join(root, "scripts/release-pr.mjs"),
+    )
+    if (!valid) await writeFile(join(root, "CHANGELOG.md"), "## 0.0.2\n\n### Patch Changes\n")
+    const bin = join(root, "release commands")
+    const log = join(bin, "github.json")
+    await mkdir(bin)
+    await writeFile(log, "")
+    await writeFile(
+      join(bin, "gh"),
+      `#!/usr/bin/env node
+const { readFileSync, writeFileSync } = require("node:fs")
+const args = process.argv.slice(2)
+writeFileSync(process.env.RELEASE_PR_TEST_LOG, JSON.stringify({ args, body: readFileSync(args[4], "utf8") }))
+`,
+    )
+    await chmod(join(bin, "gh"), 0o700)
+
+    const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
+    const describe = workflow.split("      - name: Describe repository release\n")[1]
+    const run = describe?.match(/ {8}run: \|\n((?: {10}.*\n)+)/)
+    assert.ok(run, "The description step must generate notes before editing the PR")
+    const result = spawnSync("bash", ["-euo", "pipefail", "-c", run[1].replace(/^ {10}/gm, "")], {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}${delimiter}${process.env.PATH}`,
+        RUNNER_TEMP: bin,
+        PR_NUMBER: "151",
+        RELEASE_PR_TEST_LOG: log,
+      },
+    })
+    assert.equal(result.error, undefined)
+    assert.equal(result.status, valid ? 0 : 1, result.stderr)
+    if (valid) {
+      assert.deepEqual(await json(log), {
+        args: ["pr", "edit", "151", "--body-file", join(bin, "release-pr.md")],
+        body: await releasePrBody(root),
+      })
+    } else {
+      assert.equal(await readFile(log, "utf8"), "")
+      assert.match(result.stderr, /must contain release notes/)
+    }
+  })
+}
 
 test("publication deploys its tag only after the GitHub release succeeds", async () => {
   const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")

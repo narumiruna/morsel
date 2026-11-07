@@ -41,6 +41,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: npm run release
       - name: Prepare version PR
+        id: version
         uses: changesets/action@v2
         with:
           version-script: npm run release:version
@@ -49,6 +50,16 @@ jobs:
           pr-title: "chore(release): version repository"
           create-github-releases: false
           push-git-tags: false
+      # The action describes workspace releases, but only the root version changes.
+      - name: Describe repository release
+        if: steps.version.outputs.pr-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.version.outputs.pr-number }}
+        run: |
+          node scripts/release-pr.mjs > "$RUNNER_TEMP/release-pr.md"
+          gh pr edit "$PR_NUMBER" --body-file "$RUNNER_TEMP/release-pr.md"
 
   container:
     needs: publish
