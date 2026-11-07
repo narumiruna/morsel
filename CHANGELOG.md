@@ -1,5 +1,15 @@
 # @narumitw/morsel
 
+## 0.3.0
+
+### Minor Changes
+
+- 362f181: Add a Settings page for saved themes and Mermaid styles while keeping diagram toolbars consistent.
+
+### Patch Changes
+
+- 1aa156e: Group Appearance, API keys, Security, and Invitations under Settings, and move Shares to the main navigation.
+
 ## 0.2.1
 
 ### Patch Changes
