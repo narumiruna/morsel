@@ -467,6 +467,26 @@ describe("recipient invitation intake", () => {
     storage.mockRestore()
   })
 
+  it("directs signed-in recipients to Settings for logout without retaining the invitation", async () => {
+    const user = userEvent.setup()
+    show(`/invite#token=${token}`)
+    expect(await screen.findByText(/You are signed in\./)).toHaveTextContent(
+      "Open Settings, then use the Account menu to log out.",
+    )
+    expect(screen.queryByRole("button", { name: "Account" })).not.toBeInTheDocument()
+    expect(posts()).toHaveLength(0)
+    await user.click(screen.getByRole("link", { name: "Settings" }))
+    await user.click(await screen.findByRole("button", { name: "Account" }))
+    await user.click(screen.getByRole("menuitem", { name: "Log out" }))
+    await screen.findByRole("heading", { name: "Sign in" })
+    expect(posts().map(([url]) => url)).toEqual(["/v1/auth/logout"])
+    await user.click(screen.getByRole("link", { name: "Use an invitation" }))
+    expect(await screen.findByLabelText("Invitation token")).toHaveValue("")
+    expect(startRegistration).not.toHaveBeenCalled()
+    expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain(token)
+    expect(JSON.stringify(window.history.state)).not.toContain(token)
+  })
+
   it("discards signed-in links and does not retain them across session expiration", async () => {
     show(`/invite#token=${token}`, true)
     await screen.findByText(/use a private window/)

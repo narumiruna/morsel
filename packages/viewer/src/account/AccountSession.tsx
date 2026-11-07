@@ -191,6 +191,8 @@ export function AccountSession({
     }
   }, [refresh, expire, invalidate, setAccount])
 
+  // Reader preferences remain available while identity loads or fails.
+  const publicSettings = pathname === "/settings"
   const authRoute = ["/login", "/recover", "/setup", "/invite"].includes(pathname)
   const destination = authRoute
     ? loginDestination(search)
@@ -200,7 +202,7 @@ export function AccountSession({
   let redirect: string | null = null
   if (account) {
     if (logout) redirect = "/login"
-    else if (account.setup_required && pathname !== "/setup")
+    else if (!publicSettings && account.setup_required && pathname !== "/setup")
       redirect = authenticationURL("setup", destination)
     else if (
       !account.setup_required &&
@@ -210,6 +212,7 @@ export function AccountSession({
     )
       redirect = destination
     else if (
+      !publicSettings &&
       !account.setup_required &&
       !account.authenticated &&
       (!authRoute || pathname === "/setup")
@@ -222,7 +225,7 @@ export function AccountSession({
     setLogout(false)
   }, [redirect])
 
-  if (!account || redirect)
+  if ((!account && !publicSettings) || redirect)
     return (
       <>
         <AppHeader />
@@ -243,7 +246,7 @@ export function AccountSession({
   return (
     <Context.Provider
       value={{
-        account,
+        account: account ?? { authenticated: false, setup_required: false },
         expectedAccount,
         isAdminCurrent,
         refresh,

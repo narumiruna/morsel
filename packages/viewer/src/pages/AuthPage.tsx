@@ -119,8 +119,9 @@ export function AuthPage({
           <Card>
             {mode === "invite" && session.account.authenticated ? (
               <Text as="p">
-                You are signed in. Log out from Manage, or use a private window, then reopen the
-                original invitation link. The invitation was not saved. No account was created.
+                You are signed in. Open Settings, then use the Account menu to log out. Or use a
+                private window. Then reopen the original invitation link. The invitation was not
+                saved. No account was created.
               </Text>
             ) : mode === "login" ? (
               <>

@@ -9,7 +9,6 @@ import { AuthPage } from "./pages/AuthPage"
 import { ExamplePage } from "./pages/ExamplePage"
 import { GistPage } from "./pages/GistPage"
 import { OAuthConsentPage } from "./pages/OAuthConsentPage"
-import { SettingsPage } from "./pages/SettingsPage"
 import { SharePage } from "./pages/SharePage"
 import { ErrorPage, HomePage } from "./pages/StatusPage"
 import { parseRoute } from "./route"
@@ -52,7 +51,7 @@ export function App() {
       page = <ExamplePage />
       break
     case "settings":
-      page = <SettingsPage />
+      page = <AccountPage section="preferences" />
       break
     case "share":
       page = <SharePage key={route.token} token={route.token} />
@@ -74,6 +73,7 @@ export function App() {
     <Tooltip.Provider delayDuration={350}>
       {route.kind === "account" ||
       route.kind === "management" ||
+      route.kind === "settings" ||
       route.kind === "authentication" ||
       route.kind === "oauth-consent" ? (
         <AccountSession

@@ -167,7 +167,7 @@ describe("OAuth consent", () => {
   it("loads only on GET under StrictMode and shows the account, unverified identity, and all permissions", async () => {
     const { container } = show(path, true)
     await screen.findByRole("heading", { name: "Review app access" })
-    expect(screen.getByRole("heading", { name: "Connect app" })).toHaveFocus()
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Connect app" })).toHaveFocus())
     expect(screen.getByText("Account: Alpha")).toBeInTheDocument()
     expect(screen.getByText(A)).toBeInTheDocument()
     for (const value of [

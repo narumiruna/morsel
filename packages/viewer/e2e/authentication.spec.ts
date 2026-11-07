@@ -62,7 +62,7 @@ for (const destination of [
     await page.goto(destination)
     await expect(page).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(destination)}$`))
     await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeFocused()
-    await expect(page.getByRole("navigation", { name: "Management sections" })).toHaveCount(0)
+    await expect(page.getByRole("navigation", { name: "Settings sections" })).toHaveCount(0)
     await expect(page.getByLabel("Recovery token", { exact: true })).toHaveCount(0)
     await page.reload()
     await page.getByRole("link", { name: "Recover account", exact: true }).click()
@@ -86,7 +86,7 @@ test("setup is separate, preserves destination on refresh, and closes when the s
   await page.goto("/recover?next=%2Fmanage%2Fapi-keys")
   await expect(page).toHaveURL(/\/setup\?next=%2Fmanage%2Fapi-keys$/)
   await expect(page.getByLabel("Setup token", { exact: true })).toBeVisible()
-  await expect(page.getByRole("navigation", { name: "Management sections" })).toHaveCount(0)
+  await expect(page.getByRole("navigation", { name: "Settings sections" })).toHaveCount(0)
   await page.reload()
   await expect(page.getByLabel("Setup token", { exact: true })).toBeVisible()
   state.setup_required = false
@@ -120,6 +120,7 @@ test("authenticated authentication routes honor only safe destinations", async (
     await page.goto(`/login?${query}`)
     await expect(page).toHaveURL(/\/manage\/shares$/)
     await expect(page.getByRole("heading", { name: "Shares", exact: true })).toBeVisible()
+    await expect(page.getByRole("navigation", { name: "Settings sections" })).toHaveCount(0)
   }
 })
 
@@ -137,6 +138,7 @@ for (const mode of ["login", "recover", "setup", "invite"]) {
             ? "Create account"
             : "Set up account"
     await expect(page.getByRole("heading", { name: title, exact: true })).toBeFocused()
+    await expect(page.getByRole("navigation", { name: "Settings sections" })).toHaveCount(0)
     await page.keyboard.press("Tab")
     if (mode === "login") {
       await expect(page.getByRole("button", { name: "Sign in with passkey" })).toBeFocused()

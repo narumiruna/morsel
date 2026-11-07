@@ -1,5 +1,11 @@
 import { expect, type Page, test } from "@playwright/test"
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/v1/account", (route) =>
+    route.fulfill({ json: { authenticated: false, setup_required: false } }),
+  )
+})
+
 const token = "P".repeat(43)
 const otherToken = "Q".repeat(43)
 const content = `# Settings fixture
@@ -46,12 +52,24 @@ async function selectPreference(page: Page, name: "Theme" | "Mermaid style", val
   await expect(preference).toHaveText(value)
 }
 
-test("loads and reloads Settings for a guest without API requests", async ({ page }, testInfo) => {
+test("loads and reloads guest preferences with only an account identity request", async ({
+  page,
+}, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.emulateMedia({ colorScheme: "light" })
   const apiRequests: string[] = []
-  await page.route("**/v1/**", (route) => {
-    apiRequests.push(route.request().url())
+  let releaseIdentity!: () => void
+  const identityReady = new Promise<void>((resolve) => {
+    releaseIdentity = resolve
+  })
+  await page.route("**/v1/**", async (route) => {
+    const path = new URL(route.request().url()).pathname
+    apiRequests.push(path)
+    if (path === "/v1/account") {
+      expect(route.request().method()).toBe("GET")
+      await identityReady
+      return route.fulfill({ json: { authenticated: false, setup_required: false } })
+    }
     return route.fulfill({
       status: 401,
       json: { code: "unauthorized", message: "Authentication required" },
@@ -89,15 +107,58 @@ test("loads and reloads Settings for a guest without API requests", async ({ pag
     contentType: "image/png",
   })
 
+  await expect.poll(() => apiRequests).toContain("/v1/account")
+  await selectPreference(page, "Theme", "Sepia")
+  await selectPreference(page, "Mermaid style", "Hand-drawn")
+  await expect(page.locator(".morsel-theme")).toHaveAttribute("data-theme-mode", "sepia")
+  const identity = page.waitForResponse("**/v1/account")
+  releaseIdentity()
+  expect((await identity).status()).toBe(200)
+  await expect(page).toHaveURL(/\/settings$/)
+  await expect(header.getByRole("button", { name: "Account", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("link", { name: "Invitations", exact: true })).toHaveCount(0)
+
+  await page.reload()
+  await expect(page).toHaveURL(/\/settings$/)
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
+  await expect(theme).toHaveText("Sepia")
+  await expect(style).toHaveText("Hand-drawn")
+  await selectPreference(page, "Theme", "System")
+  await selectPreference(page, "Mermaid style", "Source style")
   await page.emulateMedia({ colorScheme: "dark" })
   await expect(page.locator(".morsel-theme")).toHaveAttribute("data-appearance", "dark")
   await page.reload()
   await expect(page).toHaveURL(/\/settings$/)
-  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
   await expect(theme).toHaveText("System")
   await expect(style).toHaveText("Source style")
   await expect(page.locator(".morsel-theme")).toHaveAttribute("data-appearance", "dark")
-  expect(apiRequests).toEqual([])
+  expect([...new Set(apiRequests)]).toEqual(["/v1/account"])
+})
+
+test("keeps preferences usable on Settings when the identity check is offline", async ({
+  page,
+}) => {
+  const apiRequests: string[] = []
+  await page.route("**/v1/**", (route) => {
+    apiRequests.push(new URL(route.request().url()).pathname)
+    return route.abort("internetdisconnected")
+  })
+  await page.goto("/settings")
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
+  await expect.poll(() => apiRequests).toContain("/v1/account")
+  await selectPreference(page, "Theme", "Sage")
+  await selectPreference(page, "Mermaid style", "Classic")
+  await expect(page).toHaveURL(/\/settings$/)
+  await expect(page.getByRole("button", { name: "Sign in with passkey" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Account", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("link", { name: "Invitations", exact: true })).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole("combobox", { name: "Theme", exact: true })).toHaveText("Sage")
+  await expect(page.getByRole("combobox", { name: "Mermaid style", exact: true })).toHaveText(
+    "Classic",
+  )
+  await expect(page).toHaveURL(/\/settings$/)
+  expect([...new Set(apiRequests)]).toEqual(["/v1/account"])
 })
 
 test("persists global preferences across documents, routes, and reloads", async ({ page }) => {

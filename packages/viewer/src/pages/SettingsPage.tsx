@@ -1,9 +1,17 @@
 import { Card, Heading, Select, Text } from "@radix-ui/themes"
+import type { ReactNode } from "react"
+import { SettingsNavigation } from "../components/SettingsNavigation"
 import { useMermaidLook } from "../markdown/mermaidLook"
 import { ThemeControl } from "../theme"
 import "../styles/settings.css"
 
-export function SettingsPage() {
+export function SettingsPage({
+  isAdmin = false,
+  children,
+}: {
+  isAdmin?: boolean
+  children?: ReactNode
+}) {
   const { look, updateLook } = useMermaidLook()
 
   return (
@@ -11,6 +19,8 @@ export function SettingsPage() {
       <Heading as="h1" size="7" id="settings-heading">
         Settings
       </Heading>
+      <SettingsNavigation section="preferences" isAdmin={isAdmin} />
+      {children}
       <Text as="p" color="gray">
         Changes are saved automatically in this browser. No account is needed.
       </Text>

@@ -6,20 +6,26 @@ export function AppHeader({
   busy = false,
   onLogout,
   displayName,
+  activeSection,
 }: {
+  activeSection?: "shares" | "settings"
   displayName?: string
   authenticated?: boolean
   busy?: boolean
   onLogout?: () => void
 }) {
   return (
-    <header className={`app-header${authenticated ? " app-header--authenticated" : ""}`}>
+    <header className="app-header">
       <a className="app-brand" href="/" aria-label="Morsel home">
         Morsel
       </a>
       <nav aria-label="Main navigation">
-        <a href="/manage/shares">Manage</a>
-        <a href="/settings">Settings</a>
+        <a href="/manage/shares" aria-current={activeSection === "shares" ? "page" : undefined}>
+          Shares
+        </a>
+        <a href="/settings" aria-current={activeSection === "settings" ? "page" : undefined}>
+          Settings
+        </a>
       </nav>
       <div className="app-header-controls">
         {authenticated && (

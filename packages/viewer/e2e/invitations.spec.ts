@@ -178,15 +178,117 @@ test("signed-in recipients get explicit instructions and no invitation survives 
 }) => {
   const backend = await mock(page)
   await page.goto(`/invite#token=${token}`)
-  await expect(page.getByText(/use a private window/)).toBeVisible()
+  await expect(page.getByText(/use a private window/)).toContainText(
+    "Open Settings, then use the Account menu to log out.",
+  )
   await expect(page).toHaveURL(/\/invite$/)
   await expect(page.getByLabel("Invitation token", { exact: true })).toHaveCount(0)
+  expect(backend.posts).toEqual([])
+  await page.getByRole("banner").getByRole("link", { name: "Settings", exact: true }).click()
+  await expect(page).toHaveURL(/\/settings$/)
+  await page.getByRole("button", { name: "Account", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Log out", exact: true })).toBeVisible()
+  await page.keyboard.press("Escape")
+  await page.goBack()
+  await expect(page).toHaveURL(/\/invite$/)
+  await expect(page.getByText(/use a private window/)).toBeVisible()
   expect(backend.posts).toEqual([])
   backend.state.authenticated = false
   await page.evaluate(() => window.dispatchEvent(new Event("focus")))
   await expect(page.getByLabel("Invitation token", { exact: true })).toHaveValue("")
   expect(backend.posts).toEqual([])
 })
+
+for (const width of [1280, 375]) {
+  for (const role of ["admin", "user"]) {
+    test(`groups ${role} settings separately from Shares at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      const backend = await mock(page)
+      backend.state.role = role
+      const apiRequests: string[] = []
+      page.on("request", (request) => {
+        const path = new URL(request.url()).pathname
+        if (path.startsWith("/v1/")) apiRequests.push(path)
+      })
+      const header = page.getByRole("banner")
+      const main = header.getByRole("navigation", { name: "Main navigation" })
+      const sections = page.getByRole("navigation", { name: "Settings sections" })
+      const links: [string, string][] = [
+        ["Appearance", "/settings"],
+        ["API keys", "/manage/api-keys"],
+        ["Security", "/account"],
+      ]
+      if (role === "admin") links.push(["Invitations", "/manage/invitations"])
+      const expectSettings = async (active: string) => {
+        await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible()
+        await expect(main.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute(
+          "aria-current",
+          "page",
+        )
+        await expect(sections.getByRole("link")).toHaveText(links.map(([name]) => name))
+        for (const [name, href] of links) {
+          const link = sections.getByRole("link", { name, exact: true })
+          await expect(link).toBeVisible()
+          await expect(link).toHaveAttribute("href", href)
+        }
+        await expect(sections.getByRole("link", { name: active, exact: true })).toHaveAttribute(
+          "aria-current",
+          "page",
+        )
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+          width,
+        )
+      }
+
+      await page.goto("/settings")
+      await expect(header.getByRole("button", { name: "Account", exact: true })).toBeVisible()
+      await expect(main.getByRole("link")).toHaveText(["Shares", "Settings"])
+      await expect(main.getByRole("link", { name: "Shares", exact: true })).toHaveAttribute(
+        "href",
+        "/manage/shares",
+      )
+      await expect(main.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute(
+        "href",
+        "/settings",
+      )
+      await expectSettings("Appearance")
+      expect([...new Set(apiRequests)]).toEqual(["/v1/account"])
+
+      await main.getByRole("link", { name: "Shares", exact: true }).click()
+      await expect(page).toHaveURL(/\/manage\/shares$/)
+      await expect(page.getByRole("heading", { name: "Manage shares", level: 1 })).toBeVisible()
+      await expect(sections).toHaveCount(0)
+      for (const name of ["API keys", "Security", "Invitations"]) {
+        await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0)
+      }
+      await expect(header.getByRole("button", { name: "Account", exact: true })).toBeVisible()
+      await expect(main.getByRole("link", { name: "Shares", exact: true })).toHaveAttribute(
+        "aria-current",
+        "page",
+      )
+      await main.getByRole("link", { name: "Settings", exact: true }).click()
+      await expect(page).toHaveURL(/\/settings$/)
+      await expectSettings("Appearance")
+      await sections.getByRole("link", { name: "API keys", exact: true }).click()
+      await expect(page).toHaveURL(/\/manage\/api-keys$/)
+      await expect(page.getByRole("heading", { name: "API keys", level: 2 })).toBeVisible()
+      await expectSettings("API keys")
+      await sections.getByRole("link", { name: "Security", exact: true }).click()
+      await expect(page).toHaveURL(/\/account$/)
+      await expect(page.getByRole("heading", { name: "Passkeys", level: 2 })).toBeVisible()
+      await expectSettings("Security")
+      if (role === "admin") {
+        await sections.getByRole("link", { name: "Invitations", exact: true }).click()
+        await expect(page).toHaveURL(/\/manage\/invitations$/)
+        await expect(
+          page.getByRole("heading", { name: "Manage invitations", level: 2 }),
+        ).toBeVisible()
+        await expectSettings("Invitations")
+      }
+      expect(backend.posts).toEqual([])
+    })
+  }
+}
 
 test("admin creates one link with explicit retry, manual-copy fallback, discard warning, and dismissal", async ({
   page,
