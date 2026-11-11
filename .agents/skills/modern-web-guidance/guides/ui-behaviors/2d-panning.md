@@ -123,9 +123,10 @@ if (!CSS.supports('scroll-axis-lock', 'none')) {
 
   // 2. Touch and pointer drag fallback
   viewport.addEventListener('pointerdown', (e) => {
-    // Ignore non-primary buttons and clicks on native scrollbars
+    // Keep one pointer owner; ignore non-primary buttons and native scrollbars.
     const rect = viewport.getBoundingClientRect();
     if (
+      lastPointer ||
       !e.isPrimary ||
       e.button !== 0 ||
       e.clientX - rect.left - viewport.clientLeft >= viewport.clientWidth ||
@@ -133,18 +134,20 @@ if (!CSS.supports('scroll-axis-lock', 'none')) {
     ) {
       return;
     }
-    lastPointer = { x: e.clientX, y: e.clientY };
+    lastPointer = { id: e.pointerId, x: e.clientX, y: e.clientY };
     viewport.setPointerCapture(e.pointerId);
   });
 
   viewport.addEventListener('pointermove', (e) => {
-    if (!lastPointer) return;
+    if (lastPointer?.id !== e.pointerId) return;
     viewport.scrollLeft -= e.clientX - lastPointer.x;
     viewport.scrollTop -= e.clientY - lastPointer.y;
-    lastPointer = { x: e.clientX, y: e.clientY };
+    lastPointer.x = e.clientX;
+    lastPointer.y = e.clientY;
   });
 
-  const endPointerPan = () => {
+  const endPointerPan = (e) => {
+    if (lastPointer?.id !== e.pointerId) return;
     lastPointer = null;
   };
   viewport.addEventListener('pointerup', endPointerPan);
