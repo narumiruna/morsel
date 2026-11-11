@@ -1,5 +1,12 @@
 # @narumitw/morsel
 
+## 0.3.1
+
+### Patch Changes
+
+- 4341cb8: Fix Markdown math and footnote rendering, chart input and zoom controls, and account loading after failed logout.
+- 0745513: Update Go dependencies and patch Go toolchains for GO-2026-6859.
+
 ## 0.3.0
 
 ### Minor Changes
