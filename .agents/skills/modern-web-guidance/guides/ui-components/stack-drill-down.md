@@ -26,7 +26,7 @@ The static HTML is just an empty stack container; views are built in JavaScript 
 </div>
 ```
 
-Each view is a `.Stack-view` direct child of `.Stack` (the snap target) with a `.Stack-viewContent` wrapper inside it (where view content lives, and where the parallax transform applies — see step 2). At any moment the stack has one view per active history entry, left-to-right in drill-down order. After the user has drilled in two levels from the root the rendered DOM looks like this:
+Each view is a `.Stack-view` direct child of `.Stack` (the snap target) with a `.Stack-viewContent` wrapper inside it (where view content lives, and where the parallax transform applies — see step 2). At any moment the stack has one view per spatial level, left-to-right in drill-down order. After the user has drilled in two levels from the root the rendered DOM looks like this:
 
 ```html
 <div class="Stack">
@@ -76,7 +76,7 @@ Each view is a `.Stack-view` direct child of `.Stack` (the snap target) with a `
 Notes:
 
 - All views except the currently-visible one carry the `inert` attribute. This is applied/removed automatically by the `scrollsnapchange` handler in step 7 — do not set it from your view builders.
-- Views the user swipes back past are removed from the DOM (also by step 7) so the stack never grows beyond `currentDepth + 1` children. They are rebuilt on demand from their cached URL paths if forward navigation returns to them.
+- Views the user swipes back past are removed from the DOM (also by step 7) so the stack retains only the current view and its spatial ancestors. They are rebuilt on demand from their cached URL paths if forward navigation returns to them.
 
 ### 2. Styles
 
@@ -205,7 +205,7 @@ NOTE: This effect is popular in modern native stack applications and is a good s
 
 ### 3. Module state
 
-The stack tracks four pieces of state in module scope:
+The stack tracks five pieces of state in module scope:
 
 ```js
 const stack = document.querySelector('.Stack');
@@ -234,6 +234,11 @@ const entriesByDepth = new Map();
 // the destination depth but not where we came from. We need both to
 // compute the direction (back vs forward) and the distance.
 let currentDepth = 0;
+
+// History depth where the current root branch starts. A synthesized
+// root follows the original deep link in history, but that earlier
+// entry is not an ancestor of routes drilled into from the root.
+let stackRootDepth = 0;
 ```
 
 Plus three application-specific helpers — the only places where your app's routing and view rendering plug in:
@@ -321,6 +326,14 @@ function drillDown(urlPath) {
   for (const d of entriesByDepth.keys()) {
     if (d >= newDepth) entriesByDepth.delete(d);
   }
+  // A drill from the original deep link can truncate the synthesized
+  // root's history entry. Remove its spatial view and reset the boundary.
+  if (stackRootDepth >= newDepth) {
+    rootView.remove();
+    rootView = null;
+    stackRootDepth = 0;
+    stack.scrollLeft = 0;
+  }
   currentDepth = newDepth;
 
   const newView = createDrillDownView(routeData);
@@ -400,6 +413,12 @@ function synthesizeRootEntry() {
   const newDepth = currentDepth + 1;
   history.pushState({depth: newDepth}, '', '/');
 
+  // As in drillDown(), discard the forward branch that pushState cut off.
+  for (const d of entriesByDepth.keys()) {
+    if (d >= newDepth) entriesByDepth.delete(d);
+  }
+  stackRootDepth = newDepth;
+
   // Create the root view if it doesn't exist yet (we landed on a deep
   // link and never needed it before now), and insert it at the LEFT end
   // of the stack. Adjust scrollLeft by one viewport width so the user's
@@ -442,18 +461,42 @@ function updateFromHistoryState(state, behaviorOverride) {
   }
   entriesByDepth.set(newDepth, entry);
 
-  // Rebuild any views between root and the destination that were
-  // pruned earlier (when the user swiped back past them). Without
-  // this, forward-navigating to a previously-pruned view would have
-  // no element to scroll to.
-  for (let d = 0; d <= newDepth; d++) {
+  const previousScrollLeft = stack.scrollLeft;
+  const previousIndex = Math.round(previousScrollLeft / stack.clientWidth);
+  const visibleView = stack.children[previousIndex];
+
+  // Rebuild only the destination's spatial ancestors. Before a
+  // synthesized root's boundary, use the original deep-link branch;
+  // at or after it, exclude that pre-root history entry.
+  const firstDepth = Math.min(stackRootDepth, newDepth);
+  let insertAt = rootView ? 1 : 0;
+  for (let d = firstDepth; d <= newDepth; d++) {
     const e = entriesByDepth.get(d);
-    if (!e || e.view) continue;
-    const routeData = resolveUrl(e.urlPath);
-    if (!routeData) continue;
-    const rebuilt = createDrillDownView(routeData);
-    stack.appendChild(rebuilt);
-    e.view = rebuilt;
+    if (!e) continue;
+    if (!e.view) {
+      const routeData = resolveUrl(e.urlPath);
+      if (!routeData) continue;
+      e.view = createDrillDownView(routeData);
+    }
+    if (e.view === rootView) continue;
+    // Put ancestors in order before outgoing views, not after them.
+    // Step 7 prunes those outgoing views when the destination settles.
+    if (stack.children[insertAt] !== e.view) {
+      stack.insertBefore(e.view, stack.children[insertAt] ?? null);
+    }
+    insertAt++;
+  }
+
+  // Inserting ancestors can shift the visible view's snap index.
+  // Keep it in place until the destination scroll below starts.
+  if (visibleView) {
+    const visibleIndex = [...stack.children].indexOf(visibleView);
+    if (visibleIndex !== previousIndex) {
+      stack.scrollTo({
+        left: previousScrollLeft + (visibleIndex - previousIndex) * stack.clientWidth,
+        behavior: 'instant',
+      });
+    }
   }
 
   currentDepth = newDepth;

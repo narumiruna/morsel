@@ -65,7 +65,7 @@ Use the `aria-describedby` attribute on elements with `autofocus` so instruction
 
 ### Explicit Button Flow
 
-Trigger passkey authentication when a user clicks a "Sign in with passkey" button. Abort any ongoing form autofill (Conditional Get) calls before invoking the passkey prompt.
+Trigger passkey authentication when a user clicks a "Sign in with passkey" button. Give each attempt its own controller before any capability or options request. Abort the previous attempt. After each wait, stop if that attempt is no longer current. A superseded attempt must not open a prompt, verify a result, signal a credential, or restart autofill.
 
 ### Conditional Mediation Flow (Form Autofill)
 
@@ -88,70 +88,82 @@ Activate form autofill suggestions on page load to offer passkey authentication 
 // optionsFetch and loginVerifyFetch are app-defined HTTP methods
 import { optionsFetch, loginVerifyFetch } from "./api.js";
 
-let autofillAbortController = new AbortController();
+let currentAuthController;
+
+function startAuthenticationAttempt() {
+  currentAuthController?.abort();
+  const controller = new AbortController();
+  currentAuthController = controller;
+  return controller;
+}
+
+function isCurrentAttempt(controller) {
+  return currentAuthController === controller && !controller.signal.aborted;
+}
 
 async function initializeConditionalAutofill() {
-  // Feature detect Conditional Get autofill support
-  const capabilities = await PublicKeyCredential.getClientCapabilities();
-  if (capabilities.conditionalGet === true) {
+  const controller = startAuthenticationAttempt();
+  try {
+    // Feature detect Conditional Get autofill support
+    const capabilities = await PublicKeyCredential.getClientCapabilities();
+    if (!isCurrentAttempt(controller) || capabilities.conditionalGet !== true) return;
+
     const loginOptionsJSON = await optionsFetch();
+    if (!isCurrentAttempt(controller)) return;
     const publicKey =
       PublicKeyCredential.parseRequestOptionsFromJSON(loginOptionsJSON);
+    // Initiate Conditional UI form autofill suggestions
+    const credential = await navigator.credentials.get({
+      publicKey,
+      signal: controller.signal,
+      mediation: "conditional",
+    });
 
-    try {
-      // Initiate Conditional UI form autofill suggestions
-      const credential = await navigator.credentials.get({
-        publicKey,
-        signal: autofillAbortController.signal,
-        mediation: "conditional",
-      });
-
-      // Segregated verification fetch
-      const encoded = credential.toJSON();
-      const response = await loginVerifyFetch(encoded);
-      if (!response.ok && response.status === 404) {
-        // Note: this code path runs pre-authentication, satisfying the unauth precondition
-        if (PublicKeyCredential.signalUnknownCredential) {
-          await PublicKeyCredential.signalUnknownCredential({
-            rpId: publicKey.rpId, // Always use the server-provided rpId; DO NOT use window.location.hostname
-            credentialId: encoded.id,
-          });
-        }
+    if (!isCurrentAttempt(controller)) return;
+    // Segregated verification fetch
+    const encoded = credential.toJSON();
+    const response = await loginVerifyFetch(encoded);
+    if (!isCurrentAttempt(controller)) return;
+    if (!response.ok && response.status === 404) {
+      // Note: this code path runs pre-authentication, satisfying the unauth precondition
+      if (PublicKeyCredential.signalUnknownCredential) {
+        await PublicKeyCredential.signalUnknownCredential({
+          rpId: publicKey.rpId, // Always use the server-provided rpId; DO NOT use window.location.hostname
+          credentialId: encoded.id,
+        });
       }
-    } catch (err) {
-      // Silently swallow expected client WebAuthn exceptions
-      if (["NotAllowedError", "AbortError"].includes(err.name)) {
-        return;
-      }
-      console.error("Unexpected conditional get error:", err);
     }
+  } catch (err) {
+    // A superseded attempt has no further work.
+    if (!isCurrentAttempt(controller)) return;
+    if (["NotAllowedError", "AbortError"].includes(err.name)) return;
+    console.error("Unexpected conditional get error:", err);
   }
 }
 
 async function triggerButtonAuthentication() {
-  // Abort any pending Conditional Get call to prevent passkey prompt collisions
-  autofillAbortController.abort();
-  autofillAbortController = new AbortController(); // Reset controller for next triggers
-
-  const loginOptionsJSON = await optionsFetch();
-  const publicKey =
-    PublicKeyCredential.parseRequestOptionsFromJSON(loginOptionsJSON);
-
+  const controller = startAuthenticationAttempt();
+  let publicKey;
   let credential;
   try {
+    const loginOptionsJSON = await optionsFetch();
+    if (!isCurrentAttempt(controller)) return;
+    publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(loginOptionsJSON);
     // Passkey explicit prompt trigger
     credential = await navigator.credentials.get({
       publicKey,
-      signal: autofillAbortController.signal,
+      signal: controller.signal,
     });
+    if (!isCurrentAttempt(controller)) return;
   } catch (err) {
+    if (!isCurrentAttempt(controller)) return;
     if (err.name === "NotAllowedError") {
       console.log("User cancelled passkey login.");
     } else if (err.name === "AbortError") {
       console.log("The authentication operation was aborted.");
     }
-    // Re-arm Conditional autofill Suggestions after cancelled explicit button prompts
-    initializeConditionalAutofill();
+    // Only the current attempt can re-arm autofill.
+    void initializeConditionalAutofill();
     return; // Safe exit
   }
 
@@ -159,6 +171,7 @@ async function triggerButtonAuthentication() {
   const encoded = credential.toJSON();
   try {
     const response = await loginVerifyFetch(encoded);
+    if (!isCurrentAttempt(controller)) return;
     if (!response.ok && response.status === 404) {
       // Note: this code path runs pre-authentication, satisfying the unauth precondition
       if (PublicKeyCredential.signalUnknownCredential) {
@@ -169,6 +182,7 @@ async function triggerButtonAuthentication() {
       }
     }
   } catch (serverErr) {
+    if (!isCurrentAttempt(controller)) return;
     console.error("Verification request error:", serverErr);
   }
 }
