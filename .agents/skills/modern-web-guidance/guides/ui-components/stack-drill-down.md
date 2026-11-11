@@ -338,7 +338,7 @@ function drillDown(urlPath) {
 
 ### 5. Click and back-button handling
 
-Intercept same-origin link clicks inside the stack and convert them to drill-downs. Let the browser handle external links. Preserve modifier-key behavior so cmd/middle-click still opens the link in a new tab.
+Intercept same-origin link clicks inside the stack and convert them to drill-downs. Let the browser handle external links and links with a query or fragment. Preserve modifier-key behavior so cmd/middle-click still opens the link in a new tab.
 
 ```js
 stack.addEventListener('click', (e) => {
@@ -358,6 +358,8 @@ stack.addEventListener('click', (e) => {
 
   const url = new URL(link.href);
   if (url.origin !== location.origin) return;
+  // Stack routes use only the pathname.
+  if (url.search || url.hash) return;
   const urlPath = url.pathname;
   const parentView = link.closest('.Stack-view');
   // If the URL isn't handled by this section of the app (resolveUrl

@@ -12,15 +12,32 @@ Search and retrieve standardized modern web best practices at the **start** of i
 
 ## Primary Workflow
 
+### Prepare the locked executable
+
+The skill-local [package.json](package.json) selects version `1.0.0`.
+The [package-lock.json](package-lock.json) pins the archive URL and SHA-512 integrity.
+Review both files before changing the executable version.
+The `--skill-version` argument selects guidance; it does not pin executable bytes.
+
+From the directory containing this `SKILL.md`, install only the locked artifact:
+
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+```
+
+Do not continue if installation or integrity verification fails.
+Run all commands below, including commands in the guides, from this same directory.
+Run the local entry point with Node.js so a missing executable fails instead of selecting a package-runner cache or fetching another artifact.
+
 ### Step 1. Search Use Cases
 
-Run `modern-web-guidance` directly with `npx` using a **2–5 word action-oriented query** for a **single web platform capability or UI pattern**:
+Run the locked `modern-web-guidance` entry point with Node.js using a **2–5 word action-oriented query** for a **single web platform capability or UI pattern**:
 - **Keep queries focused and generic**: Describe the user-visible capability (`<verb> + <UI/platform object>`, optionally paired with the target HTML/CSS/JS feature name if known). Omit framework/library names (`React`, `Vue`, `Tailwind`, etc.) and app/domain nouns (product, route, or component/file names). Split multi-feature tasks into separate `search` calls.
 - **Name implied UI primitives**: When the user's prompt expresses intent without naming the UI primitive (e.g. "confirm first", "delete with confirmation", "pick a date"), translate the domain intent into the implied UI component or platform mechanism (e.g. search `"confirmation modal dialog"` or `"confirm dialog"` rather than `"confirm destructive action"`, or `"date picker input"` rather than `"pick a date"`).
 - **Example**: Search `"light dismiss dialog"` or `"responsive data table"`, **not** `"dialog"` (too terse), `"responsive table dark mode"` (compound — split into two searches), or `"close React settings modal on outside click"` (framework/app noise).
 
 ```sh
-npx -y modern-web-guidance@1.0.0 search "<query>" --skill-version 2026_11_09-5bcc021b
+node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs search "<query>" --skill-version 2026_11_09-5bcc021b
 ```
 
 > **Note**: Returns `[{ "id", "description" }, ...]`. Judge results by their `description` fields:
@@ -33,7 +50,7 @@ npx -y modern-web-guidance@1.0.0 search "<query>" --skill-version 2026_11_09-5bc
 Once you have relevant `id`(s) from the search results, call `retrieve` to get the full guide(s)—including both specific use-case guides that match your task and any broader discipline guide (e.g., `html`, `css`, `forms`, `accessibility`, `color`, `performance`, `security`) that applies. You can pass multiple IDs separated by commas.
 
 ```sh
-npx -y modern-web-guidance@1.0.0 retrieve "<id>"
+node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "<id>"
 ```
 
 If `retrieve` saves large output (> 9.5 KB) to a temporary file to prevent truncation, read that file path in full using your file-reading tool (reading remaining line ranges if needed)—do not use `cat` or `head`.
@@ -60,7 +77,7 @@ When you consult `modern-web-guidance` for a task, end the response where you de
 > **Note**: `legacy-scan` scans for a curated subset (~20% of the guidance corpus).
 
 ```sh
-npx -y modern-web-guidance@1.0.0 legacy-scan <path> --json
+node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs legacy-scan <path> --json
 ```
 
 1. Scan: Run `legacy-scan <path> --json` to detect legacy web platform patterns across the project or directory.
@@ -69,12 +86,11 @@ npx -y modern-web-guidance@1.0.0 legacy-scan <path> --json
 4. Modernize (when the user asked to modernize rather than only audit/report): Retrieve each finding's guide (`retrieve "<guide-id>"` via Step 2), apply the replacement (keeping existing libraries as fallbacks where the guide requires one), and re-run `legacy-scan <path>` on the modified files to confirm resolution.
    - Dropped findings and kept fallbacks still match static scans; do not edit safe code or inspect `legacy-scan.mjs` to force 0 findings.
 
-## Using npx / pnpx
+## Runner permissions
 
-- **Executable version**: Use `modern-web-guidance@1.0.0`, not a mutable dist-tag. Review package changes before updating this version. The `--skill-version` argument selects guidance; it does not pin the executable. Keep file and network access limited to the task.
-- **Runner & Permissions**: Prefer `pnpx` over `npx` if `pnpm` is available (`pnpx` does not use `-y`); on Windows, use `npx.cmd`. When requesting tool permissions, allowlist `npx -y modern-web-guidance@1.0.0 *` (or `pnpx modern-web-guidance@1.0.0 *`) specifically, never bare `npx *` or `pnpx *`.
-- **Sandboxes & Network**: Fetching `modern-web-guidance` requires outbound network access. In sandboxed or approval-gated environments (e.g., Codex, Claude Code), **proactively request approval/allowlisting with network access BEFORE the first execution** to avoid timeouts, and set `NPM_CONFIG_CACHE=/tmp/npm-cache` if `~/.npm` is read-only.
-- **Offline**: If the command hangs due to being offline, retry with `npx --offline …`.
+- Request approval for the locked installation before network access in an approval-gated environment. Keep file and network permissions limited to the task.
+- Do not replace the local entry point with `npx`, `pnpx`, or another runner that can bypass the skill-local lockfile.
+- If an execution allowlist is required, limit it to `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs *` from this skill directory. Do not allow bare `node *`.
 
 ## Guidelines
 
@@ -84,7 +100,9 @@ npx -y modern-web-guidance@1.0.0 legacy-scan <path> --json
   - **SSR & Bundlers**: Guard `window`/`HTMLElement` in SSR and load polyfills via bare `import('<pkg>')` in client effects (or set Vite `build.target: 'esnext'` for top-level `await`)—never copy files from `node_modules`.
   - **DOM, IDs & CSS**: Call `showModal()` via a ref, including on a framework-managed dialog.
     Use `moveBefore()` only on nodes whose tree position is not managed by the framework.
-    Generate per-instance IDs/`anchor-name`s (`useId()`), and keep `:root` and `@starting-style` top-level/unscoped.
+    Generate per-instance IDs with `useId()`.
+    For CSS anchors, use `CSS.escape("--" + id)` to build one valid name and use that same name for `anchor-name` and `position-anchor`.
+    Keep `:root` and `@starting-style` top-level/unscoped.
 
 ## Interpreting Browser Support & Fallbacks
 

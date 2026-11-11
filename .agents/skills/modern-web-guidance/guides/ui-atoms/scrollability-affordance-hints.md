@@ -219,36 +219,28 @@ At either end of the content its cover sits on top of its shadow and hides it; o
 }
 ```
 
-The shadows paint behind the content, so content with its own opaque background hides them. In that case, use the `IntersectionObserver` fallback below.
+The shadows paint behind the content, so content with its own opaque background hides them. In that case, use the JavaScript fallback below.
 
-#### Fades, or shadows on any background: `IntersectionObserver`
+#### Fades, or shadows on any background: JavaScript measurements
 
-Use an `IntersectionObserver` to mark which edges have more content, and show the hints from those classes. Add separate sentinels at the start and end of the scroller. This also handles one child that is larger than the scroller. A sentinel that is out of view means there is more content beyond that edge.
-
-Sentinels must be valid children of the scroller. For example, use `li` instead of `div` in a list.
+For vertical scrollers, measure the scroll position and content height to set the hint classes. This adds no layout items. Observe the scroller and its content children to update hints when their sizes change.
 
 ```js
 if (!CSS.supports('animation-timeline', 'scroll()')) {
   for (const scroller of document.querySelectorAll('.scroller')) {
-    if (!scroller.firstElementChild) continue;
-    const [start, end] = [document.createElement('div'), document.createElement('div')];
-    for (const sentinel of [start, end]) {
-      sentinel.setAttribute('aria-hidden', 'true');
-      // Give each sentinel a visible area for intersection detection.
-      sentinel.style.cssText = 'min-inline-size: 1px; min-block-size: 1px';
-    }
-    scroller.prepend(start);
-    scroller.append(end);
+    const updateHints = () => {
+      const { scrollTop, clientHeight, scrollHeight } = scroller;
+      // Allow for sub-pixel rounding at the edges.
+      scroller.classList.toggle('more-start', scrollTop > 1);
+      scroller.classList.toggle('more-end', scrollTop + clientHeight < scrollHeight - 1);
+    };
 
-    // Allow for sub-pixel rounding at the edges.
-    const observer = new IntersectionObserver(entries => {
-      for (const { target, isIntersecting } of entries) {
-        scroller.classList.toggle(target === start ? 'more-start' : 'more-end', !isIntersecting);
-      }
-    }, { root: scroller, threshold: 0, rootMargin: '1px' });
-
-    observer.observe(start);
-    observer.observe(end);
+    scroller.addEventListener('scroll', updateHints, { passive: true });
+    window.addEventListener('resize', updateHints);
+    const observer = new ResizeObserver(updateHints);
+    observer.observe(scroller);
+    for (const child of scroller.children) observer.observe(child);
+    updateHints();
   }
 }
 ```

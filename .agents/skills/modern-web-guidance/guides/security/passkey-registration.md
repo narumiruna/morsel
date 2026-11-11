@@ -99,6 +99,7 @@ const options = {
     - Signal an unknown credential only after the server confirms that this credential was not persisted.
     - In this example, a rejected verification response contains `credentialPersisted: false` only when the server has confirmed that the credential is absent. A non-OK status alone is not enough.
     - Keep the credential after a network error, a lost response, or an unclear server error. Reconcile its state with the server before cleanup or another registration attempt.
+    - After verification, return `success` only for an OK response, `rejected` only for confirmed absence, and `unresolved` for other outcomes. The caller must display the status and reconcile `unresolved` states with the server before retrying.
     - Catch Signal API errors separately. A failed synchronization must not change the registration result.
     - Always read `rpId` from `publicKey.rp.id` in the server's creation options. **DO NOT** derive `rpId` from `window.location.hostname` on the client, as the server's configured RP ID may be a registrable parent domain (such as `example.com` on `accounts.example.com`) or use Related Origin Requests.
 
@@ -145,19 +146,21 @@ async function registerPasskey(isPromotion = false) {
   }
 
   const encodedResponse = credential.toJSON();
-  let credentialNotPersisted = false;
+  let status = "unresolved";
   try {
     const response = await registerVerifyFetch(encodedResponse);
-    if (!response.ok) {
+    if (response.ok) {
+      status = "success";
+    } else {
       const result = await response.json();
-      credentialNotPersisted = result.credentialPersisted === false;
+      if (result?.credentialPersisted === false) status = "rejected";
     }
   } catch (serverErr) {
     // The server may have saved the credential before its response was lost.
     console.error("Registration state is unknown; reconcile with the server:", serverErr);
   }
 
-  if (credentialNotPersisted && PublicKeyCredential.signalUnknownCredential) {
+  if (status === "rejected" && PublicKeyCredential.signalUnknownCredential) {
     try {
       await PublicKeyCredential.signalUnknownCredential({
         rpId: publicKey.rp.id, // Use the server-provided RP ID.
@@ -167,6 +170,7 @@ async function registerPasskey(isPromotion = false) {
       console.warn("Credential synchronization failed:", signalErr);
     }
   }
+  return status;
 }
 ```
 

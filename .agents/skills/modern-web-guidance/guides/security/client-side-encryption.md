@@ -1,6 +1,6 @@
 # Encrypt data client-side with WebCrypto
 
-Use the Web Cryptography API (`crypto.subtle`) to establish shared secrets over untrusted networks using quantum-resistant Key Encapsulation Mechanisms (KEMs) or classical key agreement, and encrypt sensitive data in the browser with Authenticated Encryption with Associated Data (AEAD). For signing and verifying messages or artifacts without encrypting them, see `digital-signatures` (via `npx -y modern-web-guidance@1.0.0 retrieve "digital-signatures"`).
+Use the Web Cryptography API (`crypto.subtle`) to establish shared secrets over untrusted networks using quantum-resistant Key Encapsulation Mechanisms (KEMs) or classical key agreement, and encrypt sensitive data in the browser with Authenticated Encryption with Associated Data (AEAD). For signing and verifying messages or artifacts without encrypting them, see `digital-signatures` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "digital-signatures"`).
 
 An end-to-end envelope encryption flow splits into two phases:
 
@@ -49,7 +49,7 @@ const recipientPublicKeyBytes = await crypto.subtle.exportKey(
   recipientKeyPair.publicKey,
 );
 
-// Import the recipient's public key on the sender (usage must be ['encapsulateKey'])
+// Import the recipient's public key on the sender (['encapsulateKey'] supports HKDF and AEAD targets)
 const importedPublicKey = await crypto.subtle.importKey(
   'raw-public',
   recipientPublicKeyBytes,
@@ -70,24 +70,46 @@ const publicKey = await crypto.subtle.getPublicKey(
 
 ## 3. Encapsulate and decapsulate a shared key
 
-`encapsulateKey()` and `decapsulateKey()` import the 32-byte (256-bit) KEM shared secret into a `CryptoKey` using the algorithm specified in `sharedKeyAlgorithm` (with `'raw-secret'` format). Pass `'ChaCha20-Poly1305'` or `'AES-GCM'` directly to produce an AEAD encryption key:
+`encapsulateKey()` and `decapsulateKey()` import the 32-byte (256-bit) KEM shared secret into a `CryptoKey` using `sharedKeyAlgorithm` and `'raw-secret'` format. Use `'HKDF'` with `['deriveKey']`, then derive a `'ChaCha20-Poly1305'` key with SHA-256, a 32-byte zero salt, and the same protocol context on both sides. This matches the envelope wrapper below.
 
 ```javascript
-// Sender encapsulates a 256-bit AEAD key and produces a ciphertext capsule
-const { sharedKey: senderKey, ciphertext: encapsulatedCiphertext } =
+const contextInfo = new TextEncoder().encode('envelope-v1');
+const hkdfParams = {
+  name: 'HKDF',
+  hash: 'SHA-256',
+  salt: new Uint8Array(32),
+  info: contextInfo,
+};
+
+// Sender encapsulates an HKDF base key and produces a ciphertext capsule.
+const { sharedKey: senderBaseKey, ciphertext: encapsulatedCiphertext } =
   await crypto.subtle.encapsulateKey(
     'MLKEM768-X25519',
     importedPublicKey,
-    'ChaCha20-Poly1305', // Or 'AES-GCM'
+    'HKDF',
     false,
-    ['encrypt', 'decrypt'],
+    ['deriveKey'],
   );
+const senderKey = await crypto.subtle.deriveKey(
+  hkdfParams,
+  senderBaseKey,
+  'ChaCha20-Poly1305',
+  false,
+  ['encrypt', 'decrypt'],
+);
 
-// Recipient decapsulates the ciphertext capsule to recover the identical AEAD key
-const recipientKey = await crypto.subtle.decapsulateKey(
+// Recipient recovers the same base key and derives the identical AEAD key.
+const recipientBaseKey = await crypto.subtle.decapsulateKey(
   'MLKEM768-X25519',
   recipientKeyPair.privateKey,
   encapsulatedCiphertext,
+  'HKDF',
+  false,
+  ['deriveKey'],
+);
+const recipientKey = await crypto.subtle.deriveKey(
+  hkdfParams,
+  recipientBaseKey,
   'ChaCha20-Poly1305',
   false,
   ['encrypt', 'decrypt'],
@@ -96,7 +118,7 @@ const recipientKey = await crypto.subtle.decapsulateKey(
 
 ### Domain separation with `'HKDF'`
 
-To bind the shared key to a specific protocol context (`info` and `salt`) or derive multiple subkeys from a single encapsulation, pass `'HKDF'` as `sharedKeyAlgorithm` with `['deriveKey']` usage, then call `crypto.subtle.deriveKey()`:
+HKDF binds the shared key to the protocol context. This example uses the same `contextInfo` and derivation as above. For subkeys with different purposes, use a distinct `info` value for each purpose and use matching values on both sides:
 
 ```javascript
 const { sharedKey: hkdfBaseKey, ciphertext } = await crypto.subtle.encapsulateKey(
@@ -112,10 +134,10 @@ const aeadKey = await crypto.subtle.deriveKey(
     name: 'HKDF',
     hash: 'SHA-256',
     salt: new Uint8Array(32),
-    info: new TextEncoder().encode('envelope-v1'),
+    info: contextInfo,
   },
   hkdfBaseKey,
-  { name: 'AES-GCM', length: 256 },
+  'ChaCha20-Poly1305',
   false,
   ['encrypt', 'decrypt'],
 );
@@ -191,6 +213,7 @@ If your Baseline target does not yet support `SubtleCrypto.supports()`, `encapsu
 - **Classical fallback (`'X25519'` + `'HKDF'` + `'AES-GCM'`)**: When `SubtleCrypto.supports()` is unavailable or returns `false`, generate an ephemeral `'X25519'` key pair for the sender, export the ephemeral public key as the capsule bytes, derive 256 bits via `deriveBits({ name: 'X25519', public: peerPublicKey }, privateKey, 256)`, and pass those bits through `'HKDF'` (`'SHA-256'`) to derive a 256-bit `'AES-GCM'` key.
 
 ```javascript
+const contextInfo = new TextEncoder().encode('envelope-v1');
 const KEM_PUBLIC_KEY_ALGORITHMS = {
   1184: 'ML-KEM-768',
   1216: 'MLKEM768-X25519',
@@ -198,7 +221,7 @@ const KEM_PUBLIC_KEY_ALGORITHMS = {
 };
 
 // Both envelope paths bind infoBytes through HKDF before producing the AEAD key.
-// Use the same protocol context on the sender and recipient.
+// The default context matches Section 3. Use matching custom contexts on both sides.
 export function supportsPostQuantumEnvelope() {
   return (
     typeof globalThis.SubtleCrypto?.supports === 'function' &&
@@ -227,7 +250,7 @@ export async function generateRecipientKeys() {
   return { suite: 'X25519+HKDF+AES-GCM', keyPair, publicKeyBytes };
 }
 
-async function deriveFallbackAesKey(privateKey, peerPublicKey, infoBytes = new Uint8Array(0)) {
+async function deriveFallbackAesKey(privateKey, peerPublicKey, infoBytes = contextInfo) {
   const sharedSecret = await crypto.subtle.deriveBits(
     { name: 'X25519', public: peerPublicKey },
     privateKey,
@@ -254,7 +277,7 @@ function deriveEnvelopeAeadKey(hkdfKey, aeadAlgorithm, infoBytes) {
 
 export async function encapsulateEnvelopeKey(
   recipientPublicKeyOrBytes,
-  infoBytes = new Uint8Array(0),
+  infoBytes = contextInfo,
 ) {
   const pubKey =
     recipientPublicKeyOrBytes instanceof CryptoKey
@@ -292,7 +315,7 @@ export async function encapsulateEnvelopeKey(
 export async function decapsulateEnvelopeKey(
   recipientPrivateKey,
   capsuleBytes,
-  infoBytes = new Uint8Array(0),
+  infoBytes = contextInfo,
 ) {
   if (recipientPrivateKey.algorithm.name !== 'X25519') {
     const hkdfKey = await crypto.subtle.decapsulateKey(

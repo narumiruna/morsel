@@ -30,7 +30,7 @@ Walk the decision tree top-to-bottom and stop at the first match. Note that layo
 
 ### 1.2 Working principles
 
-- Use logical properties (`inline-size`, `block-size`, `margin-inline`, `padding-block`, `inset-inline-start`) for layout dimensions and spacing — see `css` (via `npx -y modern-web-guidance@1.0.0 retrieve "css"`) for full coverage.
+- Use logical properties (`inline-size`, `block-size`, `margin-inline`, `padding-block`, `inset-inline-start`) for layout dimensions and spacing — see `css` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "css"`) for full coverage.
 - Apply the content-first vs layout-first mental model: flexbox when items dictate flow, grid when you define the skeleton first.
 - Use the `place-*` shorthands (`place-content`, `place-items`, `place-self`) to align across both axes in one declaration.
 - Reach for intrinsic sizing (`min-content`, `max-content`, `fit-content()`) and flexible tracks (`fr`, `minmax()`) before fixed `width`/`height` — fewer media queries, more resilient layouts.
@@ -45,7 +45,7 @@ For example certain replaced elements like `<canvas>`, `<img>`, `<svg>`, `<video
 body.centered  { display: grid; place-content: center; min-block-size: 100dvb; }
 ```
 
-> For `calc-size()` and constraint-aware intrinsic sizing, see `calculate-with-intrinsic-sizes` (via `npx -y modern-web-guidance@1.0.0 retrieve "calculate-with-intrinsic-sizes"`).
+> For `calc-size()` and constraint-aware intrinsic sizing, see `calculate-with-intrinsic-sizes` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "calculate-with-intrinsic-sizes"`).
 
 ## 2 Flexbox
 
@@ -205,7 +205,7 @@ Query the size (or computed style) of an ancestor container rather than the view
 }
 ```
 
-> For component-driven responsive styling patterns, see `size-aware-styling` (via `npx -y modern-web-guidance@1.0.0 retrieve "size-aware-styling"`) and `fluid-scaling` (via `npx -y modern-web-guidance@1.0.0 retrieve "fluid-scaling"`).
+> For component-driven responsive styling patterns, see `size-aware-styling` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "size-aware-styling"`) and `fluid-scaling` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "fluid-scaling"`).
 
 ## 5 Native overlays, anchor positioning, and stacking contexts
 
@@ -233,7 +233,7 @@ Browser support for the anchor-positioning syntax used here:
 - Don't mix physical and logical keywords in a single `position-area` value — pick one coordinate system.
 - Feature-detect the syntax you use (for example, `@supports (position-area: block-end) and (position-try-fallbacks: flip-block)`) and provide an absolute-position fallback.
 
-> For full implementation detail, polyfill strategies, and `popover` value reference, see `declarative-dialog-popover-control` (via `npx -y modern-web-guidance@1.0.0 retrieve "declarative-dialog-popover-control"`) and `position-aware-tooltips` (via `npx -y modern-web-guidance@1.0.0 retrieve "position-aware-tooltips"`). For anchor positioning applied to dropdowns, flyouts, and tab indicators, see `viewport-aware-dropdowns` (via `npx -y modern-web-guidance@1.0.0 retrieve "viewport-aware-dropdowns"`) and `anchor-positioning-tab-underline` (via `npx -y modern-web-guidance@1.0.0 retrieve "anchor-positioning-tab-underline"`).
+> For full implementation detail, polyfill strategies, and `popover` value reference, see `declarative-dialog-popover-control` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "declarative-dialog-popover-control"`) and `position-aware-tooltips` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "position-aware-tooltips"`). For anchor positioning applied to dropdowns, flyouts, and tab indicators, see `viewport-aware-dropdowns` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "viewport-aware-dropdowns"`) and `anchor-positioning-tab-underline` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "anchor-positioning-tab-underline"`).
 
 ## 6 Overflow tracking and layout stability
 
@@ -251,7 +251,7 @@ Manage layout shifts, scrollbars, and clipping predictably.
 - Use `scrollbar-gutter: stable` to reserve space for scrollbars and prevent layout shifts when content grows.
 - Use `overscroll-behavior: contain` (or `none`) on nested scroll regions (such as sidebars, modals, and lists) to stop scroll chains from bubbling into the page, or `overscroll-behavior: chain` on intermediate scroll wrappers (such as swipe-to-reveal tracks) when excess scroll should propagate to an ancestor scroller without triggering a local rubber-band bounce.
 - Use the `-webkit-line-clamp` + `display: -webkit-box` + `-webkit-box-orient: vertical` triad for multi-line truncation — despite the prefix, this pattern is fully specified and not deprecated. Declare the unprefixed `line-clamp` shorthand alongside it; browsers that don't yet support it ignore the property harmlessly.
-- For text that must stay on one line (labels, table cells, file names) see `single-line-overflow` (via `npx -y modern-web-guidance@1.0.0 retrieve "single-line-overflow"`) for techniques for truncating and revealing the full text on demand without UX friction.
+- For text that must stay on one line (labels, table cells, file names) see `single-line-overflow` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "single-line-overflow"`) for techniques for truncating and revealing the full text on demand without UX friction.
 
 **Do not:**
 
@@ -275,7 +275,7 @@ Manage layout shifts, scrollbars, and clipping predictably.
 }
 ```
 
-> For `overflow: clip` and `overflow-clip-margin` in depth, see `overflow-clipping-control` (via `npx -y modern-web-guidance@1.0.0 retrieve "overflow-clipping-control"`). For nested scroll handoff with `overscroll-behavior: chain` in swipe-to-reveal UI, see `swipe-to-reveal` (via `npx -y modern-web-guidance@1.0.0 retrieve "swipe-to-reveal"`). For scrollbar color, sizing, and theming, see `customize-scrollbar-color-and-thickness` (via `npx -y modern-web-guidance@1.0.0 retrieve "customize-scrollbar-color-and-thickness"`), `dark-mode` (via `npx -y modern-web-guidance@1.0.0 retrieve "dark-mode"`), and `adapt-scrollbar-to-contrast-preferences` (via `npx -y modern-web-guidance@1.0.0 retrieve "adapt-scrollbar-to-contrast-preferences"`).
+> For `overflow: clip` and `overflow-clip-margin` in depth, see `overflow-clipping-control` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "overflow-clipping-control"`). For nested scroll handoff with `overscroll-behavior: chain` in swipe-to-reveal UI, see `swipe-to-reveal` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "swipe-to-reveal"`). For scrollbar color, sizing, and theming, see `customize-scrollbar-color-and-thickness` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "customize-scrollbar-color-and-thickness"`), `dark-mode` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "dark-mode"`), and `adapt-scrollbar-to-contrast-preferences` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "adapt-scrollbar-to-contrast-preferences"`).
 
 ## 7 Viewport mechanics and track distribution
 
@@ -285,7 +285,7 @@ Supported by: Chrome 108 (Nov 2022), Edge 108 (Dec 2022), Firefox 101 (May 2022)
 - Use `dvh`/`dvw` for mobile layout containers that must account for browser UI shifting (URL bar collapse/expand).
 - Use `100%` for full-width layout when a classic scrollbar can appear automatically. `100vw`, `100dvw`, and `100svw` can include the scrollbar width and cause horizontal overflow.
 
-> For the responsive design entry point (dynamic viewport units, reserving space for media, fluid typography), see `responsive-design` (via `npx -y modern-web-guidance@1.0.0 retrieve "responsive-design"`).
+> For the responsive design entry point (dynamic viewport units, reserving space for media, fluid typography), see `responsive-design` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "responsive-design"`).
 
 ## 8 Grid lanes (aka masonry)
 

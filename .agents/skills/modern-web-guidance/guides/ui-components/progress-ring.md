@@ -10,7 +10,7 @@ This guide implements a progress ring by:
 
 This approach is preferred over SVG-only solutions because it uses the semantic `<progress>` element rather than ARIA, and more easily integrates with existing layout, design systems and typography.
 
-See the `spinner` (via `npx -y modern-web-guidance@1.0.0 retrieve "spinner"`) for handling indeterminate loading states.
+See the `spinner` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "spinner"`) for handling indeterminate loading states.
 
 ## Implementation
 
@@ -178,18 +178,20 @@ Browser support for attr(): Limited availability.
 Supported by: Chrome 133 (Feb 2025), Edge 133 (Feb 2025), and Firefox 155 (Sep 2026).
 Unsupported in: Safari.
 
-For browsers that don't support the `attr()` CSS function for any property, use a `MutationObserver` to automatically sync the `value` attribute to the `--value` custom property. Run the sync once when the observer is installed to set the initial value.
+For browsers that don't support the `attr()` CSS function for any property, use a `MutationObserver` to automatically sync the `value` attribute to the `--value` custom property. Run this code in a module script so the ring markup is available. Each ring needs its own observer and an immediate sync to set the initial value.
 
 ```js
 if (!CSS.supports("width: attr(value type(<number>))")) {
-  const syncValue = () => {
-    progress.style.setProperty("--value", progress.getAttribute("value"));
-  };
-  const observer = new MutationObserver(syncValue);
-  observer.observe(progress, {
-    attributes: true,
-    attributeFilter: ["value"],
-  });
-  syncValue();
+  for (const progress of document.querySelectorAll("progress.progress-ring")) {
+    const syncValue = () => {
+      progress.style.setProperty("--value", progress.getAttribute("value"));
+    };
+    const observer = new MutationObserver(syncValue);
+    observer.observe(progress, {
+      attributes: true,
+      attributeFilter: ["value"],
+    });
+    syncValue();
+  }
 }
 ```

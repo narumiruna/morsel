@@ -16,7 +16,7 @@ This is not for switching between views of the same page (tabs) or for site-wide
 .breadcrumb > ol > li + li::before { content: "/" / ""; }
 ```
 
-- A styled character (`/`, `›`, `>`) generated as above is the simplest divider. For an icon divider such as a chevron, render it the way the codebase renders icons and keep it decorative; see `icons` (via `npx -y modern-web-guidance@1.0.0 retrieve "icons"`).
+- A styled character (`/`, `›`, `>`) generated as above is the simplest divider. For an icon divider such as a chevron, render it the way the codebase renders icons and keep it decorative; see `icons` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "icons"`).
 
 ## 2. Styling
 
@@ -117,9 +117,9 @@ Use `border-shape` only for shapes `corner-shape` cannot make, such as a notched
 
 These are optional. Implement them only when the trail needs them, and choose the implementation yourself.
 
-- **Sibling menus:** when ancestors have meaningful siblings (e.g. docs sections), let an ancestor expose its siblings in a menu. Keep the ancestor link navigating and put the toggle in a separate button, never inside the `<a>`. For menu mechanics, see `menu` (via `npx -y modern-web-guidance@1.0.0 retrieve "menu"`).
+- **Sibling menus:** when ancestors have meaningful siblings (e.g. docs sections), let an ancestor expose its siblings in a menu. Keep the ancestor link navigating and put the toggle in a separate button, never inside the `<a>`. For menu mechanics, see `menu` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "menu"`).
 - **Long trails:** collapse the middle of a trail with more than 3 items on narrow containers instead of letting it wrap, keeping the first item and the last two. Put the hidden links in a popup opened from a "…" button, and keep the full trail when script is unavailable.
-- **Long labels:** keep every item on one line and never truncate the current page. See `single-line-overflow` (via `npx -y modern-web-guidance@1.0.0 retrieve "single-line-overflow"`) for techniques for truncating ancestor labels and revealing the full label on demand without UX friction.
+- **Long labels:** keep every item on one line and never truncate the current page. See `single-line-overflow` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "single-line-overflow"`) for techniques for truncating ancestor labels and revealing the full label on demand without UX friction.
 
 ## Fallback strategy
 

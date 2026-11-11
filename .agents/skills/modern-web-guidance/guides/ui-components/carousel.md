@@ -17,10 +17,10 @@ Build a carousel for a finite set of related items. Use native scrolling and CSS
 
 ## Related patterns
 
-- For styling the active slide itself, see `carousel-snap-highlights` (via `npx -y modern-web-guidance@1.0.0 retrieve "carousel-snap-highlights"`).
-- For a continuous progress indicator instead of discrete markers, see `scroll-progress-indicator` (via `npx -y modern-web-guidance@1.0.0 retrieve "scroll-progress-indicator"`).
-- For scroll-driven slide effects, see `carousel-slide-effects` (via `npx -y modern-web-guidance@1.0.0 retrieve "carousel-slide-effects"`).
-- For synchronizing other UI with snap events, see `scroll-snap-state-sync` (via `npx -y modern-web-guidance@1.0.0 retrieve "scroll-snap-state-sync"`).
+- For styling the active slide itself, see `carousel-snap-highlights` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "carousel-snap-highlights"`).
+- For a continuous progress indicator instead of discrete markers, see `scroll-progress-indicator` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "scroll-progress-indicator"`).
+- For scroll-driven slide effects, see `carousel-slide-effects` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "carousel-slide-effects"`).
+- For synchronizing other UI with snap events, see `scroll-snap-state-sync` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "scroll-snap-state-sync"`).
 
 ## Example: horizontal carousel
 
