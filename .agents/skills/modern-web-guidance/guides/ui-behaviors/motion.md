@@ -7,7 +7,7 @@
 ## Performance
 
 - Prefer to animate `opacity` and `transform` (including individual transform properties, e.g. `translate` instead of `left/right/top/bottom`) to ensure animations stay on the compositor thread.
-- Use `transition-behavior: allow-discrete`, `@starting-style`, and (for top-layer elements like `<dialog>` or `[popover]`) `overlay` to animate discrete entry and exit states natively; see `animate-element-entry-exit` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "animate-element-entry-exit"`) and `animate-to-from-top-layer` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "animate-to-from-top-layer"`).
+- Use `transition-behavior: allow-discrete`, `@starting-style`, and (for top-layer elements like `<dialog>` or `[popover]`) `overlay` to animate discrete entry and exit states natively; see `animate-element-entry-exit` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "animate-element-entry-exit"`) and `animate-to-from-top-layer` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "animate-to-from-top-layer"`).
 
 ```css
 .popover-reveal {

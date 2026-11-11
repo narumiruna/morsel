@@ -28,6 +28,7 @@ npm ci --ignore-scripts --no-audit --no-fund
 Do not continue if installation or integrity verification fails.
 Run all commands below, including commands in the guides, from this same directory.
 Run the local entry point with Node.js so a missing executable fails instead of selecting a package-runner cache or fetching another artifact.
+Set the package's existing `DISABLE_TELEMETRY=1` opt-out for every invocation. The command examples include it to prevent search-query telemetry. In a different shell, pass the same variable to the child process.
 
 ### Step 1. Search Use Cases
 
@@ -37,7 +38,7 @@ Run the locked `modern-web-guidance` entry point with Node.js using a **2–5 wo
 - **Example**: Search `"light dismiss dialog"` or `"responsive data table"`, **not** `"dialog"` (too terse), `"responsive table dark mode"` (compound — split into two searches), or `"close React settings modal on outside click"` (framework/app noise).
 
 ```sh
-node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs search "<query>" --skill-version 2026_11_09-5bcc021b
+DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs search "<query>" --skill-version 2026_11_09-5bcc021b
 ```
 
 > **Note**: Returns `[{ "id", "description" }, ...]`. Judge results by their `description` fields:
@@ -50,10 +51,18 @@ node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs 
 Once you have relevant `id`(s) from the search results, call `retrieve` to get the full guide(s)—including both specific use-case guides that match your task and any broader discipline guide (e.g., `html`, `css`, `forms`, `accessibility`, `color`, `performance`, `security`) that applies. You can pass multiple IDs separated by commas.
 
 ```sh
-node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "<id>"
+DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "<id>"
 ```
 
-If `retrieve` saves large output (> 9.5 KB) to a temporary file to prevent truncation, read that file path in full using your file-reading tool (reading remaining line ranges if needed)—do not use `cat` or `head`.
+Check each requested ID's retrieval result before using its local guide. If a batch fails, retry its IDs separately.
+A failed gate or retrieval error blocks that ID; do not read a local guide to bypass it or enable a feature without authorization.
+Keep the CLI's gate decision and configured Baseline-target banner.
+After successful retrieval, find the exact `<id>.md` below the repository's [guides directory](guides/) and read it in full.
+That repository guide is authoritative for implementation, security rules, and corrected compatibility data; the package's older guide text must not replace repository corrections.
+If no local guide exists, use the successful CLI result and state that the repository has no override for that ID.
+Do not assume a CLI guide-directory option or copy guides into `node_modules`.
+
+If `retrieve` saves large output (> 9.5 KB) to a temporary file, read it in full to retain gate and Baseline metadata, then read the matching repository guide. Use the file-reading tool, not `cat` or `head`.
 
 ### Step 3. Verify Guidance Compliance
 
@@ -77,7 +86,7 @@ When you consult `modern-web-guidance` for a task, end the response where you de
 > **Note**: `legacy-scan` scans for a curated subset (~20% of the guidance corpus).
 
 ```sh
-node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs legacy-scan <path> --json
+DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs legacy-scan <path> --json
 ```
 
 1. Scan: Run `legacy-scan <path> --json` to detect legacy web platform patterns across the project or directory.
@@ -90,7 +99,7 @@ node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs 
 
 - Request approval for the locked installation before network access in an approval-gated environment. Keep file and network permissions limited to the task.
 - Do not replace the local entry point with `npx`, `pnpx`, or another runner that can bypass the skill-local lockfile.
-- If an execution allowlist is required, limit it to `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs *` from this skill directory. Do not allow bare `node *`.
+- If an execution allowlist is required, limit it to `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs *` from this skill directory. Do not allow bare `node *`.
 
 ## Guidelines
 

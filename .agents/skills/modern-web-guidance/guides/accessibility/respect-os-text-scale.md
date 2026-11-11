@@ -48,7 +48,7 @@ Set the base text size on `body` only when the design needs a size different fro
 
 #### Fluid Typography
 
-Fluid typography MAY use viewport-relative units such as `vw`, provided that font sizes also include a font-relative component such as `rem` or `em`. For more fluid-scaling techniques, including container query units and `clamp()`, see `fluid-scaling` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "fluid-scaling"`).
+Fluid typography MAY use viewport-relative units such as `vw`, provided that font sizes also include a font-relative component such as `rem` or `em`. For more fluid-scaling techniques, including container query units and `clamp()`, see `fluid-scaling` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "fluid-scaling"`).
 
 Avoid sizing text exclusively with viewport units:
 

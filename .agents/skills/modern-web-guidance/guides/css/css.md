@@ -55,7 +55,7 @@ Modern browser-native selectors reduce the need for preprocessors and complex st
 
 ### Prefer CSS selectors over JS for complex element targeting
 
-- **DO** use `:has()` to style parents based on child state instead of managing classes in JS (e.g. `label:has(:checked)` instead of a manual `label.has-checked` class) For more information, see the guides at `child-state-based-styling` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "child-state-based-styling"`) and `content-based-styling` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "content-based-styling"`).
+- **DO** use `:has()` to style parents based on child state instead of managing classes in JS (e.g. `label:has(:checked)` instead of a manual `label.has-checked` class) For more information, see the guides at `child-state-based-styling` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "child-state-based-styling"`) and `content-based-styling` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "content-based-styling"`).
 - **DO NOT** nest `:has()` or use pseudo-elements inside it (browser API limitation)
 - Use `:nth-child(<An+B> of <selector>)` when you need to style every n-th element of a certain type. E.g. `details:nth-child(1 of [open])` will style the first open `<details>` element it finds, whereas `details[open]:first-child` would style only the first child if and only if it was open.
 
@@ -200,7 +200,7 @@ Using `@scope` fixes this:
 
 ## 4. Interactivity
 
-See `accessibility` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "accessibility"`) for focus rings, touch targets, and custom gestures.
+See `accessibility` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "accessibility"`) for focus rings, touch targets, and custom gestures.
 
 ## 5. Design Tokens and Theming
 
@@ -219,22 +219,22 @@ Check for any existing conventions around naming and levels before inventing you
 
 ### Theming
 
-- Dark mode: see `dark-mode` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "dark-mode"`) and `component-specific-light-dark-theme` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "component-specific-light-dark-theme"`).
-- Forced Colors Mode: see `color` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "color"`).
-- Generating tints and shades: see `color` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "color"`).
-- Theming browser-generated UI (selection, scrollbars, form controls): see `browser-ui-theming` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "browser-ui-theming"`).
+- Dark mode: see `dark-mode` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "dark-mode"`) and `component-specific-light-dark-theme` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "component-specific-light-dark-theme"`).
+- Forced Colors Mode: see `color` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "color"`).
+- Generating tints and shades: see `color` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "color"`).
+- Theming browser-generated UI (selection, scrollbars, form controls): see `browser-ui-theming` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "browser-ui-theming"`).
 
 ## 6. Responsive design
 
-See `responsive-design` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "responsive-design"`) for components that adapt to the space they are given, layouts that survive mobile browser UI appearing and disappearing, reserving space for media before it loads, and text that scales with the viewport.
+See `responsive-design` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "responsive-design"`) for components that adapt to the space they are given, layouts that survive mobile browser UI appearing and disappearing, reserving space for media before it loads, and text that scales with the viewport.
 
 ## 7. Typography
 
-See `typography` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "typography"`) for guidelines around readability, accessibility, and aesthetics of text on Web UIs.
+See `typography` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "typography"`) for guidelines around readability, accessibility, and aesthetics of text on Web UIs.
 
 ## 8. Visual effects
 
-See `visual-effects` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "visual-effects"`) for look & feel enhancements such as conveying depth, texture, and elevation, blending layers, aesthetically pleasing gradients, and flexible pattern backgrounds.
+See `visual-effects` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "visual-effects"`) for look & feel enhancements such as conveying depth, texture, and elevation, blending layers, aesthetically pleasing gradients, and flexible pattern backgrounds.
 
 ## 9. Shapes
 
@@ -243,7 +243,7 @@ See `visual-effects` (via `node node_modules/modern-web-guidance/skills/modern-w
 
 ## 10. Transitions & animations
 
-See `motion` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "motion"`). For rendering performance (`content-visibility`, containment), see `performance` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "performance"`).
+See `motion` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "motion"`). For rendering performance (`content-visibility`, containment), see `performance` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "performance"`).
 
 ## 11. Generated content
-See `accessible-generated-content` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "accessible-generated-content"`) for adding decorative or supplementary content with CSS without breaking screen readers or copy-paste.
+See `accessible-generated-content` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "accessible-generated-content"`) for adding decorative or supplementary content with CSS without breaking screen readers or copy-paste.

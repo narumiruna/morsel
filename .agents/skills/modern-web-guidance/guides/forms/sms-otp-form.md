@@ -10,7 +10,7 @@ Combining semantic `<form>` markup, `<input autocomplete="one-time-code" inputmo
 
 ## Security considerations
 
-SMS OTP verifies possession of a phone number and provides convenient step-up verification, but SMS transport and phone numbers can be subject to SIM swapping, number recycling, and interception. Always pair client-side autofill and the WebOTP API with the origin-bound `@domain #code` SMS format so the browser and OS verify that the target domain matches before suggesting or delivering the code. For primary phishing-resistant authentication, prefer passkeys over SMS-based codes (see `passkeys` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "passkeys"`)).
+SMS OTP verifies possession of a phone number and provides convenient step-up verification, but SMS transport and phone numbers can be subject to SIM swapping, number recycling, and interception. Always pair client-side autofill and the WebOTP API with the origin-bound `@domain #code` SMS format so the browser and OS verify that the target domain matches before suggesting or delivering the code. For primary phishing-resistant authentication, prefer passkeys over SMS-based codes (see `passkeys` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "passkeys"`)).
 
 ## Semantic form markup
 

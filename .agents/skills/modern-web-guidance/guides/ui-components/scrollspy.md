@@ -112,6 +112,26 @@ For browsers that do not support `scroll-target-group`, you should use a fallbac
     const navLinks = document.querySelectorAll('nav a');
     const sections = document.querySelectorAll('main section');
 
+    // Keep the midpoint selection so it resumes when leaving the bottom.
+    let midpointSection;
+    function updateActiveLink() {
+      const height = document.documentElement.clientHeight;
+      const lastSection = sections[sections.length - 1];
+      const lastRect = lastSection?.getBoundingClientRect();
+      const atBottom = window.scrollY + height >= document.documentElement.scrollHeight - 1;
+      // A short final section may be visible without reaching the midpoint.
+      const activeSection = atBottom && lastRect?.top < height && lastRect.bottom > 0
+        ? lastSection
+        : midpointSection;
+      if (!activeSection) return;
+      const id = activeSection.getAttribute('id');
+      navLinks.forEach(link => {
+        const isActive = link.getAttribute('href') === `#${id}`;
+        link.classList.toggle('target-current', isActive);
+        link.setAttribute('aria-current', isActive);
+      });
+    }
+
     let observer;
     function observeSections() {
       observer?.disconnect();
@@ -123,20 +143,17 @@ For browsers that do not support `scroll-target-group`, you should use a fallbac
       observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
           if (entry.isIntersecting) {
-            const id = entry.target.getAttribute('id');
-            navLinks.forEach(link => {
-              const isActive = link.getAttribute('href') === `#${id}`;
-              link.classList.toggle('target-current', isActive);
-              link.setAttribute('aria-current', isActive);
-            });
+            midpointSection = entry.target;
           }
         });
+        updateActiveLink();
       }, { rootMargin: `-${top}px 0px -${bottom}px 0px`, threshold: 0 });
 
       sections.forEach(section => observer.observe(section));
     }
     observeSections();
     window.addEventListener('resize', observeSections);
+    window.addEventListener('scroll', updateActiveLink, { passive: true });
   }
 </script>
 

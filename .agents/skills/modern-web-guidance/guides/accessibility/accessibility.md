@@ -450,7 +450,7 @@ function toggleWidgetState() {
 
 ### CSS generated content
 
-- **Alt text for CSS generated content:** Use the alternative text argument of `content` (e.g. `content: url(icon.svg) / "Save";`) and keep meaningful text in the DOM. See `accessible-generated-content` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "accessible-generated-content"`) for more details. (1.1.1 Non-text Content (Level A))
+- **Alt text for CSS generated content:** Use the alternative text argument of `content` (e.g. `content: url(icon.svg) / "Save";`) and keep meaningful text in the DOM. See `accessible-generated-content` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "accessible-generated-content"`) for more details. (1.1.1 Non-text Content (Level A))
 
 ### Content Visibility Decision Matrix
 
@@ -527,15 +527,15 @@ Live regions let assistive tech announce content updates that aren't tied to nav
 
 ## 9. Color
 
-See `color` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "color"`) for accessible color (contrast requirements, light and dark color schemes, Forced Colors Mode, etc).
+See `color` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "color"`) for accessible color (contrast requirements, light and dark color schemes, Forced Colors Mode, etc).
 
 ## 10. Typography
 
-See `typography` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "typography"`) for readable typography.
+See `typography` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "typography"`) for readable typography.
 
 ## 11. Motion and Preferences
 
-See `motion` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "motion"`).
+See `motion` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "motion"`).
 
 ## 12. Modals and Native Dialogs
 

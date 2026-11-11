@@ -27,7 +27,7 @@ button:active { scale: 0.97; } /* example value */
 
 ### Open disclosures from their trigger
 
-Popovers and dropdowns should visibly open from the control that triggered them: scale out from the corner touching the trigger, or slide out from its side. Menus and hovercards have their own open motion; follow `menu` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "menu"`) and `hovercard` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "hovercard"`). For other popovers, place the popover next to its trigger and align `transform-origin` with the corner that touches it. To flip dropdowns at viewport edges, see `viewport-aware-dropdowns` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "viewport-aware-dropdowns"`).
+Popovers and dropdowns should visibly open from the control that triggered them: scale out from the corner touching the trigger, or slide out from its side. Menus and hovercards have their own open motion; follow `menu` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "menu"`) and `hovercard` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "hovercard"`). For other popovers, place the popover next to its trigger and align `transform-origin` with the corner that touches it. To flip dropdowns at viewport edges, see `viewport-aware-dropdowns` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "viewport-aware-dropdowns"`).
 
 ```css
 .dropdown {
@@ -50,9 +50,9 @@ Popovers and dropdowns should visibly open from the control that triggered them:
 @keyframes fade-in { from { opacity: 0; } }
 ```
 
-- Keep animations on the compositor (`transform`, its individual properties, and `opacity`) and respect reduced-motion preferences; see `motion` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "motion"`). This example animates the opening only; for exit transitions, see `animate-to-from-top-layer` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "animate-to-from-top-layer"`).
-- Trigger popovers declaratively using `<button popovertarget="dropdown-id">` (see `declarative-dialog-popover-control` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "declarative-dialog-popover-control"`)) to get native click, keyboard, and dismiss behavior without JavaScript.
-- For a springy open, use a `linear()` curve that overshoots slightly before settling (an output value above 1); see `physics-based-easing` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "physics-based-easing"`).
+- Keep animations on the compositor (`transform`, its individual properties, and `opacity`) and respect reduced-motion preferences; see `motion` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "motion"`). This example animates the opening only; for exit transitions, see `animate-to-from-top-layer` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "animate-to-from-top-layer"`).
+- Trigger popovers declaratively using `<button popovertarget="dropdown-id">` (see `declarative-dialog-popover-control` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "declarative-dialog-popover-control"`)) to get native click, keyboard, and dismiss behavior without JavaScript.
+- For a springy open, use a `linear()` curve that overshoots slightly before settling (an output value above 1); see `physics-based-easing` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "physics-based-easing"`).
 
 ### Make horizontal scrollers swipeable
 
@@ -73,8 +73,8 @@ Any horizontally scrollable row of items, such as a carousel, gallery, or row of
 
 - Native overflow scrolling gives swiping its physics and momentum, and snapping makes each swipe come to rest on an item, with no touch listeners.
 - If none of the scroller's items contains a link, button, or other focusable element, make the scroller itself focusable and labeled (`<div class="scroller" role="region" aria-label="Featured items" tabindex="0">`), so keyboard users can reach it and scroll it with the arrow keys. When items are focusable, tabbing to them already scrolls them into view.
-- To highlight the item that snaps into place, see `carousel-snap-highlights` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "carousel-snap-highlights"`). To swipe a list item aside to reveal actions, see `swipe-to-reveal` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "swipe-to-reveal"`). For side menus that close when swiped away, see `navigation-drawer` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "navigation-drawer"`).
-- For carousel controls such as previous and next buttons and scroll markers, see `carousel` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "carousel"`).
+- To highlight the item that snaps into place, see `carousel-snap-highlights` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "carousel-snap-highlights"`). To swipe a list item aside to reveal actions, see `swipe-to-reveal` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "swipe-to-reveal"`). For side menus that close when swiped away, see `navigation-drawer` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "navigation-drawer"`).
+- For carousel controls such as previous and next buttons and scroll markers, see `carousel` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "carousel"`).
 
 ### Add motion blur to large, fast movements (optional)
 
@@ -106,7 +106,7 @@ For large, rapid translations (such as a full-screen sheet sliding into view), a
 }
 ```
 
-For tooltips and previews triggered on hover, focus, or long-press, see `interest-triggered-tooltips` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "interest-triggered-tooltips"`) and `interest-triggered-action-previews` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "interest-triggered-action-previews"`).
+For tooltips and previews triggered on hover, focus, or long-press, see `interest-triggered-tooltips` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "interest-triggered-tooltips"`) and `interest-triggered-action-previews` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "interest-triggered-action-previews"`).
 
 ## Fallback strategies
 

@@ -4,7 +4,7 @@ Swipe-to-remove patterns are common in mobile applications but can be challengin
 
 The same pattern works for any single-action swipe (remove, archive, mark as read, snooze). The action visuals change; the mechanics do not.
 
-> If you instead want a horizontal swipe to snap open a set of action buttons or a side menu **without** automatically committing an action during the swipe, see `swipe-to-reveal` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "swipe-to-reveal"`).
+> If you instead want a horizontal swipe to snap open a set of action buttons or a side menu **without** automatically committing an action during the swipe, see `swipe-to-reveal` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "swipe-to-reveal"`).
 
 ## How to implement
 

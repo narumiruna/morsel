@@ -26,7 +26,7 @@ When considering using a different `color-scheme` on an element, ask yourself:
 ## Basic implementation
 
 Component-specific overrides are typically (though not strictly necessarily) used on pages that also support multiple color schemes via a global `color-scheme`.
-For implementing page-wide dark mode well, see `dark-mode` (via `node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "dark-mode"`).
+For implementing page-wide dark mode well, see `dark-mode` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "dark-mode"`).
 
 Once a page-wide `color-scheme` is in place, and you are using color tokens sensitive to it (e.g. via `light-dark()`), you can simply set `color-scheme` on specific components to override the color mode for that subtree:
 
