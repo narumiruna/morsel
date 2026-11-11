@@ -26,7 +26,9 @@ npm ci --ignore-scripts --no-audit --no-fund
 ```
 
 Do not continue if installation or integrity verification fails.
-Run all commands below, including commands in the guides, from this same directory.
+Run only the guidance CLI invocations from this skill directory.
+Run application commands and guide dependency installs from the target project or the workspace that owns its lockfile.
+Never install guide dependencies into this skill directory.
 Run the local entry point with Node.js so a missing executable fails instead of selecting a package-runner cache or fetching another artifact.
 Set the package's existing `DISABLE_TELEMETRY=1` opt-out for every invocation. The command examples include it to prevent search-query telemetry. In a different shell, pass the same variable to the child process.
 
@@ -98,6 +100,12 @@ DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guid
 ## Runner permissions
 
 - Request approval for the locked installation before network access in an approval-gated environment. Keep file and network permissions limited to the task.
+- **Guide dependencies:**
+  - Treat unpinned install commands in guides as illustrations, not commands to execute verbatim.
+  - Get approval for a dependency change unless the task already authorizes it.
+  - Select reviewed exact versions and verify their archive integrity, including transitive dependencies, before installation. Retain those versions and integrity values in the target project's lockfile.
+  - Use the target project's package manager and workspace rules. For npm, install the reviewed lock with `npm ci --ignore-scripts`. Review and approve any required lifecycle-script exception separately.
+  - Do not change the skill's manifest or lockfile to satisfy a guide's dependency request.
 - Do not replace the local entry point with `npx`, `pnpx`, or another runner that can bypass the skill-local lockfile.
 - If an execution allowlist is required, limit it to `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs *` from this skill directory. Do not allow bare `node *`.
 

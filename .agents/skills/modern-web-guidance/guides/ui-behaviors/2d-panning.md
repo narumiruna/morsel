@@ -152,5 +152,6 @@ if (!CSS.supports('scroll-axis-lock', 'none')) {
   };
   viewport.addEventListener('pointerup', endPointerPan);
   viewport.addEventListener('pointercancel', endPointerPan);
+  viewport.addEventListener('lostpointercapture', endPointerPan);
 }
 ```

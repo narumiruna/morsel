@@ -214,13 +214,25 @@ const openBtn = document.getElementById('drawer-open');
 const scroller = drawer.querySelector('.Drawer-scroller');
 const sheet = drawer.querySelector('.Drawer-sheet');
 const closeBtn = document.getElementById('drawer-close');
+let drawerOpening = null;
 
 function openDrawer() {
+  const opening = drawerOpening = {phase: 'preparing'};
   // Show the dialog first so the element is in the top layer before
   // we trigger any scrolling. `scroll-initial-target` (set on the
   // ::after spacer) places the initial scroll position at the closed
   // stop, so the drawer enters the top layer already off-screen.
   drawer.showModal();
+  startDrawerOpening(opening);
+}
+
+function startDrawerOpening(opening) {
+  if (drawerOpening !== opening) return;
+  opening.phase = 'opening';
+  // Remove setup entries and request a new visibility sample.
+  observer.takeRecords();
+  observer.unobserve(sheet);
+  observer.observe(sheet);
 
   // Scroll the sheet into view. The `behavior: 'auto'` option defers
   // to the CSS `scroll-behavior` property, which will be smooth unless
@@ -230,6 +242,17 @@ function openDrawer() {
 }
 
 function closeDrawer() {
+  if (!drawerOpening) return;
+  if (drawerOpening.phase === 'preparing') {
+    onDrawerClosed();
+    return;
+  }
+  drawerOpening.phase = 'closing';
+  // Sample again even if the opening scroll has not moved yet.
+  observer.takeRecords();
+  observer.unobserve(sheet);
+  observer.observe(sheet);
+
   // Scroll back to the spacer. Do NOT call close() here —
   // doing so would remove the element from the top layer mid-animation
   // and the close animation would not be visible. The
@@ -253,6 +276,7 @@ function onDrawerOpened() {
 function onDrawerClosed() {
   // Close the dialog only after the close animation completes,
   // so the slide-out is visible to the user.
+  drawerOpening = null;
   drawer.close();
   openBtn.setAttribute('aria-expanded', 'false');
 }
@@ -264,11 +288,16 @@ const visibleThreshold = 1 / window.innerWidth;
 
 const observer = new IntersectionObserver(
   (entries) => {
-    // During programmatic scrolling the observer can deliver multiple
-    // entries in one batch. Only the most recent describes the
-    // current state; earlier entries are intermediate positions.
+    if (!drawerOpening || drawerOpening.phase === 'preparing') return;
+    // Ignore closed entries until the opening motion shows the sheet.
+    if (drawerOpening.phase === 'opening' &&
+        entries.some((entry) => entry.intersectionRatio >= visibleThreshold)) {
+      drawerOpening.phase = 'visible';
+    }
+    // Only the latest entry sets the final state.
     const entry = entries.at(-1);
-    if (entry.intersectionRatio < visibleThreshold) onDrawerClosed();
+    if (entry.intersectionRatio < visibleThreshold &&
+        drawerOpening.phase !== 'opening') onDrawerClosed();
     if (entry.intersectionRatio === 1) onDrawerOpened();
   },
   // root: drawer makes the dialog element the intersection root,
@@ -327,17 +356,18 @@ Follow the [`<dialog>` implementation](#implementation-with-dialog), with these 
 const main = document.querySelector('main');
 
 function openDrawer() {
+  const opening = drawerOpening = {phase: 'preparing'};
   drawer.showPopover();
   // Mark everything outside the drawer inert immediately on open (include
   // sibling <header>/<footer> landmarks if they live outside <main>).
   main.inert = true;
   drawer.setAttribute('aria-modal', 'true');
-  scroller.scrollTo({left: 0, behavior: 'auto'});
+  startDrawerOpening(opening);
 }
 
 function onDrawerClosed() {
-  // The observer also reports "closed" on page load; ignore it unless open.
   if (!drawer.hasAttribute('aria-modal')) return;
+  drawerOpening = null;
   drawer.hidePopover();
   main.inert = false;
   drawer.removeAttribute('aria-modal');
@@ -390,6 +420,7 @@ Detect with `CSS.supports('scroll-initial-target', 'nearest')` and inside `openD
 
 ```js
 async function openDrawer() {
+  const opening = drawerOpening = {phase: 'preparing'};
   drawer.showModal(); // sidebar variant: showPopover(), main.inert = true, and aria-modal="true"
 
   if (!CSS.supports('scroll-initial-target', 'nearest')) {
@@ -404,7 +435,7 @@ async function openDrawer() {
     );
   }
 
-  scroller.scrollTo({left: 0, behavior: 'auto'});
+  startDrawerOpening(opening);
 }
 ```
 

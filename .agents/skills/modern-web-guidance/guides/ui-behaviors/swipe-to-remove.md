@@ -26,9 +26,8 @@ The component has two layers: a **list** (the `<ul>`) and the **items** inside i
         <!-- Swiping can't be done with a keyboard, a single tap or a screen
              reader, so each swipe action needs another way to run it (see
              "Accessibility considerations"). This example gives each swipe
-             action its own button. data-direction
-             is the swipe direction the button stands in for (Step 4), and
-             including the item name in the button text tells screen reader
+             action its own button. data-direction names the content's movement
+             (Step 4). The item name in the button text tells screen reader
              users which row it acts on. This example has a single action. -->
         <button type="button" class="SwipeableList-action" data-direction="right">
           Remove<span class="visually-hidden"> Item One</span>
@@ -150,7 +149,7 @@ The track configuration is gated behind an `.is-initialized` class on the list i
 The action color lives on the spacers (Step 2). The action **icon** lives on the list item itself, anchored to the row's left and right edges.
 
 > [!NOTE]
-> Throughout this guide, "left" refers to the *left side of the row* (which is revealed by swiping right), and "right" refers to the *right side of the row* (revealed by swiping left).
+> Swipe directions name the content's movement, not the revealed side. A right swipe moves the content right and reveals the left side of the row; a left swipe does the reverse.
 
 The placement, sizing, and motion below are a **starting suggestion**, not a requirement. Adjust the icon size, edge insets, threshold-pop scale, transition duration, and even the choice of pseudo-elements vs. real DOM nodes to match your design. The only mechanical requirement is that the icon sits behind the content (so the content can cover it pre-swipe) and inside the list item (so it doesn't scroll with the spacer). Everything else is taste.
 
@@ -210,10 +209,10 @@ The placement, sizing, and motion below are a **starting suggestion**, not a req
   opacity: 0;
 }
 
-/* Only show the icon on the *leading* side of the swipe; hide the
-   trailing-side one. `data-swipe-direction` is set by JS in Step 4. */
-.SwipeableList-item.is-activating[data-swipe-direction="left"]::after,
-.SwipeableList-item.is-activating[data-swipe-direction="right"]::before {
+/* Show only the icon on the revealed side. `data-swipe-direction`
+   names the content's movement (Step 4). */
+.SwipeableList-item.is-activating[data-swipe-direction="left"]::before,
+.SwipeableList-item.is-activating[data-swipe-direction="right"]::after {
   visibility: hidden;
 }
 
@@ -300,12 +299,11 @@ function setupItem(item) {
     const entry = entries.at(-1);
     const ratio = entry.intersectionRatio;
 
-    // Direction the user is swiping toward. A positive offset from the
-    // track's left edge means the content has been pulled right (left
-    // spacer revealed), so the leading icon is on the left.
+    // Direction of content movement. A positive offset means the content
+    // has moved right and revealed the left spacer.
     const direction = (entry.boundingClientRect.x - entry.rootBounds.x) > 0
-      ? 'left'
-      : 'right';
+      ? 'right'
+      : 'left';
 
     if (ratio < commitThreshold) {
       // The IO entry's boundingClientRect is the last reliable measurement
@@ -315,12 +313,12 @@ function setupItem(item) {
       return;
     }
 
-    // Scale up the leading icon while the content is past the activate
+    // Scale up the revealed icon while the content is past the activate
     // point; restore it at rest.
     item.classList.toggle('is-activating', ratio < activateThreshold);
 
-    // Hold the previous direction at rest so the icon's exit animation
-    // finishes on the side the user was swiping toward.
+    // Hold the previous direction at rest so the revealed icon's exit
+    // animation finishes on the same side.
     if (entry.boundingClientRect.x !== entry.rootBounds.x) {
       item.dataset.swipeDirection = direction;
     }
@@ -386,7 +384,7 @@ async function removeItem(item, content, direction, entry) {
   // Content's pixel offset from the track's left edge.
   const x = rect.x - entry.rootBounds.x;
   // Pixel distance the content needs to travel to be fully out of view.
-  const translate = direction === 'left'
+  const translate = direction === 'right'
     ? rect.width - x
     : -(x + rect.width);
 
@@ -474,14 +472,14 @@ The scroll/snap/observation mechanics are unchanged.
 
 #### Different actions per swipe direction
 
-A single row can also expose **two different actions**: one for a left swipe and one for a right swipe (e.g., "archive" on right, "delete" on left), the way many native mail apps do it. The scroll, snap, and commit-detection mechanics don't change at all — the only thing that changes is what happens at commit time.
+A single row can also expose **two different actions**: one for a left swipe and one for a right swipe (e.g., archive for a right swipe and delete for a left swipe), the way many native mail apps do it. The scroll, snap, and commit-detection mechanics don't change at all — the only thing that changes is what happens at commit time.
 
 In Step 4, the `commit` function always calls `removeItem(...)`. To support two actions, pick the handler based on `direction`, and give each action its own button whose `data-direction` is the direction of the swipe it stands in for (Step 1):
 
 ```js
 function commit(direction, entry) {
   if (item.classList.contains('is-removing')) return;
-  const handler = direction === 'left' ? archiveItem : removeItem;
+  const handler = direction === 'right' ? archiveItem : removeItem;
   handler(item, content, direction, entry);
   viewportObserver.unobserve(item);
   observer.disconnect();
@@ -494,34 +492,33 @@ To make the two actions visually distinct, hoist a color and icon for each direc
 
 ```css
 .SwipeableList-item {
-  /* Action color + icon per swipe direction. `--left-*` is revealed
-     when the user swipes RIGHT (e.g., archive); `--right-*` is revealed
-     when the user swipes LEFT (e.g., delete). */
-  --left-action-color: hsl(140 50% 40%);
-  --left-action-icon: url("…archive svg…");
-  --right-action-color: hsl(0 65% 50%);
-  --right-action-icon: url("…trash svg…");
+  /* Action color + icon per swipe direction. Right swipes reveal archive
+     on the left; left swipes reveal delete on the right. */
+  --right-action-color: hsl(140 50% 40%);
+  --right-action-icon: url("…archive svg…");
+  --left-action-color: hsl(0 65% 50%);
+  --left-action-icon: url("…trash svg…");
 }
 
 .SwipeableList-item.is-initialized .SwipeableList-track {
-  /* Split reveal: left half of the scrollable area gets the left-action
-     color, right half gets the right-action color. `background-attachment:
-     local` makes the gradient's positioning area the scrollable area
+  /* Split reveal: left half gets the right-swipe color; right half gets
+     the left-swipe color. `background-attachment: local` makes the
+     gradient's positioning area the scrollable area
      (3x the visible width), so the default size fills it and the 50% hard
      stop lines up exactly with the midpoint of the resting content column.
      The track's color also stays continuous behind the content as it
-     translates off, so the leading-direction color shows the whole way. */
+     translates off, so the swipe's color shows the whole way. */
   background-image: linear-gradient(
     to right,
-    var(--left-action-color) 50%,
-    var(--right-action-color) 50%
+    var(--right-action-color) 50%,
+    var(--left-action-color) 50%
   );
   background-attachment: local;
 }
 
-/* Per-side icons read from the same variables. */
-.SwipeableList-item.is-initialized::before { background-image: var(--left-action-icon); }
-.SwipeableList-item.is-initialized::after  { background-image: var(--right-action-icon); }
+/* Icons appear opposite the content's movement. */
+.SwipeableList-item.is-initialized::before { background-image: var(--right-action-icon); }
+.SwipeableList-item.is-initialized::after  { background-image: var(--left-action-icon); }
 ```
 
 With this setup, the spacers no longer need their own background-color (the track's gradient handles the reveal), so you can drop the `background-color` rule on `.SwipeableList-track::before, ::after` from Step 2 if you're using this dual-action variant.
