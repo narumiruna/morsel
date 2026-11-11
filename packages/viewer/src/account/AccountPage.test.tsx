@@ -631,6 +631,76 @@ describe("AccountPage", () => {
     expect(screen.queryByDisplayValue("raw-secret-only-once")).not.toBeInTheDocument()
   })
 
+  it.each([
+    ["security", "server"],
+    ["security", "network"],
+    ["api-keys", "server"],
+    ["api-keys", "network"],
+  ] as const)("recovers a pending %s list after a logout %s failure", async (section, failure) => {
+    account = { authenticated: true, setup_required: false, csrf_token: "csrf-secret" }
+    keys = [{ id: "key/id", name: "CLI", prefix: "prefix", created_at: created, revoked_at: null }]
+    const path = section === "security" ? "passkeys" : "api-keys"
+    const label = section === "security" ? "passkeys" : "API keys"
+    const item = section === "security" ? "Laptop" : "CLI"
+    const original = fetchMock.getMockImplementation()
+    let finish: ((value: Response) => void) | undefined
+    let rejectLogout = true
+    fetchMock.mockImplementation((input, init) => {
+      if (input === `/v1/${path}` && init?.method === "GET" && !finish)
+        return new Promise((resolve) => {
+          finish = resolve
+        })
+      if (input === "/v1/auth/logout" && init?.method === "POST" && rejectLogout) {
+        if (failure === "network") return Promise.reject(new TypeError("offline"))
+        return Promise.resolve(json({ message: "Logout failed." }, 500))
+      }
+      if (!original) throw new Error("Missing fetch implementation")
+      return original(input, init)
+    })
+    showPage(false, section)
+    await waitFor(() => expect(callsTo(path)).toHaveLength(1))
+    const initialSignal = callsTo(path)[0]?.[1]?.signal
+    expect(screen.getByText("Loading account…")).toBeInTheDocument()
+    await logout()
+    expect(initialSignal?.aborted).toBe(true)
+    const message =
+      failure === "server"
+        ? "Logout failed."
+        : "The request could not be completed. Check your connection and try again."
+    expect(await screen.findByText(message)).toHaveAttribute("role", "alert")
+    expect(screen.queryByText("Loading account…")).not.toBeInTheDocument()
+    expect(screen.queryByText(`No ${label}.`)).not.toBeInTheDocument()
+    const retry = screen.getByRole("button", { name: `Retry ${label}` })
+    expect(retry).toBeEnabled()
+    expect(callsTo("auth/logout")).toHaveLength(1)
+
+    const accountRequests = callsTo("account").length
+    act(() => fireEvent(window, new Event("focus")))
+    await waitFor(() => expect(callsTo("account")).toHaveLength(accountRequests + 1))
+    expect(screen.getByText(message)).toBeInTheDocument()
+    expect(retry).toBeEnabled()
+    const requests = fetchMock.mock.calls.length
+    await userEvent.setup().click(retry)
+    await screen.findByText(item)
+    expect(fetchMock.mock.calls.slice(requests).map(([url, init]) => [url, init?.method])).toEqual([
+      [`/v1/${path}`, "GET"],
+    ])
+    expect(callsTo(path)[1]?.[1]?.signal?.aborted).toBe(false)
+    expect(screen.queryByRole("button", { name: `Retry ${label}` })).not.toBeInTheDocument()
+    await act(async () => {
+      finish?.(
+        json([{ id: "obsolete", name: "Obsolete item", prefix: "old", created_at: created }]),
+      )
+    })
+    expect(screen.queryByText("Obsolete item")).not.toBeInTheDocument()
+    expect(screen.getByText(item)).toBeInTheDocument()
+    expect(startAuthentication).not.toHaveBeenCalled()
+    rejectLogout = false
+    await logout()
+    await screen.findByRole("button", { name: "Sign in with passkey" })
+    expect(callsTo("auth/logout")).toHaveLength(2)
+  })
+
   it("handles unsupported browsers without attempting a ceremony", async () => {
     vi.mocked(browserSupportsWebAuthn).mockReturnValue(false)
     showPage()

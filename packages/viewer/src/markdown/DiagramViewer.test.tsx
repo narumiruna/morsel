@@ -81,6 +81,52 @@ describe("DiagramViewer", () => {
     expect(screen.getByRole("img")).toBeVisible()
   })
 
+  it("allows zooming back to an overview floor below 25 percent", () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(100)
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(300)
+    render(<DiagramViewer kind="mermaid" svg='<svg viewBox="0 0 1000 500"></svg>' source="" />)
+    const zoomOut = screen.getByRole("button", { name: "Zoom out" })
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("10%")
+    expect(zoomOut).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("13%")
+    expect(zoomOut).toBeEnabled()
+    fireEvent.click(zoomOut)
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("10%")
+    expect(zoomOut).toBeDisabled()
+  })
+
+  it("uses the exact minimum rather than the rounded zoom percentage", () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(250.1)
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(300)
+    render(<DiagramViewer kind="mermaid" svg='<svg viewBox="0 0 1000 500"></svg>' source="" />)
+    const zoomOut = screen.getByRole("button", { name: "Zoom out" })
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("25%")
+    expect(zoomOut).toBeEnabled()
+    fireEvent.click(zoomOut)
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("25%")
+    expect(zoomOut).toBeDisabled()
+  })
+
+  it("uses the exact maximum rather than the rounded zoom percentage", () => {
+    render(
+      <DiagramViewer
+        kind="mermaid"
+        svg='<svg viewBox="0 0 100 50"><text style="font-size: 3.5035px">A</text></svg>'
+        source=""
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }))
+    const zoomIn = screen.getByRole("button", { name: "Zoom in" })
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("400%")
+    expect(zoomIn).toBeEnabled()
+    fireEvent.click(zoomIn)
+    expect(screen.getByLabelText("Current zoom")).toHaveTextContent("400%")
+    expect(zoomIn).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Zoom out" }))
+    expect(zoomIn).toBeEnabled()
+  })
+
   it.each(["mermaid", "vega-lite"] as const)(
     "keeps %s controls consistent without preference selectors",
     (kind) => {
@@ -219,7 +265,10 @@ describe("DiagramViewer", () => {
         fireEvent.click(screen.getByRole("button", { name: "Fullscreen" }))
       })
       await waitFor(() => expect(card).toHaveClass("diagram-expanded"))
-      fireEvent.keyDown(document, { key: "Escape" })
+      const input = document.createElement("input")
+      card.querySelector(".diagram-viewport")?.append(input)
+      input.focus()
+      fireEvent.keyDown(input, { key: "Escape" })
       await waitFor(() => expect(card).not.toHaveClass("diagram-expanded"))
     } finally {
       document.removeEventListener("keydown", reserveEscape, true)

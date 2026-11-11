@@ -224,6 +224,11 @@ export function AccountPage({ section = "security" }: { section?: AccountSection
     controller.current?.abort()
     controller.current = new AbortController()
     locked.current = false
+    // The aborted initial load cannot clear loading or make its list available for retry.
+    if (loading) {
+      setLoading(false)
+      setListError("Loading was cancelled. Try again.")
+    }
     setRawKey(null)
     setRevokeKey(null)
     setRemovePasskey(null)

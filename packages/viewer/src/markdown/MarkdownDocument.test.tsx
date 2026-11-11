@@ -128,6 +128,59 @@ alert("escaped")
     expect(container.querySelector("script")).not.toBeInTheDocument()
   })
 
+  it.each([String.raw`\sqrt{x}`, String.raw`\widehat{abc}`, String.raw`\overbrace{a+b}`])(
+    "preserves SVG geometry in the formula %s",
+    (formula) => {
+      const { container } = render(<MarkdownDocument content={`$${formula}$`} />)
+      const svg = container.querySelector(".katex-html svg")
+      expect(svg).toHaveAttribute("viewBox")
+      expect(svg?.querySelector("path")).toHaveAttribute("d", expect.stringMatching(/\S/))
+    },
+  )
+
+  it("keeps footnote references and return links aligned with protected IDs", () => {
+    const { container } = render(
+      <MarkdownDocument
+        content={
+          "A note[^note] and its repeat[^note]. Another[^__proto__].\n\n[^note]: Footnote text.\n\n[^__proto__]: Protected ID.\n\n[Ordinary anchor](#document-title)"
+        }
+      />,
+    )
+    const links = container.querySelectorAll<HTMLAnchorElement>(
+      "a[data-footnote-ref], a[data-footnote-backref]",
+    )
+    expect(links).toHaveLength(6)
+    for (const link of links) {
+      const id = decodeURIComponent(link.hash.slice(1))
+      expect(id).toMatch(/^user-content-/)
+      expect(document.getElementById(id)).toBeInTheDocument()
+      const description = link.getAttribute("aria-describedby")
+      if (description) expect(document.getElementById(description)).toHaveTextContent("Footnotes")
+    }
+    expect(screen.getByRole("link", { name: "Ordinary anchor" })).toHaveAttribute(
+      "href",
+      "#document-title",
+    )
+  })
+
+  it("blocks untrusted HTML and TeX resource and style commands", () => {
+    const { container } = render(
+      <MarkdownDocument
+        content={String.raw`$\href{https://evil.example}{link}$
+
+$\includegraphics{https://evil.example/image.png}$
+
+$\htmlStyle{background:url(https://evil.example/image.png)}{styled}$
+
+<svg onload="alert(1)"><path d="M0 0" /></svg>
+
+<span style="background:url(https://evil.example/image.png)">authored</span>`}
+      />,
+    )
+    expect(container.querySelector("a, img, svg, script")).toBeNull()
+    expect(container.querySelector('[onload], [style*="background"], [style*="url("]')).toBeNull()
+  })
+
   it("allows safe URLs and strips dangerous URLs and attributes", () => {
     const { container } = render(
       <MarkdownDocument

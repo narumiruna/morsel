@@ -17,7 +17,12 @@ import { type RefObject, useCallback, useEffect, useId, useRef, useState } from 
 import { ActionButton } from "../components/ActionButton"
 import type { Appearance } from "../theme"
 import { createPngExport, downloadDiagram } from "./diagramExport"
-import { createDiagramView, type DiagramViewController } from "./diagramView"
+import {
+  createDiagramView,
+  type DiagramViewController,
+  maxDiagramScale,
+  minDiagramScale,
+} from "./diagramView"
 
 interface DiagramViewerProps {
   appearance?: Appearance
@@ -74,7 +79,7 @@ export function DiagramViewer({
   const fallbackRef = useRef(false)
   const nativeFullscreen = useRef(false)
   const sourceID = useId()
-  const [zoom, setZoom] = useState(100)
+  const [zoom, setZoom] = useState({ scale: 1, minimum: minDiagramScale, maximum: maxDiagramScale })
   const [cropped, setCropped] = useState(false)
   const [showSource, setShowSource] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -160,7 +165,7 @@ export function DiagramViewer({
       isExpanded: () => document.fullscreenElement === card.current || fallbackRef.current,
       onCropChange: setCropped,
       onEscape: closeFallback,
-      onScaleChange: setZoom,
+      onScaleChange: (scale, minimum, maximum) => setZoom({ scale, minimum, maximum }),
     })
     controller.current = next
     return () => {
@@ -306,18 +311,18 @@ export function DiagramViewer({
             label="Zoom out"
             tooltipContainer={tooltipContainer}
             variant="soft"
-            disabled={!ready || showSource || zoom <= 25}
+            disabled={!ready || showSource || zoom.scale <= zoom.minimum}
             onClick={() => controller.current?.zoomBy(0.8)}
           >
             <MinusIcon />
           </ActionButton>
-          <output aria-label="Current zoom">{zoom}%</output>
+          <output aria-label="Current zoom">{Math.round(zoom.scale * 100)}%</output>
           <ActionButton
             className="diagram-control"
             label="Zoom in"
             tooltipContainer={tooltipContainer}
             variant="soft"
-            disabled={!ready || showSource || zoom >= 400}
+            disabled={!ready || showSource || zoom.scale >= zoom.maximum}
             onClick={() => controller.current?.zoomBy(1.25)}
           >
             <PlusIcon />

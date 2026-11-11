@@ -9,66 +9,12 @@ import remarkMath from "remark-math"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { VegaLiteChart } from "./VegaLiteChart"
 
-const mathTags = [
-  "math",
-  "menclose",
-  "merror",
-  "mfenced",
-  "mfrac",
-  "mi",
-  "mlongdiv",
-  "mmultiscripts",
-  "mn",
-  "mo",
-  "mover",
-  "mpadded",
-  "mphantom",
-  "mroot",
-  "mrow",
-  "ms",
-  "mscarries",
-  "mscarry",
-  "msgroup",
-  "msline",
-  "mspace",
-  "msqrt",
-  "msrow",
-  "mstack",
-  "mstyle",
-  "msub",
-  "msubsup",
-  "msup",
-  "mtable",
-  "mtd",
-  "mtext",
-  "mtr",
-  "munder",
-  "munderover",
-  "semantics",
-  "annotation",
-]
-
 const sanitizeSchema = {
   ...defaultSchema,
-  tagNames: [...(defaultSchema.tagNames ?? []), ...mathTags],
   attributes: {
     ...defaultSchema.attributes,
-    div: [...(defaultSchema.attributes?.div ?? []), ["className", "math", "math-display"]],
-    span: [
-      ...(defaultSchema.attributes?.span ?? []),
-      ["className", /^[A-Za-z0-9_-]+$/],
-      "style",
-      "ariaHidden",
-    ],
-    code: [["className", "hljs", /^language-[\w-]+$/]],
+    code: [["className", /^language-[\w-]+$/, "math-inline", "math-display"]],
     input: ["type", "checked", "disabled"],
-    math: ["xmlns", "display"],
-    annotation: ["encoding"],
-    mstyle: ["mathcolor", "mathbackground", "scriptlevel", "displaystyle"],
-    mspace: ["width", "height", "depth"],
-    mo: ["fence", "separator", "stretchy", "symmetric", "largeop", "movablelimits", "form"],
-    mtable: ["columnalign", "rowalign", "columnspacing", "rowspacing"],
-    mtd: ["columnalign", "rowalign", "columnspan", "rowspan"],
   },
   protocols: {
     ...defaultSchema.protocols,
@@ -110,17 +56,26 @@ export function MarkdownDocument({
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
+          // Sanitize authored content before trusted renderers add SVG, MathML, and styles.
+          [rehypeSanitize, sanitizeSchema],
           [rehypeKatex, { strict: "error", trust: false, throwOnError: false }],
           [rehypeHighlight, { detect: false, plainText: ["mermaid", "vega-lite"] }],
-          [rehypeSanitize, sanitizeSchema],
         ]}
         urlTransform={safeURL}
         components={{
-          a: ({ href, children, node: _node, ...props }) => {
+          a: ({ href, children, node, ...props }) => {
+            const footnote =
+              node?.properties.dataFootnoteRef !== undefined ||
+              node?.properties.dataFootnoteBackref !== undefined
+            // The sanitizer prefixes footnote IDs, but not their fragment URLs.
+            const target =
+              footnote && href?.startsWith("#")
+                ? `#${sanitizeSchema.clobberPrefix ?? ""}${href.slice(1)}`
+                : href
             const external = href?.startsWith("http://") || href?.startsWith("https://")
             return (
               <a
-                href={href}
+                href={target}
                 target={external ? "_blank" : undefined}
                 rel={external ? "noopener noreferrer" : undefined}
                 {...props}

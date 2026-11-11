@@ -58,7 +58,7 @@ npm run test:auth:browser
 
 Use a test-only PostgreSQL role with permission to create databases. The harness creates an isolated database, applies migrations, builds the viewer and backend, starts Go on an available dynamic port, and stops Go and removes the database on success or failure. It does not use the interactive service on port 12647. The browser origin is `http://localhost:<selected-port>` and the RP ID is `localhost`; the harness sets a matching `MORSEL_URL`. Direct navigation and refresh use Go's built viewer, not Vite preview. Never point this command at production.
 
-The separate required authentication CI job provisions PostgreSQL, Go, Node.js, and Chromium. It runs the account project before the OAuth project; all nine required OAuth cases and the required account lifecycle must execute without skips. Missing infrastructure, zero executed tests, or skipped required tests must fail the job. This suite does not use `MORSEL_E2E_LIVE`.
+The viewer and authentication CI jobs use the digest-pinned Playwright image, which includes browsers and system dependencies. Keep its version aligned with `@playwright/test` in `packages/viewer/package.json`. The authentication job provisions PostgreSQL, Go, and Node.js; its database URL uses the `postgres` service hostname within the job container. It runs the account project before the OAuth project; all nine required OAuth cases and the required account lifecycle must execute without skips. Missing infrastructure, zero executed tests, or skipped required tests must fail the job. This suite does not use `MORSEL_E2E_LIVE`.
 
 ## Backend
 

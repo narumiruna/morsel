@@ -77,6 +77,61 @@ test("renders safely under the production CSP and uses one request", async ({ pa
   expect(headers["referrer-policy"]).toBe("no-referrer")
 })
 
+test("preserves KaTeX SVG symbols without enabling authored SVG", async ({ page }) => {
+  await page.route(`**/v1/shares/${token}`, (route) =>
+    route.fulfill({
+      json: {
+        content: String.raw`$\sqrt{x}$
+
+$\widehat{abc}$
+
+$\overbrace{a+b}$
+
+<svg onload="alert(1)"><path d="M0 0" /></svg>`,
+        created_at: "2026-01-01T00:00:00Z",
+        view_count: 1,
+      },
+    }),
+  )
+  await page.goto(`/s/${token}`)
+  const symbols = page.locator(".katex-html svg")
+  await expect(symbols).toHaveCount(5)
+  for (const symbol of await symbols.all()) {
+    await expect(symbol).toBeVisible()
+    await expect(symbol).toHaveAttribute("viewBox", /\S/)
+    await expect(symbol.locator("path")).toHaveAttribute("d", /\S/)
+  }
+  await expect(page.locator(".markdown-document > svg, [onload]")).toHaveCount(0)
+})
+
+for (const reader of ["path", "fragment", "gist"] as const) {
+  test(`footnotes scroll in both directions in the ${reader} reader`, async ({ page }) => {
+    const markdown = `A note[^1].\n\n${"Paragraph for scrolling.\n\n".repeat(100)}[^1]: Footnote text.`
+    let reads = 0
+    const endpoint =
+      reader === "gist" ? `https://api.github.com/gists/${gist}` : `**/v1/shares/${token}`
+    await page.route(endpoint, (route) => {
+      reads += 1
+      return route.fulfill({
+        json:
+          reader === "gist"
+            ? { files: { "README.md": { filename: "README.md", content: markdown } } }
+            : { content: markdown, created_at: "2026-01-01T00:00:00Z", view_count: reads },
+      })
+    })
+    const destination =
+      reader === "gist" ? `/gist/#${gist}` : reader === "fragment" ? `/#/s/${token}` : `/s/${token}`
+    await page.goto(destination)
+    const reference = page.locator("a[data-footnote-ref]")
+    await reference.click()
+    await expect(page.locator(".footnotes li")).toBeInViewport()
+    await page.locator("a[data-footnote-backref]").click()
+    await expect(reference).toBeInViewport()
+    if (reader !== "path") await expect(page).toHaveURL(new URL(destination, page.url()).href)
+    expect(reads).toBe(1)
+  })
+}
+
 test("loads Gist Markdown directly from GitHub without credentials", async ({ page }) => {
   let requests = 0
   let authorization = ""
