@@ -35,7 +35,7 @@ interface DiagramViewOptions {
   onCameraModeChange?: (mode: DiagramCameraMode) => void
   onCropChange?: (cropped: boolean) => void
   onEscape?: () => boolean
-  onScaleChange?: (percentage: number) => void
+  onScaleChange?: (scale: number, minimumScale: number, maximumScale: number) => void
 }
 
 interface PointerPosition {
@@ -172,7 +172,7 @@ export function createDiagramView(
   function apply(): void {
     constrain()
     stage.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${state.scale})`
-    options.onScaleChange?.(Math.round(state.scale * 100))
+    options.onScaleChange?.(state.scale, minimumScale, maxDiagramScale)
     const inset = padding()
     const cropped =
       state.naturalWidth * state.scale > viewport.clientWidth - inset.left - inset.right + 1 ||
@@ -280,7 +280,16 @@ export function createDiagramView(
     }
   }
 
+  function isInteractiveTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false
+    const control = target.closest(
+      'input, select, textarea, button, a[href], label, summary, [contenteditable]:not([contenteditable="false"]), [tabindex]',
+    )
+    return control !== null && control !== viewport && viewport.contains(control)
+  }
+
   function onPointerDown(event: PointerEvent): void {
+    if (isInteractiveTarget(event.target)) return
     if (event.pointerType === "touch") {
       if (!expanded()) return
       pointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY })
@@ -342,12 +351,14 @@ export function createDiagramView(
   }
 
   function onWheel(event: WheelEvent): void {
+    if (isInteractiveTarget(event.target)) return
     if (!event.ctrlKey && !event.metaKey) return
     event.preventDefault()
     zoomBy(event.deltaY < 0 ? 1.1 : 0.9, { x: event.clientX, y: event.clientY })
   }
 
   function onKeyDown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" && isInteractiveTarget(event.target)) return
     if (event.altKey || event.ctrlKey || event.metaKey) return
     switch (event.key) {
       case "ArrowLeft":
