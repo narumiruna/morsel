@@ -31,7 +31,7 @@ export MORSEL_DATABASE_URL='postgres://morsel:LOCAL_PASSWORD@127.0.0.1:5432/mors
 export MORSEL_ENVIRONMENT=development
 export MORSEL_URL=http://localhost:5173
 export MORSEL_ADDRESS=:12647
-GOTOOLCHAIN=go1.26.10 go run ./cmd/server
+GOTOOLCHAIN=go1.26.11 go run ./cmd/server
 ```
 
 In another terminal, start Vite with the command above. Open <http://localhost:5173/login> (or `/setup` for initial account setup). The RP ID is `localhost` (no port); the allowed origin is exactly `http://localhost:5173`. Do not mix `localhost` and `127.0.0.1` in browser URLs. The Vite proxies target `http://127.0.0.1:12647`; relative paths keep the configured browser origin. MCP, `/oauth/authorize`, `/oauth/token`, `/oauth/register`, `/oauth/revoke`, `/.well-known/oauth-authorization-server`, and `/.well-known/oauth-protected-resource/mcp` explicitly preserve Host with `changeOrigin: false`. Both development and preview keep `/oauth/consent?request=<handle>` in the SPA; do not proxy all `/oauth` paths or enable application-wide CORS. For MCP, use `http://localhost:5173/mcp` through Vite so the public Host remains consistent with `MORSEL_URL`; an arbitrary backend bind host is rejected. For direct MCP testing at port 12647, instead configure `MORSEL_URL=http://localhost:12647` as in the [local curl example](usage.md#local-curl-example). MCP CORS stays disabled; only public OAuth metadata has credential-free GET/OPTIONS CORS. To exercise native OAuth, point the URL-only [Pi example](usage.md#oauth-and-pi) at `http://localhost:5173/mcp`; the issuer is `http://localhost:5173` and resource is `http://localhost:5173/mcp`.
@@ -40,10 +40,10 @@ With the same local database variable set, generate a setup token:
 
 ```sh
 cd packages/server
-GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind setup
+GOTOOLCHAIN=go1.26.11 go run ./cmd/account -kind setup
 ```
 
-The command needs only `MORSEL_DATABASE_URL` and still prints a raw token. Enter the setup token in the form at `/setup`, not a URL, within one hour. Setup creates an `admin`; enroll a backup passkey, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For another account, use the admin's **Invitations** section at `/manage/invitations`, or keep using `GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind invite` and manual token entry at `/invite`. All invitations create a `user`; enter separate **Account name** and **Passkey name** values. Only invitation tokens can enter through `/invite#token=<43-character base64url token>`; setup/recovery remain form-only. No grant secret is accepted in a query or path. For lost credentials, use `GOTOOLCHAIN=go1.26.10 go run ./cmd/account -kind recover -account-id ACCOUNT_UUID` and the form at `/recover`; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
+The command needs only `MORSEL_DATABASE_URL` and still prints a raw token. Enter the setup token in the form at `/setup`, not a URL, within one hour. Setup creates an `admin`; enroll a backup passkey, then create a client API key. The server needs no API key environment configuration. Client scripts still accept `MORSEL_API_KEY` containing a UI-created key. For another account, use the admin's **Invitations** section at `/manage/invitations`, or keep using `GOTOOLCHAIN=go1.26.11 go run ./cmd/account -kind invite` and manual token entry at `/invite`. All invitations create a `user`; enter separate **Account name** and **Passkey name** values. Only invitation tokens can enter through `/invite#token=<43-character base64url token>`; setup/recovery remain form-only. No grant secret is accepted in a query or path. For lost credentials, use `GOTOOLCHAIN=go1.26.11 go run ./cmd/account -kind recover -account-id ACCOUNT_UUID` and the form at `/recover`; [recovery effects](deployment.md#operator-setup-and-recovery) include session invalidation but not API key revocation.
 
 ## Authentication browser tests
 
@@ -51,7 +51,7 @@ The mocked viewer suite (`npm run test:browser`) remains separate from the real 
 
 ```sh
 export MORSEL_TEST_DATABASE_URL='postgres://morsel:test-only-password@127.0.0.1:5432/morsel_test?sslmode=disable'
-export GOTOOLCHAIN=go1.26.10
+export GOTOOLCHAIN=go1.26.11
 npx playwright install chromium
 npm run test:auth:browser
 ```
@@ -62,11 +62,11 @@ The separate required authentication CI job provisions PostgreSQL, Go, Node.js, 
 
 ## Backend
 
-Requirements: Go 1.26.10+ in the 1.26 line, or Go 1.27.3+; PostgreSQL 17; and Docker for integration tests. Go 1.27.0–1.27.2 are affected by GO-2026-6809 in the WebAuthn certificate verification path.
+Requirements: Go 1.26.11+ in the 1.26 line, or Go 1.27.4+; PostgreSQL 17; and Docker for integration tests. These minimum versions include the GO-2026-6859 fix in net/http. Go 1.27.0–1.27.2 are also affected by GO-2026-6809 in the WebAuthn certificate verification path.
 
 ```sh
 cd packages/server
-export GOTOOLCHAIN=go1.26.10
+export GOTOOLCHAIN=go1.26.11
 go generate ./...
 gofmt -w .
 go vet ./...
@@ -89,13 +89,13 @@ go test -race -count=10 ./internal/share \
 docker stop morsel-test-postgres
 ```
 
-`go generate` uses the exact `oapi-codegen` version recorded in `go.mod`. Generated-code drift fails CI. Keep `GOTOOLCHAIN=go1.26.10` exported for all backend checks here, or use another supported patched toolchain.
+`go generate` uses the exact `oapi-codegen` version recorded in `go.mod`. Generated-code drift fails CI. Keep `GOTOOLCHAIN=go1.26.11` exported for all backend checks here, or use another supported patched toolchain.
 
 Validate the complete OpenAPI contract, including manually implemented account routes:
 
 ```sh
 npx --yes @redocly/cli@2.53.2 lint --config packages/server/redocly.yaml packages/server/openapi.yaml
-(cd packages/server && export GOTOOLCHAIN=go1.26.10 && \
+(cd packages/server && export GOTOOLCHAIN=go1.26.11 && \
   go generate ./... && \
   before="$(sha256sum internal/api/openapi.gen.go)" && \
   go generate ./... && \
@@ -112,7 +112,7 @@ These commands and evidence requirements are validation instructions, not a repo
 
 ```sh
 cd packages/server
-export GOTOOLCHAIN=go1.26.10
+export GOTOOLCHAIN=go1.26.11
 go test -race -v ./internal/api -run MCP
 go test -race -v -count=10 ./internal/api -run MCP
 go test -race -coverprofile=coverage.out ./...
@@ -156,7 +156,7 @@ These are reproducible **requirements**, not a report that all checks are comple
 From the repository root, with `MORSEL_TEST_DATABASE_URL` pointing to the disposable test role:
 
 ```sh
-export GOTOOLCHAIN=go1.26.10
+export GOTOOLCHAIN=go1.26.11
 (cd packages/server && \
   go test -race -v ./internal/auth ./internal/api ./migrations -run 'OAuth|MCP' && \
   go test -race -v -count=10 ./internal/auth ./internal/api -run 'OAuth|MCP' && \
@@ -177,7 +177,7 @@ docker build --tag morsel:oauth-validation .
 
 Run the generator drift/idempotence commands above and verify `internal/api/openapi.gen.go` and the include-only generator configuration are unchanged. If Chromium is launched headed under WSLg, preserve existing launch arguments and add `--ozone-platform=wayland`; do not change headless behavior.
 
-Run the local installed-Pi lifecycle gate with an explicit absolute Pi package directory. Pi is an external test tool, not a project dependency. Prepare Go 1.26.10, Chromium, and `MORSEL_TEST_DATABASE_URL` with the same test-only database-creation permissions as the authentication suite:
+Run the local installed-Pi lifecycle gate with an explicit absolute Pi package directory. Pi is an external test tool, not a project dependency. Prepare Go 1.26.11, Chromium, and `MORSEL_TEST_DATABASE_URL` with the same test-only database-creation permissions as the authentication suite:
 
 ```sh
 node scripts/test-mcp-oauth-pi.mjs \
@@ -218,8 +218,8 @@ Migrations are embedded in the migration executable and protected by a PostgreSQ
 
 ```sh
 cd packages/server
-GOTOOLCHAIN=go1.26.10 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction up
-GOTOOLCHAIN=go1.26.10 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction down -steps 1
+GOTOOLCHAIN=go1.26.11 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction up
+GOTOOLCHAIN=go1.26.11 MORSEL_DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate -direction down -steps 1
 ```
 
 For schema version 8 and later, the normal up command also derives missing administrative labels in loops of at most 16 documents, with per-document durable updates. Cancellation leaves completed work intact; rerun up to resume. Direct `migrations.Run` calls in tests apply schema only, so tests that insert legacy rows must explicitly use `share.BackfillLabels` before expecting complete management search. A pending label causes `503 label_backfill_required`, not an incomplete result.
