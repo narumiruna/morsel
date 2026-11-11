@@ -84,8 +84,10 @@ const options = {
 
 ## Client-Side Logic
 
-1.  **Gate the UI on page load**:
-    - On page load, call `PublicKeyCredential.getClientCapabilities()` and **disable the "Create passkey" button** if `conditionalGet` or `passkeyPlatformAuthenticator` is not available.
+1.  **Check basic WebAuthn support on page load**:
+    - Enable explicit registration when `PublicKeyCredential` and `navigator.credentials.create` are available.
+    - Do not require `conditionalGet` or `passkeyPlatformAuthenticator` for explicit registration with an external security key.
+    - Use capability checks only for the optional flow they describe, such as platform-only promotion.
 2.  **Invoke creation & Serialize**: Decode server options with `PublicKeyCredential.parseCreationOptionsFromJSON()` and pass the resulting configuration to `navigator.credentials.create()`.
     - Call `credential.toJSON()` to encode the `AuthenticatorAttestationResponse` into a valid, JSON-serializable object before fetching the verification endpoint.
 3.  **Handle WebAuthn Exceptions**:
@@ -93,8 +95,11 @@ const options = {
     - `NotAllowedError`: The user cancelled or timed out the authentication passkey dialog.
     - `AbortError`: The operation has been aborted.
     - `SecurityError`: Secure origins (HTTPS) or RP ID mismatch errors (configuration issues).
-4.  **Try/Catch Segregation for Signal API**:
-    - Wrap server verification `fetch()` call in a try/catch block. Call `PublicKeyCredential.signalUnknownCredential({ rpId: publicKey.rp.id, credentialId: encodedResponse.id })` (gated on `if (PublicKeyCredential.signalUnknownCredential)`) when the server verification fetch fails (any status `response.ok === false` or network throws).
+4.  **Separate server verification from Signal API errors**:
+    - Signal an unknown credential only after the server confirms that this credential was not persisted.
+    - In this example, a rejected verification response contains `credentialPersisted: false` only when the server has confirmed that the credential is absent. A non-OK status alone is not enough.
+    - Keep the credential after a network error, a lost response, or an unclear server error. Reconcile its state with the server before cleanup or another registration attempt.
+    - Catch Signal API errors separately. A failed synchronization must not change the registration result.
     - Always read `rpId` from `publicKey.rp.id` in the server's creation options. **DO NOT** derive `rpId` from `window.location.hostname` on the client, as the server's configured RP ID may be a registrable parent domain (such as `example.com` on `accounts.example.com`) or use Related Origin Requests.
 
 ```javascript
@@ -102,15 +107,18 @@ const options = {
 import { optionsFetch, registerVerifyFetch } from "./api.js";
 
 async function registerPasskey(isPromotion = false) {
-  // Verify passkey capability and conditional UI are available
-  const capabilities = await PublicKeyCredential.getClientCapabilities();
-  if (
-    !capabilities.passkeyPlatformAuthenticator ||
-    !capabilities.conditionalGet
-  ) {
-    // Hide "Create passkey" buttons and fall back to password flows instead
+  // Explicit registration also supports external security keys.
+  if (!globalThis.PublicKeyCredential || !navigator.credentials?.create) {
     showStandardPasswordFallbackUI();
     return;
+  }
+
+  // Only platform-only promotion uses this optional capability check.
+  if (isPromotion && PublicKeyCredential.getClientCapabilities) {
+    const capabilities = await PublicKeyCredential.getClientCapabilities();
+    if (capabilities.passkeyPlatformAuthenticator === false) {
+      return;
+    }
   }
 
   const creationOptionsJSON = await optionsFetch({ promotion: isPromotion });
@@ -136,24 +144,27 @@ async function registerPasskey(isPromotion = false) {
     return; // Safe API exit, do not signal unknown for standard WebAuthn cancels
   }
 
-  // Server Verification phase (Segregated Try/Catch)
   const encodedResponse = credential.toJSON();
+  let credentialNotPersisted = false;
   try {
     const response = await registerVerifyFetch(encodedResponse);
-    if (!response.ok && PublicKeyCredential.signalUnknownCredential) {
-      // Server verification failed to verify/authenticate the credential (orphaned)
-      await PublicKeyCredential.signalUnknownCredential({
-        rpId: publicKey.rp.id, // Always use the server-provided rp.id; DO NOT use window.location.hostname
-        credentialId: encodedResponse.id, // Base64URL-encoded credential ID
-      });
+    if (!response.ok) {
+      const result = await response.json();
+      credentialNotPersisted = result.credentialPersisted === false;
     }
   } catch (serverErr) {
-    console.error("Server verification network failure:", serverErr);
-    if (PublicKeyCredential.signalUnknownCredential) {
+    // The server may have saved the credential before its response was lost.
+    console.error("Registration state is unknown; reconcile with the server:", serverErr);
+  }
+
+  if (credentialNotPersisted && PublicKeyCredential.signalUnknownCredential) {
+    try {
       await PublicKeyCredential.signalUnknownCredential({
-        rpId: publicKey.rp.id, // Always use the server-provided rp.id; DO NOT use window.location.hostname
-        credentialId: encodedResponse.id, // Base64URL-encoded credential ID
+        rpId: publicKey.rp.id, // Use the server-provided RP ID.
+        credentialId: encodedResponse.id,
       });
+    } catch (signalErr) {
+      console.warn("Credential synchronization failed:", signalErr);
     }
   }
 }

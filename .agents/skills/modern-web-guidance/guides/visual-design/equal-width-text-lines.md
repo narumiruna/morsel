@@ -85,9 +85,17 @@ if (!CSS.supports('text-fit', 'grow per-line-all')) {
     const scales = lines.map(line => lockup.clientWidth / line.offsetWidth);
     lines.forEach((line, i) => line.style.setProperty('--text-fit-scale', scales[i]));
   };
-  // Refit on resize and font load
+  // Refit on resize, font load, and content changes
   for (const lockup of document.querySelectorAll('.lockup')) {
-    new ResizeObserver(() => fit(lockup)).observe(lockup);
+    const refit = () => fit(lockup);
+    new ResizeObserver(refit).observe(lockup);
+    document.fonts.ready.then(refit);
+    // Do not observe attributes: fit() writes inline styles.
+    new MutationObserver(refit).observe(lockup, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
   }
 }
 ```

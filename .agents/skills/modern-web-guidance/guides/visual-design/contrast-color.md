@@ -112,7 +112,7 @@ Supported by: Chrome 123 (Mar 2024), Edge 123 (Mar 2024), Firefox ≤66, and Saf
   content: "";
   position: absolute;
   inset: 0;
-  background-color: rgb(0 0 0 / 0.4);
+  background-color: rgb(0 0 0 / 0.55);
   z-index: 0;
 }
 .badge--overlay span {

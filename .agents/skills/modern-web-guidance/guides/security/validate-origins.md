@@ -12,7 +12,8 @@ The **`Origin` API** (`Origin.from()`, `isSameOrigin()`, `isSameSite()`, and `op
 ## Choosing the right comparison for your scenario
 
 - **Use `isSameOrigin()` for strict privilege boundaries:** Require an exact `(scheme, host, port)` match when handling cross-window `postMessage` commands (such as an embedded checkout or auth popup) or deciding whether to attach credentials. Even a different subdomain (`https://blog.example.com` vs. `https://app.example.com`) is a different origin and must be rejected so a vulnerability on one subdomain cannot control another.
-- **Use `isSameSite()` for cross-subdomain navigation and link classification:** Allow any subdomain or port sharing the same scheme and registrable domain when validating post-login redirect URLs (`?returnTo=https://billing.example.co.uk/orders`) or classifying links as internal vs. external. `isSameSite()` rejects both `http:` scheme downgrades and sibling tenants on shared public suffixes (`.co.uk`, `.github.io`).
+- **Use an exact trusted origin set for redirects:** Require each post-login redirect target to match an explicitly trusted `(scheme, host, port)` origin. A same-site subdomain or port can be controlled by an attacker.
+- **Use `isSameSite()` only for non-security link classification:** It compares the scheme and registrable domain across subdomains and ports. It rejects `http:` scheme downgrades and sibling tenants on shared public suffixes (`.co.uk`, `.github.io`), but it does not establish trust.
 - **Use `origin.opaque` and `Origin.from(event)` for opaque or sandboxed contexts:** Reject `data:` URLs for redirects (`origin.opaque === true`), or pin the opaque `Origin` extracted via `Origin.from(event)` when communicating with a specific `<iframe sandbox="allow-scripts">` widget whose serialized `event.origin` is `"null"`.
 
 ## 1. Verify Exact Origins for Privileged Actions (`Origin.from()` and `isSameOrigin()`)
@@ -59,18 +60,43 @@ window.addEventListener('message', (event) => {
 });
 ```
 
-## 2. Validate Cross-Subdomain Redirects and Links (`isSameSite()`)
+## 2. Validate Redirects and Classify Links
 
-When validating redirect targets (such as `?returnTo=` parameters) or internal links across subdomains of the same registrable domain (for example, `https://app.example.co.uk` and `https://billing.example.co.uk:8443`), use `isSameSite()`:
+For redirect targets (such as `?returnTo=` parameters), require HTTPS and compare the parsed URL's normalized origin against an exact trusted origin set. List each trusted scheme, host, and port explicitly. Do not accept an origin only because it is same-site. Apply the same check on the server before sending a redirect response.
+
+```javascript
+// Replace with the exact origins your application trusts for redirects.
+const TRUSTED_REDIRECT_ORIGINS = new Set([
+  'https://app.example.co.uk',
+  'https://billing.example.co.uk:8443',
+]);
+
+export function isAllowedRedirectUrl(candidateUrl) {
+  try {
+    const target = new URL(candidateUrl);
+    return target.protocol === 'https:' && TRUSTED_REDIRECT_ORIGINS.has(target.origin);
+  } catch {
+    return false;
+  }
+}
+
+// true: exact trusted origin, including port 8443.
+isAllowedRedirectUrl('https://billing.example.co.uk:8443/checkout');
+
+// false: the HTTP origin is not trusted.
+isAllowedRedirectUrl('http://billing.example.co.uk/checkout');
+```
+
+Use `isSameSite()` only to classify links across subdomains as internal or external. Do not use this classification to approve redirects, credentials, or privileged actions.
 
 - `isSameSite()` performs a **schemeful same-site** comparison: `https://sub.example.com` and `http://sub.example.com` are **not** same-site because their schemes differ.
 - `isSameSite()` uses the browser's built-in **Public Suffix List**, so distinct tenants on shared public suffixes (such as `https://tenant-a.github.io` and `https://tenant-b.github.io`, or `https://a.co.uk` and `https://b.co.uk`) evaluate to `false`.
 
 ```javascript
-// Replace with your application's primary origin
+// Replace with your application's primary origin.
 const APP_ORIGIN = Origin.from('https://app.example.co.uk');
 
-export function isAllowedSameSiteUrl(candidateUrlOrElement) {
+export function isSameSiteLink(candidateUrlOrElement) {
   try {
     return extractOrigin(candidateUrlOrElement).isSameSite(APP_ORIGIN);
   } catch {
@@ -78,11 +104,11 @@ export function isAllowedSameSiteUrl(candidateUrlOrElement) {
   }
 }
 
-// true: same scheme (https) and same registrable domain (example.co.uk)
-isAllowedSameSiteUrl('https://billing.example.co.uk:8443/checkout');
+// true: same-site classification does not require a trusted port.
+isSameSiteLink('https://billing.example.co.uk:8443/checkout');
 
-// false: scheme downgrade (http vs. https) is rejected by schemeful same-site
-isAllowedSameSiteUrl('http://billing.example.co.uk/checkout');
+// false: the scheme differs.
+isSameSiteLink('http://billing.example.co.uk/checkout');
 ```
 
 ## 3. Distinguish and Pin Opaque Origins (`origin.opaque` and `Origin.from(event)`)
@@ -134,7 +160,7 @@ Unsupported in: Firefox.
 If your Baseline target includes browsers that do not yet support the `Origin` interface, feature-detect `'Origin' in globalThis` and fall back to parsing URLs with `new URL()`:
 
 - **Same-origin fallback (tuple origins):** Extract the URL string (using `event.origin` for `MessageEvent` objects or `candidate.href` for link elements), parse both the candidate and trusted URLs with `new URL()`, reject `"null"` opaque origins (`candidateUrl.origin !== 'null'`), and compare `candidateUrl.origin === trustedUrl.origin`. Because an opaque origin is never same-origin with a tuple origin like `'https://app.example.com'`, immediately rejecting `'null'` matches `Origin.isSameOrigin()`.
-- **Same-site fallback (caveat):** The `URL` interface does not expose the browser's Public Suffix List. In browsers without `Origin`, only perform suffix matching against an explicit, known private registrable domain that you control (verifying both `protocol` and an exact or dot-prefixed `hostname` match), or use a maintained Public Suffix List library.
+- **Same-site fallback (non-security classification only):** The `URL` interface does not expose the browser's Public Suffix List. In browsers without `Origin`, only perform suffix matching against an explicit, known private registrable domain that you control (verifying both `protocol` and an exact or dot-prefixed `hostname` match), or use a maintained Public Suffix List library. For redirects, use the exact trusted origin set above; it does not require `Origin` support.
 - **Opaque / sandboxed iframe fallback:** Browsers without `Origin` do not expose distinct opaque origin identities on `MessageEvent` (`event.origin` is always `"null"`). If you intentionally accept messages from a known sandboxed `<iframe sandbox="allow-scripts">`, verify `event.source === expectedWidgetWindow` (or communicate over a dedicated `MessageChannel` `MessagePort` transferred to the iframe on initialization) rather than comparing `event.origin`.
 
 ```javascript
@@ -177,6 +203,7 @@ export function checkSameOriginWithFallback(candidate) {
   }
 }
 
+// Classify links only. Do not use this check to approve redirects or privileged actions.
 export function checkSameSiteWithFallback(candidate) {
   try {
     if ('Origin' in globalThis) {

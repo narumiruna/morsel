@@ -241,8 +241,8 @@ Plus three application-specific helpers — the only places where your app's rou
 ```js
 // Resolve a URL path to the data your app needs to render the
 // corresponding drill-down view, or return null for paths this section
-// of the app does not handle (the root path '/', external links,
-// unknown routes). resolveUrl() is for drill-down routes only — the
+// of the app does not handle (the root path '/' or unknown routes).
+// resolveUrl() is for drill-down routes only — the
 // root view is rendered separately by createRootView() below.
 function resolveUrl(urlPath) {
   // Replace with your routing logic. For example, match `/view/:id`
@@ -338,7 +338,7 @@ function drillDown(urlPath) {
 
 ### 5. Click and back-button handling
 
-Intercept link clicks inside the stack and convert them to drill-downs. Preserve modifier-key behavior so cmd/middle-click still opens the link in a new tab.
+Intercept same-origin link clicks inside the stack and convert them to drill-downs. Let the browser handle external links. Preserve modifier-key behavior so cmd/middle-click still opens the link in a new tab.
 
 ```js
 stack.addEventListener('click', (e) => {
@@ -356,7 +356,9 @@ stack.addEventListener('click', (e) => {
   // in new tabs / windows. e.button !== 0 filters out middle-clicks.
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
 
-  const urlPath = new URL(link.href).pathname;
+  const url = new URL(link.href);
+  if (url.origin !== location.origin) return;
+  const urlPath = url.pathname;
   const parentView = link.closest('.Stack-view');
   // If the URL isn't handled by this section of the app (resolveUrl
   // returns null), fall through so the browser navigates normally.

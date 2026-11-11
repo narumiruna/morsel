@@ -19,9 +19,9 @@ newParent.moveBefore(elementWithState, null);
 
 ## Moving custom elements (Web Components)
 
-If you are moving custom elements using `moveBefore()`, their `connectedCallback` and `disconnectedCallback` lifecycle methods will **not** be fired.
+Without a `connectedMoveCallback()` method, `disconnectedCallback()` and `connectedCallback()` still run when you move a custom element with `moveBefore()`.
 
-If your custom element needs to perform specific logic when moved, implement the `connectedMoveCallback()` method inside the custom element definition.
+Even an empty `connectedMoveCallback()` prevents both callbacks from running during the move. Add logic to this method if the element needs to update state after a move.
 
 ```javascript
 class MyCustomElement extends HTMLElement {

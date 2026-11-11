@@ -9,13 +9,14 @@ Each menu in the bar is a complete popup menu: invoker-triggered popover, nested
 ## Structure
 
 * Put `role="menubar"` with an `aria-label` on the container of the top-level triggers, never on a popover. Each top-level trigger is a direct child of the menubar, immediately followed by its popover.
+  * Set `role="menuitem"` on each top-level trigger. These buttons are not in a focusgroup, so their roles are not inferred.
 * Style the bar as one continuous strip with no gaps or borders between triggers. Visually separate buttons signal one `Tab` stop each; a continuous bar signals one widget.
 * Give the trigger with `aria-expanded="true"` a visible active style so users can tell which menu is open or previewed.
 
 ```html
 <div role="menubar" aria-label="Document commands">
   <!-- Only the active trigger is tabbable; the script moves tabindex with ArrowLeft and ArrowRight. -->
-  <button id="file-trigger" type="button" aria-haspopup="menu" aria-expanded="false"
+  <button id="file-trigger" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false"
     commandfor="file-menu" command="toggle-popover">File</button>
   <div id="file-menu" popover="auto">
     <div focusgroup="menu nomemory" aria-labelledby="file-trigger">
@@ -23,7 +24,7 @@ Each menu in the bar is a complete popup menu: invoker-triggered popover, nested
     </div>
   </div>
 
-  <button id="edit-trigger" type="button" aria-haspopup="menu" aria-expanded="false"
+  <button id="edit-trigger" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false"
     commandfor="edit-menu" command="toggle-popover" tabindex="-1">Edit</button>
   <div id="edit-menu" popover="auto">
     <div focusgroup="menu nomemory" aria-labelledby="edit-trigger">
@@ -103,19 +104,19 @@ Browser support for focusgroup: Limited availability.
 Supported by: Chrome 150 (Jun 2026) and Edge 150 (Jul 2026).
 Unsupported in: Firefox and Safari.
 
-Keep `focusgroup="menu nomemory"` in the markup. If `'focusGroup' in HTMLElement.prototype` is false, install Up, Down, Home, and End, set `role="menu"` on each menu container, and `role="menuitem"` on buttons with no role; leave checkable items, `<hr>`, and `role="group"` alone. Never install it when native focusgroup is present. Submenu preview, open, and close are author script either way.
+Keep `focusgroup="menu nomemory"` in the markup. If `'focusGroup' in HTMLElement.prototype` is false, install Up, Down, Home, and End, set `role="menu"` on each menu container, and `role="menuitem"` on buttons and links with no role; leave checkable items, `<hr>`, and `role="group"` alone. Never install it when native focusgroup is present. Submenu preview, open, and close are author script either way.
 
 ```js
 if (!('focusGroup' in HTMLElement.prototype)) {
   document.querySelectorAll('[focusgroup~="menu"]').forEach(group => {
     group.setAttribute('role', 'menu');
-    group.querySelectorAll('button:not([role])').forEach(item => {
+    group.querySelectorAll('button:not([role]), a[href]:not([role])').forEach(item => {
       item.setAttribute('role', 'menuitem');
     });
     group.addEventListener('keydown', event => {
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
       // Own items only: a nested submenu has its own focusgroup, a role="group" wrapper does not.
-      const items = [...group.querySelectorAll('button')]
+      const items = [...group.querySelectorAll('button, a[href]')]
         .filter(item => item.closest('[focusgroup]') === group)
         .filter(item => !item.disabled && item.getAttribute('aria-disabled') !== 'true');
       const current = items.indexOf(document.activeElement);
@@ -162,9 +163,10 @@ Caveats when using the polyfill:
 
 ### Fallbacks & browser support for Anchor positioning
 
-Browser support for Anchor positioning: Limited availability.
-Supported by: Safari 27 (Sep 2026).
-Unsupported in: Chrome, Edge, and Firefox.
+Browser support depends on the anchor-positioning syntax.
+`anchor-name`, named `position-anchor`, `anchor()`, and `anchor-size()` for sizing are supported in Chrome 125, Edge 125, Firefox 147, and Safari 26.
+`position-area` requires Chrome 129 or Edge 129; `position-try-fallbacks` with flip keywords requires Chrome 128 or Edge 128.
+Check the exact syntax against your browser target.
 
 Without CSS Anchor Positioning, a popover falls back to the UA's centered viewport placement. Never ship that for a menu: it detaches the menu from its trigger, and a centered submenu covers its parent. Gate the anchored rules behind `@supports (position-area: block-end)` and position the menu from script when it fails:
 

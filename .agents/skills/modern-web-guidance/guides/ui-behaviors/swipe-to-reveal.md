@@ -114,6 +114,13 @@ Make `.SwipeReveal` a two-column grid (`grid-template-columns: 100% max-content`
 Because the buttons or links inside `.SwipeReveal-panel` are off-screen at rest and do not receive focus by default (due to the `tabindex="-1"` attributes), when the corresponding trigger button is activated, we need to ensure that they are revealed as expected. When this happens, we also need to set the `tabindex` attributes to be `tabindex="0"` so that people can move to them and interact with them, and set the `aria-expanded` attribute on the trigger control to be `aria-expanded="true"`. When the trigger control is interacted with when the controls are already revealed, these changes should be reversed.
 
 ```js
+function setActionTabIndexes(reveal, isExpanded) {
+  const controls = reveal.querySelectorAll('.SwipeReveal-panel button, .SwipeReveal-panel a[href]');
+  for (const control of controls) {
+    control.tabIndex = isExpanded ? 0 : -1;
+  }
+}
+
 for (const trigger of document.querySelectorAll('.SwipeReveal-content [aria-label$="actions"]')) {
   trigger.addEventListener('click', () => {
     const reveal = trigger.closest('.SwipeReveal');

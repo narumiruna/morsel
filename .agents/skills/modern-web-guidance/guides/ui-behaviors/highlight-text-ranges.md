@@ -109,13 +109,21 @@ if (CSS.highlights) {
 If the highlight is critical for the user experience, fall back to wrapping matched text in `<mark>` elements. This modifies the DOM, so take care to preserve event listeners and avoid breaking the document structure.
 
 ```javascript
-if (!CSS.highlights) {
+function highlightFallback(searchTerm) {
+  // Clear only marks created by this function.
+  for (const mark of article.querySelectorAll("mark[data-search-highlight]")) {
+    mark.replaceWith(...mark.childNodes);
+  }
+  article.normalize();
+
+  const term = searchTerm.toLowerCase();
+  if (term.length === 0) return;
+
   // Walk text nodes and wrap matches in <mark>, preserving structure.
   const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
   const nodes = [];
   for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
 
-  const term = searchTerm.toLowerCase();
   for (const textNode of nodes) {
     const text = textNode.textContent;
     let pos = text.toLowerCase().indexOf(term);
@@ -126,6 +134,7 @@ if (!CSS.highlights) {
     while (pos !== -1) {
       frag.append(text.slice(last, pos));
       const mark = document.createElement("mark");
+      mark.dataset.searchHighlight = "";
       // textContent assignment avoids HTML injection.
       mark.textContent = text.slice(pos, pos + term.length);
       frag.append(mark);
@@ -135,5 +144,9 @@ if (!CSS.highlights) {
     frag.append(text.slice(last));
     textNode.replaceWith(frag);
   }
+}
+
+if (!CSS.highlights) {
+  highlightFallback(searchTerm);
 }
 ```

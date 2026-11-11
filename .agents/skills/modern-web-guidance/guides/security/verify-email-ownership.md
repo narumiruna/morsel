@@ -112,13 +112,24 @@ if (evtPayload.email?.toLowerCase() !== submittedEmail.toLowerCase()) {
 
 ### Step 2: Validate DNS TXT delegation and load the issuer JWKS
 
-Before making any network request to `iss`, verify that the submitted email's domain delegates authority to that exact issuer via a `_email-verification.<domain>` DNS `TXT` record (`iss=<issuer-host>` -> `https://<issuer-host>` with no port, path, or trailing slash). Once DNS delegation matches `iss` byte-for-byte, fetch `${iss}/.well-known/email-verification` over HTTPS, confirm that `metadata.issuer === iss`, and load the issuer's JSON Web Key Set (JWKS).
+Before making any HTTP request to `iss`, verify that the submitted email's domain delegates authority to that exact issuer via a `_email-verification.<domain>` DNS `TXT` record (`iss=<issuer-host>` -> `https://<issuer-host>` with no port, path, or trailing slash). Once DNS delegation matches `iss` byte-for-byte, fetch `${iss}/.well-known/email-verification`, confirm that `metadata.issuer === iss`, and load the issuer's JSON Web Key Set (JWKS).
+
+**DNS delegation is not a network trust policy.** An attacker can control a delegated issuer and its `jwks_uri`. Use an application-provided `fetchPublicHttpsJson` adapter for **both** discovery and JWKS requests. The adapter must return parsed JSON only after it enforces these requirements:
+
+- Accept only public HTTPS URLs without URL credentials.
+  - Block private, loopback, link-local, and reserved IPv4 and IPv6 addresses, including IPv4-mapped IPv6 addresses.
+  - Validate all DNS results at connection time and connect only to validated public addresses. Prevent DNS rebinding; do not validate one lookup and then let the HTTP client make an unchecked lookup.
+- Reject all redirects, including redirects to another public HTTPS URL.
+- Reject non-success HTTP responses. Limit each decoded response body to 64 KiB and each complete request to five seconds, including DNS resolution, connection, and body reading.
+
+The `./public-https-fetch.js` module below must come from your application's protected network layer. It is not supplied by `jose`. Use an established transport or network service that enforces these rules; do not hand-roll IP parsing or replace this adapter with an unrestricted `fetch`. After the protected JWKS fetch, use `createLocalJWKSet` so the JOSE library cannot make a separate network request.
 
 > **Note on `kid` handling:** Some major email providers (such as Gmail) omit `kid` from the EVT header. When `kid` is absent and the JWKS contains multiple keys, `jose` throws `ERR_JWKS_MULTIPLE_MATCHING_KEYS` (an `AsyncIterable` of matching `CryptoKey`s)—iterate `for await (const publicKey of err)` to trial-verify each key, as shown in Step 3.
 
 ```javascript
 import dns from 'node:dns/promises';
-import { createRemoteJWKSet } from 'jose';
+import { createLocalJWKSet } from 'jose';
+import { fetchPublicHttpsJson } from './public-https-fetch.js';
 
 const domain = submittedEmail.split('@')[1];
 const txtRecords = (await dns.resolveTxt(`_email-verification.${domain}`)).map((r) => r.join(''));
@@ -128,11 +139,12 @@ if (!txtRecords.some((txt) => txt.startsWith('iss=') && `https://${txt.slice(4).
 
 const discoveryUrl = new URL('/.well-known/email-verification', iss);
 if (discoveryUrl.protocol !== 'https:') throw new Error('Issuer must use HTTPS.');
-const metadata = await (await fetch(discoveryUrl)).json();
-if (metadata.issuer !== iss || !metadata.jwks_uri?.startsWith('https://')) {
-  throw new Error('Invalid issuer metadata or non-HTTPS jwks_uri.');
+const metadata = await fetchPublicHttpsJson(discoveryUrl);
+if (metadata.issuer !== iss || typeof metadata.jwks_uri !== 'string') {
+  throw new Error('Invalid issuer metadata or missing jwks_uri.');
 }
-const issuerJwks = createRemoteJWKSet(new URL(metadata.jwks_uri));
+const jwks = await fetchPublicHttpsJson(new URL(metadata.jwks_uri));
+const issuerJwks = createLocalJWKSet(jwks);
 ```
 
 ### Step 3: Verify the EVT signature and Key Binding JWT (`KB-JWT`)

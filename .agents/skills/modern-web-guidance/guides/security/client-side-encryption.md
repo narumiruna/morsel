@@ -195,6 +195,8 @@ const KEM_PUBLIC_KEY_ALGORITHMS = {
   1568: 'ML-KEM-1024',
 };
 
+// Both envelope paths bind infoBytes through HKDF before producing the AEAD key.
+// Use the same protocol context on the sender and recipient.
 export function supportsPostQuantumEnvelope() {
   return (
     typeof globalThis.SubtleCrypto?.supports === 'function' &&
@@ -212,7 +214,7 @@ export async function generateRecipientKeys() {
     const publicKeyBytes = new Uint8Array(
       await crypto.subtle.exportKey('raw-public', keyPair.publicKey),
     );
-    return { suite: 'MLKEM768-X25519+ChaCha20-Poly1305', keyPair, publicKeyBytes };
+    return { suite: 'MLKEM768-X25519+HKDF+ChaCha20-Poly1305', keyPair, publicKeyBytes };
   }
 
   // Classical fallback: X25519 key agreement + HKDF + AES-GCM
@@ -230,6 +232,10 @@ async function deriveFallbackAesKey(privateKey, peerPublicKey, infoBytes = new U
     256,
   );
   const hkdfKey = await crypto.subtle.importKey('raw', sharedSecret, 'HKDF', false, ['deriveKey']);
+  return deriveEnvelopeAeadKey(hkdfKey, { name: 'AES-GCM', length: 256 }, infoBytes);
+}
+
+function deriveEnvelopeAeadKey(hkdfKey, aeadAlgorithm, infoBytes) {
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',
@@ -238,7 +244,7 @@ async function deriveFallbackAesKey(privateKey, peerPublicKey, infoBytes = new U
       info: infoBytes,
     },
     hkdfKey,
-    { name: 'AES-GCM', length: 256 },
+    aeadAlgorithm,
     false,
     ['encrypt', 'decrypt'],
   );
@@ -263,13 +269,14 @@ export async function encapsulateEnvelopeKey(
         })();
 
   if (pubKey.algorithm.name !== 'X25519') {
-    const { sharedKey, ciphertext } = await crypto.subtle.encapsulateKey(
+    const { sharedKey: hkdfKey, ciphertext } = await crypto.subtle.encapsulateKey(
       pubKey.algorithm.name,
       pubKey,
-      'ChaCha20-Poly1305',
+      'HKDF',
       false,
-      ['encrypt', 'decrypt'],
+      ['deriveKey'],
     );
+    const sharedKey = await deriveEnvelopeAeadKey(hkdfKey, 'ChaCha20-Poly1305', infoBytes);
     return { sharedKey, capsuleBytes: new Uint8Array(ciphertext) };
   }
 
@@ -286,14 +293,15 @@ export async function decapsulateEnvelopeKey(
   infoBytes = new Uint8Array(0),
 ) {
   if (recipientPrivateKey.algorithm.name !== 'X25519') {
-    return crypto.subtle.decapsulateKey(
+    const hkdfKey = await crypto.subtle.decapsulateKey(
       recipientPrivateKey.algorithm.name,
       recipientPrivateKey,
       capsuleBytes,
-      'ChaCha20-Poly1305',
+      'HKDF',
       false,
-      ['encrypt', 'decrypt'],
+      ['deriveKey'],
     );
+    return deriveEnvelopeAeadKey(hkdfKey, 'ChaCha20-Poly1305', infoBytes);
   }
 
   const ephemeralPubKey = await crypto.subtle.importKey('raw', capsuleBytes, 'X25519', true, []);

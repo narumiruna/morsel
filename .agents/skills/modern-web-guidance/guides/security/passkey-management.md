@@ -73,7 +73,7 @@ Render a dedicated settings panel allowing users to easily audit and manage thei
 4.  **User Account Rename UI**:
     *   Provide a control allowing the user to update their account username (`name`) or `displayName` (`PUT /api/user`), and immediately synchronize the updated user details with the password manager via `PublicKeyCredential.signalCurrentUserDetails()`.
 5.  **Conditional "Create Passkey" Button**:
-    *   Offer a prominent "Create passkey" registration trigger button on the management page. Before rendering this UI element, the page MUST feature-detect capabilities using `PublicKeyCredential.getClientCapabilities()` to verify platform authenticator is supported. If passkeys are unsupported, hide this button and gracefully encourage standard MFA enrollments instead.
+    *   Offer a "Create passkey" button when `PublicKeyCredential` and `navigator.credentials.create` are available. Do not require platform-authenticator or conditional-autofill support: external security keys can support explicit creation without either capability. Hide the button only when basic WebAuthn creation is unavailable. Handle errors from the actual creation call.
     *   Allow registering a security key by omitting `authenticatorSelection.authenticatorAttachment` on `navigator.credentials.create()` call.
 
 ## Signal API Synchronization
@@ -252,23 +252,15 @@ import 'webauthn-polyfills';
 
 Without a bundler, serve the package from your own origin, or import it from a CDN such as `https://esm.sh/webauthn-polyfills@0.1.7` (pin the exact version). For third-party URLs, add Subresource Integrity: the `integrity` attribute on the `<script>` tag, or an import map's `integrity` field for `import` statements.
 
-Before rendering the "Create passkey" button, call `PublicKeyCredential.getClientCapabilities()` to verify platform authenticator support, and hide the button when unsupported:
+For an explicit management action, check basic WebAuthn creation support. Use `getClientCapabilities()` only for optional flows such as conditional creation or platform-only promotion.
 
 ```javascript
-async function isPasskeySupported() {
-  if (!window.PublicKeyCredential || !PublicKeyCredential.getClientCapabilities) {
-    return false;
-  }
-  try {
-    const capabilities = await PublicKeyCredential.getClientCapabilities();
-    return Boolean(capabilities.passkeyPlatformAuthenticator);
-  } catch {
-    return false;
-  }
+function isPasskeySupported() {
+  return Boolean(window.PublicKeyCredential && navigator.credentials?.create);
 }
 
 const createButton = document.getElementById('create-passkey');
-if (!(await isPasskeySupported())) {
+if (!isPasskeySupported()) {
   createButton.hidden = true;
 }
 ```

@@ -78,15 +78,16 @@ If `scrollsnapchange` is not supported, use `IntersectionObserver` to detect whi
 ```javascript
 // Feature detect support for scroll snap events
 if (!('onscrollsnapchange' in HTMLElement.prototype)) {
+  const headers = main.querySelectorAll('h2');
   const observer = new IntersectionObserver(
     () => {
       // Each time the set of intersecting headers changes, find the top
       // header that is visible.
+      const scrollport = main.getBoundingClientRect();
       const topEntry = [...headers].reduce((currentTop, header) => {
-        // Use the bottom to handle scrolling up, when the top is still offscreen
-        const {bottom} = header.getBoundingClientRect();
-        // Don't match if the header's bottom is above the scrollport
-        if (bottom < 0) return;
+        // Include a partly visible header, but exclude headers outside the scrollport.
+        const {top, bottom} = header.getBoundingClientRect();
+        if (bottom <= scrollport.top || top >= scrollport.bottom) return currentTop;
         if (!currentTop) return header;
         return bottom <
           currentTop.getBoundingClientRect().bottom
@@ -95,10 +96,11 @@ if (!('onscrollsnapchange' in HTMLElement.prototype)) {
       }, undefined);
       if (topEntry) setSelectedParagraph(topEntry.id);
     },
-    { root: main, threshold: 0.9 // Adjust based on your use case },
+    // Adjust the threshold for your use case.
+    { root: main, threshold: 0.9 },
   );
 
   // Observe all snap targets (e.g., section headers)
-  document.querySelectorAll('h2').forEach(header => observer.observe(header));
+  headers.forEach(header => observer.observe(header));
 }
 ```

@@ -178,16 +178,18 @@ Browser support for attr(): Limited availability.
 Supported by: Chrome 133 (Feb 2025), Edge 133 (Feb 2025), and Firefox 155 (Sep 2026).
 Unsupported in: Safari.
 
-For browsers that don't support the `attr()` CSS function for any property, use a `MutationObserver` to automatically sync the `value` attribute to the `--value` custom property.
+For browsers that don't support the `attr()` CSS function for any property, use a `MutationObserver` to automatically sync the `value` attribute to the `--value` custom property. Run the sync once when the observer is installed to set the initial value.
 
 ```js
 if (!CSS.supports("width: attr(value type(<number>))")) {
-  const observer = new MutationObserver(() => {
+  const syncValue = () => {
     progress.style.setProperty("--value", progress.getAttribute("value"));
-  });
+  };
+  const observer = new MutationObserver(syncValue);
   observer.observe(progress, {
     attributes: true,
     attributeFilter: ["value"],
   });
+  syncValue();
 }
 ```

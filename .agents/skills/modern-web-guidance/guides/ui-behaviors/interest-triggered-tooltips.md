@@ -208,9 +208,10 @@ if (probe.popover !== "hint") {
 
 ### Fallbacks & browser support for Anchor positioning
 
-Browser support for Anchor positioning: Limited availability.
-Supported by: Safari 27 (Sep 2026).
-Unsupported in: Chrome, Edge, and Firefox.
+Browser support depends on the anchor-positioning syntax.
+`anchor-name`, named `position-anchor`, `anchor()`, and `anchor-size()` for sizing are supported in Chrome 125, Edge 125, Firefox 147, and Safari 26.
+`position-area` requires Chrome 129 or Edge 129; `position-try-fallbacks` with flip keywords requires Chrome 128 or Edge 128.
+Check the exact syntax against your browser target.
 
 Without CSS Anchor Positioning, tethered elements such as `[popover]` overlays fall back to their default user-agent placement (centered in the viewport for popovers). Depending on whether spatial tethering is required for your use case, either conditionally load the polyfill or gate your positioning rules with `@supports`.
 

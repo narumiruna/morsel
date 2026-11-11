@@ -25,7 +25,9 @@ Do NOT use `@supports at-rule()` to conditionally apply the at-rule being detect
 }
 ```
 
-## Detecting support for at-rules when `@supports at-rule()` isn’t appropriate { #detecting-at-rules-without-supports-at-rule }
+<a id="detecting-at-rules-without-supports-at-rule"></a>
+
+## Detecting support for at-rules when `@supports at-rule()` isn’t appropriate
 
 When `at-rule()` is not an option, either due to browser support or because deeper detection is needed, you can use the guidance below.
 

@@ -82,9 +82,10 @@ This is only a visual indicator, and must not be a replacement for setting the a
 
 ## Fallback strategies
 
-Browser support for Anchor positioning: Limited availability.
-Supported by: Safari 27 (Sep 2026).
-Unsupported in: Chrome, Edge, and Firefox.
+Browser support depends on the anchor-positioning syntax.
+`anchor-name`, named `position-anchor`, `anchor()`, and `anchor-size()` for sizing are supported in Chrome 125, Edge 125, Firefox 147, and Safari 26.
+`position-area` requires Chrome 129 or Edge 129; `position-try-fallbacks` with flip keywords requires Chrome 128 or Edge 128.
+Check the exact syntax against your browser target.
 
 If anchor positioning is not supported in the browser, use a `border-bottom` to add an underline. It will not be animated.
 

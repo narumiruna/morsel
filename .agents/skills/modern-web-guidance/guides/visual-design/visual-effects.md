@@ -31,7 +31,7 @@ To support these browsers, use the token only when its usage is safe by defining
   --in-oklch: ;
 }
 
-@supports (linear-gradient(in oklab, white, black)) {
+@supports (background-image: linear-gradient(in oklab, white, black)) {
   :root {
     --in-oklab: in oklab;
     --in-oklch: in oklch;

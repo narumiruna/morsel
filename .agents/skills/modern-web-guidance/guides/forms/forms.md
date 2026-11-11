@@ -242,6 +242,11 @@ input {
     width: 1.25rem;
     height: 1.25rem;
     border: 2px solid #767676;
+    line-height: 1.25rem;
+    text-align: center;
+  }
+  input:checked + .checkbox-label::before {
+    content: "\2713";
   }
   input:focus-visible + .checkbox-label::before {
     outline: 2px solid #0b57d0;
@@ -298,7 +303,7 @@ form.addEventListener('submit', (e) => {
 
   <div class="form-group">
     <label for="name">Full name</label>
-    <input id="name" name="name" autocomplete="name" required pattern="[\p{L}\.\- ]+">
+    <input id="name" name="name" autocomplete="name" required>
   </div>
 
   <div class="form-group">

@@ -95,6 +95,7 @@ class AsyncButton extends HTMLElement {
     if (this.#internals.states.has('busy')) return; // guard re-entry
     this.#internals.states.add('busy');
     this.#internals.states.delete('success');
+    this.#internals.states.delete('error');
     try {
       await this.#action();
       this.#internals.states.add('success');

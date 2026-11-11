@@ -215,9 +215,10 @@ Supported by: Chrome 37 (Aug 2014), Edge 79 (Jan 2020), Firefox 98 (Mar 2022), a
 Baseline status for Popover: Newly available. It's been Baseline since 2025-01-27.
 Supported by: Chrome 116 (Aug 2023), Edge 116 (Aug 2023), Firefox 125 (Apr 2024), Safari 17 (Sep 2023), and Safari iOS 18.3 (Jan 2025).
 
-Browser support for Anchor positioning: Limited availability.
-Supported by: Safari 27 (Sep 2026).
-Unsupported in: Chrome, Edge, and Firefox.
+Browser support for the anchor-positioning syntax used here:
+- `anchor-name`, named `position-anchor`, `anchor()`, and `anchor-size()` for sizing: Chrome 125, Edge 125, Firefox 147, and Safari 26.
+- `position-try-fallbacks` with `flip-block` or `flip-inline`: Chrome 128, Edge 128, Firefox 147, and Safari 26.
+- `position-area`: Chrome 129, Edge 129, Firefox 147, and Safari 26.
 
 **When to use each overlay primitive:**
 
@@ -230,7 +231,7 @@ Unsupported in: Chrome, Edge, and Firefox.
 - Use `position-area` (or `anchor()` on insets) and `anchor-size()` to position and size an overlay relative to its trigger.
 - Use `position-try-fallbacks: flip-block` (or `flip-inline`) to let the browser reposition when the overlay overflows the viewport.
 - Don't mix physical and logical keywords in a single `position-area` value — pick one coordinate system.
-- Feature-detect with `@supports (anchor-name: --x)` and provide an absolute-position fallback.
+- Feature-detect the syntax you use (for example, `@supports (position-area: block-end) and (position-try-fallbacks: flip-block)`) and provide an absolute-position fallback.
 
 > For full implementation detail, polyfill strategies, and `popover` value reference, see `declarative-dialog-popover-control` (via `npx -y modern-web-guidance@latest retrieve "declarative-dialog-popover-control"`) and `position-aware-tooltips` (via `npx -y modern-web-guidance@latest retrieve "position-aware-tooltips"`). For anchor positioning applied to dropdowns, flyouts, and tab indicators, see `viewport-aware-dropdowns` (via `npx -y modern-web-guidance@latest retrieve "viewport-aware-dropdowns"`) and `anchor-positioning-tab-underline` (via `npx -y modern-web-guidance@latest retrieve "anchor-positioning-tab-underline"`).
 
@@ -282,7 +283,7 @@ Baseline status for Small, large, and dynamic viewport units: Widely available. 
 Supported by: Chrome 108 (Nov 2022), Edge 108 (Dec 2022), Firefox 101 (May 2022), and Safari 15.4 (Mar 2022).
 
 - Use `dvh`/`dvw` for mobile layout containers that must account for browser UI shifting (URL bar collapse/expand).
-- Don't use `100vw` for full-width layout — it ignores scrollbar width and causes horizontal overflow. Use `100%`, `100dvw`, or `100svw` instead.
+- Use `100%` for full-width layout when a classic scrollbar can appear automatically. `100vw`, `100dvw`, and `100svw` can include the scrollbar width and cause horizontal overflow.
 
 > For the responsive design entry point (dynamic viewport units, reserving space for media, fluid typography), see `responsive-design` (via `npx -y modern-web-guidance@latest retrieve "responsive-design"`).
 

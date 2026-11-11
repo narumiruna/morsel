@@ -2,15 +2,15 @@
 
 When web fonts load, they often replace a fallback font that has different dimensions, even if both are set to the same `font-size`. This causes "layout shift" (Cumulative Layout Shift) and can make text illegible if the fallback's lowercase letters (x-height) are significantly different than the preferred font.
 
-The `font-size-adjust` property solves this by normalizing the size of the font based on a specific metric (usually the x-height), ensuring that text occupies the same visual space regardless of which font is currently active.
+The `font-size-adjust` property can keep a selected font metric, usually x-height, consistent across fonts. It does not guarantee equal glyph widths or prevent all layout shifts.
 
 ## Implementation steps
 
 ### 1. Identify the aspect ratio of your preferred font
 To normalize fallbacks, you need the "aspect value" (the ratio of lowercase letters to the font size) of your primary font.
 
-*   **Automatic discovery (Recommended):** Use the `from-font` keyword to let the browser extract the ratio from your primary web font.
-*   **Manual calculation:** If you know the specific value (e.g., 0.545 for Verdana), you can provide it directly for more precise control.
+*   **Numeric value:** Measure the primary font's x-height and divide it by the font size. Use this value to scale fallback fonts, including while the primary font loads.
+*   **`from-font` limit:** This keyword reads the first available font. If the primary font is unavailable, it uses the fallback font's metric and cannot match the unavailable font.
 
 ### 2. Apply font-size-adjust to the text container
 Apply the property to the element or a parent container. This ensures that if the primary font fails to load or is in the process of loading, the fallback font is scaled to match the visual size of the primary font.
@@ -21,10 +21,8 @@ Apply the property to the element or a parent container. This ensures that if th
   font-family: "MyWebFont", "Arial", sans-serif;
   font-size: 1rem;
 
-  /* MANDATORY: Normalize the font size based on the primary font's x-height.
-     This ensures that if 'Arial' is used as a fallback, it is scaled
-     to match the x-height of 'MyWebFont'. */
-  font-size-adjust: from-font;
+  /* Example only: replace 0.5 with MyWebFont's measured x-height / font-size. */
+  font-size-adjust: 0.5;
 }
 ```
 
@@ -33,8 +31,8 @@ While x-height is the default and most common, you can normalize by other metric
 
 ```css
 h1 {
-  /* Normalize based on the height of capital letters */
-  font-size-adjust: cap-height from-font;
+  /* Example only: replace 0.7 with the primary font's measured cap-height / font-size. */
+  font-size-adjust: cap-height 0.7;
 }
 ```
 

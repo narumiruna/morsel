@@ -60,20 +60,22 @@ Like all container queries, `@container` can only style **descendants** of the c
 ```
 
 ```css
-.tooltip-content::before {
-  /* Default "down" arrow for the 'top' position */
-  content: "▼" / "";
-  position: absolute;
-  inset-block-end: 0;
-  inset-inline-start: 1rem;
-}
-
-/* Update to an "up" arrow when the 'flip-block' fallback (bottom) is active */
-@container anchored(fallback: flip-block) {
+@supports (container-type: anchored) {
   .tooltip-content::before {
-    content: "▲" / "";
-    inset-block-start: 0;
-    inset-block-end: auto;
+    /* Default "down" arrow for the 'top' position */
+    content: "▼" / "";
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline-start: 1rem;
+  }
+
+  /* Use an "up" arrow when the 'flip-block' fallback (bottom) is active */
+  @container anchored(fallback: flip-block) {
+    .tooltip-content::before {
+      content: "▲" / "";
+      inset-block-start: 0;
+      inset-block-end: auto;
+    }
   }
 }
 ```
@@ -130,12 +132,20 @@ Browser support for Anchor position container queries: Limited availability.
 Supported by: Chrome 143 (Dec 2025) and Edge 143 (Dec 2025).
 Unsupported in: Firefox and Safari.
 
-Positioning the arrow based on the applied fallback is a progressive enhancement, and there is not another way of reacting to the fallback position. To hide the arrow in browsers that don't support anchor position container queries, test for CSS support with `@supports (container-type: anchored)`.
+The arrow is a progressive enhancement. Keep both arrow rules inside `@supports (container-type: anchored)`, as in step 3. Browsers without this support show no arrow.
 
 ```css
 @supports (container-type: anchored) {
   .tooltip-content::before {
     content: "▼" / "";
+  }
+
+  @container anchored(fallback: flip-block) {
+    .tooltip-content::before {
+      content: "▲" / "";
+      inset-block-start: 0;
+      inset-block-end: auto;
+    }
   }
 }
 ```

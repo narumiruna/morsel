@@ -49,7 +49,7 @@ Allow your users to enter their name using a single input, unless you have a goo
 <input type="text" id="fullname" name="fullname" autocomplete="name">
 ```
 
-Allow international names. For validation, avoid using regular expressions that only match Latin characters. Latin-only excludes users with names or addresses that include characters that aren't in the Latin alphabet. Allow Unicode letter matching instead—and ensure your backend supports Unicode securely as both input and output. Unicode in regular expressions is well supported by modern browsers.
+Allow international names. Do not restrict names with a character whitelist. Names can include apostrophes, combining marks, spaces, and other characters. Ensure your backend supports Unicode for input and output.
 
 ### Allow for a variety of address formats
 
@@ -85,11 +85,11 @@ Make sure to add appropriate `autocomplete` values in payment card forms. Withou
 <!-- inputmode="numeric" gives a numeric keyboard without the increment/decrement spinner -->
 <!-- DO NOT use type="number" — it adds increment/decrement controls and strips leading zeros -->
 <input id="cc-number" name="cc-number" type="text" autocomplete="cc-number"
-       inputmode="numeric" maxlength="19" pattern="[\d ]{13,19}" required>
+       inputmode="numeric" required>
 
-<!-- cc-name autofills with the name exactly as it appears on the card; Unicode pattern allows international names -->
+<!-- cc-name fills the name exactly as it appears on the card -->
 <input id="cc-name" name="cc-name" type="text" autocomplete="cc-name"
-       maxlength="50" pattern="[\p{L} \-\.]+" required>
+       maxlength="50" required>
 
 <!-- cc-exp autofills the full expiry date as MM/YY -->
 <!-- MANDATORY: Place format hints above the input so autocomplete popovers or virtual keyboards do not obscure them during editing -->
@@ -118,11 +118,9 @@ For payment card and phone numbers use a single input: don't split the number in
 
 ### Validate carefully
 
-You should validate data entry both in realtime and before form submission. One way to do this is by adding a pattern attribute to a payment card input. If the user attempts to submit the payment form with an invalid value, the browser displays a warning message and sets focus on the input.
+Validate payment data before form submission and on the server. Allow spaces in card numbers, as shown on physical cards. Before validation, remove spaces and check that the result contains only digits. Use the payment provider's validation rules to check the normalized number, including the supported digit counts and card types. Do not apply one global card-number length rule or count spaces as digits.
 
-However, your pattern regular expression must be flexible enough to handle the range of payment card number lengths: from 14 digits (or possibly less) to 20 (or more). Card security codes (also known as CSC, CVC, CVV, or other names) consist of 3 or 4 digits.
-
-Allow users to include spaces when they're entering a new payment card number, since this is how numbers are displayed on physical cards. That's friendlier to the user (you won't have to tell them "they did something wrong"), less likely to interrupt conversion flow, and it's straightforward to remove spaces in numbers before processing.
+Card security codes (also known as CSC, CVC, CVV, or other names) consist of 3 or 4 digits.
 
 ### Help save users from accidentally missing data fields
 

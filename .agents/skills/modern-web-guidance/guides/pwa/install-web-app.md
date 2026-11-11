@@ -375,19 +375,19 @@ installButton.addEventListener("click", async () => {
         outcome === "accepted"
           ? "The app was installed."
           : "Installation canceled.";
-      if (!deferredInstallPrompt) {
-        installButton.hidden = true;
-      }
     }
   } catch (error) {
     if (error.name === "AbortError") {
-      // Cancellation is an expected user choice; keep the button available to retry.
+      // Cancellation is expected; retry requires the API or a new prompt event.
       installStatus.textContent = "Installation was canceled or could not complete.";
     } else {
       installStatus.textContent = "Installation could not start.";
       console.error(error);
     }
   } finally {
+    if (!supportsWebInstall && !deferredInstallPrompt) {
+      installButton.hidden = true;
+    }
     installButton.removeAttribute("aria-disabled");
   }
 });

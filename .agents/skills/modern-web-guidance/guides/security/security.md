@@ -247,7 +247,20 @@ headers.set('Content-Security-Policy', csp);
 res.locals.nonce = nonce; // e.g., <script nonce="<%= nonce %>" src="/app.js"></script>
 ```
 
-For static/cached HTML (SPAs) where a per-response nonce is not possible, use hash-based CSP: compute the `sha256-` hash of each script and list the hashes in `script-src` alongside `'strict-dynamic' 'report-sample'`.
+For static/cached HTML (SPAs) where a per-response nonce is not possible, use hash-based CSP. Compute a SHA-256 hash from the exact bytes of each trusted bootstrap script. List each `sha256-` hash in `script-src` alongside `'strict-dynamic' 'report-sample'`.
+
+- **External bootstrap scripts:** Set a matching `integrity` attribute on each `<script src>` element. A CSP hash alone does not authorize an external script without this attribute. If `integrity` contains multiple valid hashes, include all of them in `script-src`. For cross-origin scripts, also set `crossorigin="anonymous"` and require a CORS response that permits the load.
+- **Inline bootstrap scripts:** Hash the exact script text, including whitespace. No `integrity` attribute is required.
+
+Use the same Base64 digest in the header and external script attribute:
+
+```http
+Content-Security-Policy: script-src 'sha256-{BASE64_HASH}' 'strict-dynamic' 'report-sample'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; report-to main-endpoint;
+```
+
+```html
+<script src="/app.js" integrity="sha256-{BASE64_HASH}"></script>
+```
 
 **Avoid**:
 - Broad scheme or domain allowlists (such as `https:` alone or `script-src https://cdn.example.com` without `'strict-dynamic'`) as the primary `script-src` protection — they are easily bypassed by open redirects, JSONP endpoints, and dependency injection on the allowed origin.

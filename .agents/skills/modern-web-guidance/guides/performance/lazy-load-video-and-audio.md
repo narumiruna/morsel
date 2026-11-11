@@ -49,8 +49,9 @@ Adding `loading="lazy"` to offscreen `<video>` and `<audio>` elements instructs 
 </video>
 
 <!-- Below-the-fold inline product loop:
-     With loading="lazy" and autoplay, downloading and playback wait until the
-     video approaches the viewport. Include muted and playsinline for autoplay. -->
+     With native media lazy-loading support, downloading and playback wait until
+     the video approaches the viewport. Include muted and playsinline for autoplay.
+     Unsupported browsers may download and play this video before it reaches the viewport. -->
 <video
   controls
   loading="lazy"
@@ -125,51 +126,101 @@ If your Baseline target does not support `loading="lazy"` on `<video>` and `<aud
 
 ### Progressive enhancement (recommended default)
 
-Browsers that do not recognize `loading="lazy"` on `<video>` and `<audio>` ignore the attribute and fall back to standard loading governed by the `preload` attribute. Pairing `loading="lazy"` with `preload="none"` or `preload="metadata"` ensures unsupported browsers still avoid downloading the full media file upfront, though `<video poster>` images and `preload="metadata"` headers will be fetched eagerly.
+Browsers without native media lazy-loading support ignore `loading="lazy"`. Without `autoplay`, `preload="none"` or `preload="metadata"` can reduce initial media requests, but `preload` is only a hint. Poster images and metadata can still load immediately. With `autoplay`, the browser can ignore `preload` and download or play media before it approaches the viewport. Use the strict fallback below if those requests and playback must wait.
 
 ### Custom code fallback (`IntersectionObserver`)
 
-When your Baseline target requires strictly deferring `<video poster>` downloads, `preload="metadata"` requests, or viewport-triggered playback in browsers without native support, feature-detect `Object.hasOwn(HTMLMediaElement.prototype, 'loading')`, then fall back to `IntersectionObserver`:
+For strict deferral, use separate markup with `data-src`, `data-poster`, and `data-autoplay` from the start. Do not move real `src`, `poster`, or `autoplay` attributes into data attributes after parsing: requests or playback can already have started.
+
+Use this markup instead of the offscreen examples above. Omit `data-autoplay` for media that the user must start. These resources require JavaScript to load.
+
+```html
+<video
+  controls
+  loading="lazy"
+  data-autoplay
+  loop
+  muted
+  playsinline
+  width="640"
+  height="360"
+  preload="none"
+  data-preload="metadata"
+  data-poster="/images/feature-loop-poster.jpg"
+>
+  <source data-src="/media/feature-loop.webm" type="video/webm">
+  <source data-src="/media/feature-loop.mp4" type="video/mp4">
+  <track data-src="/media/feature-loop-en.vtt" kind="captions" srclang="en" label="English">
+</video>
+
+<figure>
+  <figcaption id="deferred-episode-title">Episode 42: Browser Architecture Deep Dive</figcaption>
+  <audio
+    controls
+    loading="lazy"
+    preload="none"
+    data-preload="metadata"
+    data-src="/media/episode-42.mp3"
+    aria-labelledby="deferred-episode-title"
+    aria-details="deferred-episode-transcript"
+  ></audio>
+  <details id="deferred-episode-transcript">
+    <summary>View transcript</summary>
+    <p>Transcript content for Episode 42...</p>
+  </details>
+</figure>
+```
+
+Restore the attributes in both paths. With native support, `loading="lazy"` controls requests and autoplay. Without native support, restore the attributes only when the media approaches the viewport.
 
 ```javascript
-// Feature-detect native media lazy loading on HTMLMediaElement.prototype
 const supportsLazyMedia = Object.hasOwn(HTMLMediaElement.prototype, 'loading');
+const lazyMediaElements = document.querySelectorAll(
+  'video[loading="lazy"], audio[loading="lazy"][controls]',
+);
 
-if (!supportsLazyMedia) {
-  const lazyMediaElements = document.querySelectorAll(
-    'video[loading="lazy"], audio[loading="lazy"][controls]',
-  );
+function restoreMedia(media) {
+  if (media.dataset.poster) {
+    media.poster = media.dataset.poster;
+    delete media.dataset.poster;
+  }
+  if (media.dataset.preload) {
+    media.preload = media.dataset.preload;
+    delete media.dataset.preload;
+  }
+  if (media.hasAttribute('data-autoplay')) {
+    media.autoplay = media.localName !== 'video' ||
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    media.removeAttribute('data-autoplay');
+  }
+  if (media.dataset.src) {
+    media.src = media.dataset.src;
+    delete media.dataset.src;
+  }
+  for (const resource of media.querySelectorAll('source[data-src], track[data-src]')) {
+    resource.src = resource.dataset.src;
+    delete resource.dataset.src;
+  }
+  media.load();
+}
 
-  // Example-only rootMargin value; adjust distance threshold for your layout
+if (supportsLazyMedia) {
+  for (const media of lazyMediaElements) {
+    restoreMedia(media);
+  }
+} else {
+  // Example distance threshold; adjust it for your layout.
   const mediaObserver = new IntersectionObserver(
     (entries, observer) => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
-
         const media = entry.target;
-
-        // Restore deferred poster and preload attributes when entering the viewport
-        if (media.dataset.poster) {
-          media.poster = media.dataset.poster;
-          delete media.dataset.poster;
+        restoreMedia(media);
+        if (media.autoplay) {
+          media.play().catch(() => {
+            // Autoplay can be blocked. The controls remain available.
+          });
         }
-
-        if (media.dataset.preload) {
-          media.preload = media.dataset.preload;
-          delete media.dataset.preload;
-        }
-
-        if (media.dataset.src) {
-          media.src = media.dataset.src;
-          delete media.dataset.src;
-        }
-
-        for (const source of media.querySelectorAll('source[data-src]')) {
-          source.src = source.dataset.src;
-          delete source.dataset.src;
-        }
-
-        media.load();
         observer.unobserve(media);
       }
     },
@@ -177,15 +228,6 @@ if (!supportsLazyMedia) {
   );
 
   for (const media of lazyMediaElements) {
-    // Hold back network fetches in unsupported browsers until intersection
-    if (media.hasAttribute('poster')) {
-      media.dataset.poster = media.getAttribute('poster');
-      media.removeAttribute('poster');
-    }
-    if (media.hasAttribute('preload') && media.getAttribute('preload') !== 'none') {
-      media.dataset.preload = media.getAttribute('preload');
-    }
-    media.preload = 'none';
     mediaObserver.observe(media);
   }
 }

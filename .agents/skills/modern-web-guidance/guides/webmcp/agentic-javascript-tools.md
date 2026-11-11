@@ -173,7 +173,11 @@ Cancellation is initiated by the user or the agent. **MANDATORY:** Any tool that
 * **APIs that accept a signal** (`fetch()`, `addEventListener()`, `ReadableStream` readers): pass `signal` straight through.
 * **APIs that do not** (`setTimeout`, `setInterval`, polling loops, `await`-heavy pipelines): call `signal.throwIfAborted()` between steps, and/or reject on `signal.addEventListener('abort', ...)`. Timers accept no signal, so you must clear them yourself in the abort listener.
 
+Each execution can return its own result. Only the latest execution can change the shared output.
+
 ```javascript
+let currentExecution = null;
+
 await document.modelContext.registerTool({
   name: "fetch_tool",
   description: "Fetch the text content of a URL and show it on the page.",
@@ -190,21 +194,31 @@ await document.modelContext.registerTool({
     required: ["url"],
   },
   execute: async ({ url, priority }, { signal }) => {
+    signal.throwIfAborted();
+    const execution = Symbol();
+    currentExecution = execution;
     const output = document.querySelector("pre");
-    output.textContent = "Loading…";
+    function updateOutput(text) {
+      if (currentExecution === execution) {
+        output.textContent = text;
+      }
+    }
+    updateOutput("Loading…");
     try {
       // Passing `signal` aborts the network request the moment execution is cancelled.
       const response = await fetch(url, { priority, signal });
+      signal.throwIfAborted();
       if (!response.ok) {
-        output.textContent = "";
+        updateOutput("");
         return { error: `Request failed with status ${response.status}` };
       }
       const text = await response.text();
-      output.textContent = text;
+      signal.throwIfAborted();
+      updateOutput(text);
       return text;
     } catch (err) {
-      // Roll back the UI state this execution set, so a cancelled run leaves no trace.
-      output.textContent = "";
+      // Clear the output only if this execution still owns it.
+      updateOutput("");
       if (signal.aborted) {
         // The execution was cancelled: re-throw instead of returning an error value.
         throw err;

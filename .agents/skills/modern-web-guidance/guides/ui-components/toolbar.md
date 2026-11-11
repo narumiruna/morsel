@@ -245,9 +245,10 @@ Where the Clipboard API is unavailable, `navigator.clipboard` is undefined and t
 
 ### Fallbacks & browser support for Anchor positioning
 
-Browser support for Anchor positioning: Limited availability.
-Supported by: Safari 27 (Sep 2026).
-Unsupported in: Chrome, Edge, and Firefox.
+Browser support depends on the anchor-positioning syntax.
+`anchor-name`, named `position-anchor`, `anchor()`, and `anchor-size()` for sizing are supported in Chrome 125, Edge 125, Firefox 147, and Safari 26.
+`position-area` requires Chrome 129 or Edge 129; `position-try-fallbacks` with flip keywords requires Chrome 128 or Edge 128.
+Check the exact syntax against your browser target.
 
 Without anchor positioning, a popover is placed by the UA at the center of the viewport. Tooltips need no fallback: the `title` upgrade above is skipped without anchor positioning. For the overflow menu, position it from script so it stays attached to its trigger. Keep the CSS inside `@supports not (position-area: block-end)` so supporting browsers are unaffected.
 

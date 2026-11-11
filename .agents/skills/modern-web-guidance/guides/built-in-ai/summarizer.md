@@ -37,8 +37,8 @@ const availability = await Summarizer.availability(options);
 if (availability === 'available') {
   const summarizer = await Summarizer.create(options);
   // Ready to use immediately
-} else if (availability === 'downloadable') {
-  // A user gesture is strictly required to start the download
+} else if (availability === 'downloadable' || availability === 'downloading') {
+  // Create from a user click while the model is not ready
   document.getElementById('start-download-btn').addEventListener('click', async () => {
     const summarizer = await Summarizer.create({
       ...options,

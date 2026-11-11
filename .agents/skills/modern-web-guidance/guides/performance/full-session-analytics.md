@@ -16,7 +16,9 @@ Older technique like creating an `<img>` pixel in an `unload` event listener are
 
 ## Example code
 
-This code measures the session duration of a user's visit to a page using `fetchLater()` to queue a new beacon every 10 seconds with the updated session duration.
+This code queues a beacon immediately, then updates the session duration every 10 seconds.
+
+In browsers without `fetchLater()`, load the polyfill below before this example runs.
 
 ```javascript
 const ANALYTICS_ENDPOINT = '/path/to/analytics/endpoint';
@@ -51,6 +53,9 @@ function queueBeacon() {
     // Handle errors as needed.
   }
 }
+
+// Queue the initial beacon before the first timer callback.
+queueBeacon();
 
 // Update the session data and queue a new beacon every 10 seconds.
 setInterval(queueBeacon, 10000);

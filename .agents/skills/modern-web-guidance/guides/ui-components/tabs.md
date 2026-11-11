@@ -69,7 +69,7 @@ Do not apply any styling that changes the dimensions of the tab (e.g., `padding`
 - Draw the underline with a border on a pseudo-element. DO NOT use `box-shadow` or a background: forced colors mode removes both, leaving no indicator.
 
 ```css
-[role="tab"] {
+[focusgroup~="tablist"] > button {
   position: relative;
 }
 

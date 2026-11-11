@@ -37,7 +37,10 @@ if (capabilities.conditionalCreate) {
 * The server-side verification endpoint MUST relax the User Presence (UP) requirement (`requireUserPresence: false`) **ONLY** when verifying credentials produced by a conditional-create trigger. Strict presence verification must remain active for standard explicit creations.
 
 ### 6. Handle Failed Server Verification gracefully
-* If `navigator.credentials.create()` succeeds but the server verification fetch returns a bad response (e.g., signature verification fails), invoke `PublicKeyCredential.signalUnknownCredential({ rpId: publicKey.rp.id, credentialId: encodedResponse.id })` to prevent orphaned credentials from lingering in the passkey provider. Always read `rpId` from `publicKey.rp.id` in the server's creation options; **DO NOT** derive `rpId` from `window.location.hostname` on the client, which can mismatch a parent-domain or related-origin RP ID.
+* Signal an unknown credential only after the server confirms that the credential was not persisted. In this example, a rejected response contains `credentialPersisted: false` only after the server confirms that the credential is absent.
+* A network error, a lost response, or a non-OK status alone does not prove that registration failed. Keep the credential and reconcile its state with the server before cleanup or another registration attempt.
+* Always read `rpId` from `publicKey.rp.id` in the server's creation options. Do not derive it from `window.location.hostname`, which can differ from a parent-domain or related-origin RP ID.
+* Catch Signal API errors separately. A failed synchronization must not change the registration result.
 
 ## Code Example
 
@@ -74,26 +77,28 @@ async function triggerConditionalCreate(loginAbortController) {
     return;
   }
 
-  // 5. Server verification step using dedicated Try/Catch block
-  let encodedResponse = credential.toJSON();
+  // 5. Verify on the server before any credential cleanup.
+  const encodedResponse = credential.toJSON();
+  let credentialNotPersisted = false;
   try {
     const response = await registerVerifyFetch(encodedResponse);
     if (!response.ok) {
-      // If the server verification fails, clean up using Signal API
-      if (PublicKeyCredential.signalUnknownCredential) {
-        await PublicKeyCredential.signalUnknownCredential({
-          rpId: publicKey.rp.id, // Always use the server-provided rp.id; DO NOT use window.location.hostname
-          credentialId: encodedResponse.id
-        });
-      }
+      const result = await response.json();
+      credentialNotPersisted = result.credentialPersisted === false;
     }
   } catch (serverErr) {
-    console.error('Verification network failure:', serverErr);
-    if (PublicKeyCredential.signalUnknownCredential) {
+    // The server may have saved the credential before its response was lost.
+    console.error('Registration state is unknown; reconcile with the server:', serverErr);
+  }
+
+  if (credentialNotPersisted && PublicKeyCredential.signalUnknownCredential) {
+    try {
       await PublicKeyCredential.signalUnknownCredential({
-        rpId: publicKey.rp.id, // Always use the server-provided rp.id; DO NOT use window.location.hostname
+        rpId: publicKey.rp.id, // Use the server-provided RP ID.
         credentialId: encodedResponse.id
       });
+    } catch (signalErr) {
+      console.warn('Credential synchronization failed:', signalErr);
     }
   }
 }

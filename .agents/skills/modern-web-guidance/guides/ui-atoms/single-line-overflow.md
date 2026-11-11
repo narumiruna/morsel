@@ -359,6 +359,10 @@ Without style queries the fade still works, since it is on the element itself, b
     translate: calc(1px - 100%);
     transition: margin-inline-start 2s ease-in, translate 2s ease-in;
   }
+
+  .label.truncated:is(:hover, :focus-visible):dir(rtl) > span {
+    translate: calc(100% - 1px);
+  }
 }
 ```
 

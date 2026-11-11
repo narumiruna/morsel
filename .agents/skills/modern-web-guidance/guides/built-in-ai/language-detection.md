@@ -70,7 +70,7 @@ Avoid using the detector on very short phrases or single words, as accuracy drop
   ```
 
 - **Web Workers:** The API is **not** currently available in Web Workers due to Permission Policy complexities.
-- **Privacy:** No data is sent to Google or third parties during the detection process.
+- **Privacy:** Native detection runs locally and sends no text to Google or third parties. Remote fallbacks do not have this local-only privacy guarantee.
 
 ## Fallback Strategy
 
@@ -90,5 +90,5 @@ if ('LanguageDetector' in self) {
 
 If the `LanguageDetector` API is unsupported or availability checks return `'unavailable'`, you must gracefully fall back:
 
-1. **Remote API Fallback**: Redirect the detection request to a server endpoint or a cloud API (such as the Vertex AI Gemini API) to identify the language.
+1. **Remote API Fallback**: Use a server endpoint or a cloud API (such as the Vertex AI Gemini API) to identify the language. If users expect local-only processing, disclose the destination and obtain their consent before sending text. If they decline, use graceful degradation without sending the text.
 2. **Graceful Degradation**: Disable language detection elements/buttons and inform the user that client-side detection is currently unsupported in this browser, preventing any unhandled exceptions or crashes.

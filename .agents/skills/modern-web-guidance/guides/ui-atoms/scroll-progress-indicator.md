@@ -20,6 +20,15 @@ Here’s how you can achieve this:
 This code grows the `#progress` element on scroll using an anonymous scroll-timeline, created by the `scroll()` function.
 
 ```css
+#progress {
+  position: fixed;
+  left: 0; top: 0;
+  width: 100%; height: 1em;
+  background: red;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   @supports ((animation-timeline: scroll())) {
     @keyframes grow-progress {
@@ -28,12 +37,6 @@ This code grows the `#progress` element on scroll using an anonymous scroll-time
     }
 
     #progress {
-      position: fixed;
-      left: 0; top: 0;
-      width: 100%; height: 1em;
-      background: red;
-
-      transform-origin: 0 50%;
       animation: grow-progress auto linear;
       animation-timeline: scroll();
     }
@@ -52,6 +55,15 @@ Because of its location in the DOM, the `scroll()` function will track its neare
 This code grows the `#progress` element on scroll using a named scroll-timeline, created by the `scroll-timeline` property.
 
 ```css
+#progress {
+  position: fixed;
+  left: 0; top: 0;
+  width: 100%; height: 1em;
+  background: red;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   @supports ((animation-timeline: scroll())) {
     @keyframes grow-progress {
@@ -64,12 +76,6 @@ This code grows the `#progress` element on scroll using a named scroll-timeline,
     }
 
     #progress {
-      position: fixed;
-      left: 0; top: 0;
-      width: 100%; height: 1em;
-      background: red;
-
-      transform-origin: 0 50%;
       animation: grow-progress auto linear;
       animation-timeline: --tl;
     }
@@ -116,7 +122,10 @@ For this use-case specifically, the following script applies the fallback for br
 
 ```html
 <script>
-  if (!CSS.supports('animation-timeline', 'scroll()')) {
+  if (
+    !CSS.supports('animation-timeline', 'scroll()') &&
+    window.matchMedia('(prefers-reduced-motion: no-preference)').matches
+  ) {
     const progress = document.querySelector('#progress');
 
     window.addEventListener('scroll', () => {

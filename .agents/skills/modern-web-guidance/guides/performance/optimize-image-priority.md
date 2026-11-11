@@ -34,7 +34,7 @@ The `loading=lazy` attribute prevents images from being downloaded at all when s
           fetchpriority="low"
           loading="lazy"
           width="400" height="300">
-<div>
+</div>
 
 <!-- Deprioritize images revealed only after user interaction -->
 <img src="/images/mega-menu-promo.jpg"
