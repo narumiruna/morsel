@@ -10,7 +10,7 @@ Whether you are revealing action buttons on a list item or a side menu next to a
 
 ### Step 1: Mark up the swipe wrapper, content, and revealed panel
 
-Place the foreground content first and the revealed controls (action buttons or a side menu) second inside the `.SwipeReveal` scroll container. Because the content is first in DOM order, the scroll container naturally starts at scroll offset `0` with the panel hidden off-screen to the right. For each swipe action, ensure that the accessible name includes the content that it relates to, so that people can differentiate between the available controls.
+Place the foreground content first and the revealed controls (action buttons or a side menu) second inside the `.SwipeReveal` scroll container. The content starts at scroll offset `0`. The panel is hidden at `inline-end`: right in LTR and left in RTL. For each swipe action, ensure that the accessible name includes the content that it relates to, so that people can differentiate between the available controls.
 
 ```html
 <!-- Example A: List item with revealable action buttons -->
@@ -107,11 +107,13 @@ Make `.SwipeReveal` a two-column grid (`grid-template-columns: 100% max-content`
 }
 ```
 
-> If you also want to reveal controls on the left (`inline-start`) side using three columns (`grid-template-columns: max-content 100% max-content`) or two columns (`max-content 100%`), place the leading `.SwipeReveal-panel` before `.SwipeReveal-content`. Because `.SwipeReveal-content` has `scroll-initial-target: nearest`, the scroll container initially rests on the content column rather than the leading panel.
+> To reveal controls at `inline-start` (left in LTR and right in RTL), use three columns (`grid-template-columns: max-content 100% max-content`) or two columns (`max-content 100%`). Place the leading `.SwipeReveal-panel` before `.SwipeReveal-content`. Because `.SwipeReveal-content` has `scroll-initial-target: nearest`, the scroll container initially rests on the content column rather than the leading panel.
 
 ### Step 3: Reveal controls when trigger button is activated
 
-Because the buttons or links inside `.SwipeReveal-panel` are off-screen at rest and do not receive focus by default (due to the `tabindex="-1"` attributes), when the corresponding trigger button is activated, we need to ensure that they are revealed as expected. When this happens, we also need to set the `tabindex` attributes to be `tabindex="0"` so that people can move to them and interact with them, and set the `aria-expanded` attribute on the trigger control to be `aria-expanded="true"`. When the trigger control is interacted with when the controls are already revealed, these changes should be reversed.
+Keep panel controls at `tabindex="-1"` until the scroller reaches the requested target and the panel is fully visible. Then set those controls to `tabindex="0"` and set the selected trigger to `aria-expanded="true"`. Close the panel when the same trigger is activated again, including during an opening animation. Disable all panel controls when closing starts.
+
+Calculate each target from the panel or content bounds and the scroller's direction. Clamp `scrollLeft` to `[0, max]` in LTR or `[-max, 0]` in RTL. Use `instant` scrolling when `prefers-reduced-motion: reduce` matches, and `smooth` otherwise. Keep one request and one scroll listener per scroller.
 
 ```js
 function setActionTabIndexes(reveal, revealedPanel) {
@@ -121,57 +123,87 @@ function setActionTabIndexes(reveal, revealedPanel) {
   }
 }
 
-for (const trigger of document.querySelectorAll('.SwipeReveal-content [aria-label$="actions"]')) {
-  trigger.addEventListener('click', () => {
-    const reveal = trigger.closest('.SwipeReveal');
-    if (!reveal) return;
+function getScrollTarget(reveal, target, alignStart) {
+  const rtl = getComputedStyle(reveal).direction === 'rtl';
+  const viewportLeft = reveal.getBoundingClientRect().left + reveal.clientLeft;
+  const viewportRight = viewportLeft + reveal.clientWidth;
+  const rect = target.getBoundingClientRect();
+  const alignRight = rtl ? alignStart : !alignStart;
+  const delta = alignRight ? rect.right - viewportRight : rect.left - viewportLeft;
+  const left = reveal.scrollLeft + delta;
+  const max = Math.max(0, reveal.scrollWidth - reveal.clientWidth);
+  return rtl ? Math.max(-max, Math.min(0, left)) : Math.max(0, Math.min(max, left));
+}
 
-    const label = (trigger.getAttribute('aria-label') || '').toLowerCase();
-    const isExpanded = trigger.getAttribute('aria-expanded') === 'true';
-    const leadingPanel = reveal.firstElementChild.matches('.SwipeReveal-panel')
-      ? reveal.firstElementChild
-      : null;
-    if (isExpanded) {
-      reveal.scrollTo({
-        left: leadingPanel?.offsetWidth ?? 0,
-        behavior: 'smooth',
-      });
+for (const reveal of document.querySelectorAll('.SwipeReveal')) {
+  const content = reveal.querySelector('.SwipeReveal-content');
+  if (!content) continue;
 
-      for (const actionButton of reveal.querySelectorAll('[aria-label$="actions"]')) {
-        actionButton.setAttribute('aria-expanded', 'false');
+  const triggers = Array.from(content.querySelectorAll('[aria-label$="actions"]'));
+  const panels = Array.from(reveal.querySelectorAll('.SwipeReveal-panel'));
+  if (panels.length === 0) continue;
+
+  const leadingPanel = reveal.firstElementChild.matches('.SwipeReveal-panel')
+    ? reveal.firstElementChild
+    : null;
+  let requestedTarget = null;
+
+  function updateScrollState() {
+    // Allow one CSS pixel for fractional scroll positions.
+    const reached = requestedTarget && Math.abs(reveal.scrollLeft - requestedTarget.left) <= 1;
+    if (reached) requestedTarget.pending = false;
+
+    let revealedPanel = reached ? requestedTarget.panel : null;
+    if (revealedPanel) {
+      const viewportLeft = reveal.getBoundingClientRect().left + reveal.clientLeft;
+      const rect = revealedPanel.getBoundingClientRect();
+      if (rect.left < viewportLeft - 1 || rect.right > viewportLeft + reveal.clientWidth + 1) {
+        revealedPanel = null;
       }
-      setActionTabIndexes(reveal, null);
-      return;
     }
 
-    const panels = Array.from(reveal.querySelectorAll('.SwipeReveal-panel'));
-    if (panels.length === 0) return;
-
-    let targetScrollLeft = reveal.scrollWidth;
-
-    if (label.includes('leading')) {
-      targetScrollLeft = 0;
-    } else if (label.includes('trailing')) {
-      targetScrollLeft = reveal.scrollWidth;
-    } else if (panels.length === 1) {
-      targetScrollLeft = panels[0] === leadingPanel ? 0 : reveal.scrollWidth;
-    } else {
-      const content = reveal.querySelector('.SwipeReveal-content');
-      const firstTrigger = content.querySelector('[aria-label$="actions"]');
-      targetScrollLeft = trigger === firstTrigger ? 0 : reveal.scrollWidth;
-    }
-
-    const revealedPanel = targetScrollLeft === 0 ? panels[0] : panels[panels.length - 1];
-    reveal.scrollTo({
-      left: targetScrollLeft,
-      behavior: 'smooth',
-    });
-
-    for (const actionButton of reveal.querySelectorAll('[aria-label$="actions"]')) {
-      actionButton.setAttribute('aria-expanded', actionButton === trigger ? 'true' : 'false');
+    for (const trigger of triggers) {
+      const expanded = revealedPanel && trigger === requestedTarget.trigger;
+      trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     }
     setActionTabIndexes(reveal, revealedPanel);
-  });
+  }
+
+  reveal.addEventListener('scroll', updateScrollState, { passive: true });
+  updateScrollState();
+
+  for (const trigger of triggers) {
+    trigger.addEventListener('click', () => {
+      const isExpanded = requestedTarget?.trigger === trigger &&
+        (requestedTarget.pending || trigger.getAttribute('aria-expanded') === 'true');
+      let panel = null;
+      if (!isExpanded) {
+        const label = (trigger.getAttribute('aria-label') || '').toLowerCase();
+        if (label.includes('leading')) {
+          panel = leadingPanel;
+        } else if (label.includes('trailing')) {
+          panel = panels[panels.length - 1];
+        } else if (panels.length === 1) {
+          panel = panels[0];
+        } else {
+          panel = trigger === triggers[0] ? leadingPanel : panels[panels.length - 1];
+        }
+        if (!panel) return;
+      }
+
+      requestedTarget = {
+        left: getScrollTarget(reveal, panel ?? content, !panel || panel === leadingPanel),
+        panel,
+        trigger: panel ? trigger : null,
+        pending: true,
+      };
+      reveal.scrollTo({
+        left: requestedTarget.left,
+        behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+      });
+      updateScrollState();
+    });
+  }
 }
 ```
 
@@ -182,7 +214,7 @@ Along with this, use `scroll-snap-realtime-feedback` (via `DISABLE_TELEMETRY=1 n
 - **DO** use `scroll-snap-type: x mandatory` rather than `proximity`. With `proximity`, a light swipe can leave the action buttons or side menu partially exposed at rest.
 - **DO** set `overscroll-behavior: chain` on the outer horizontal swipe-to-reveal scroller (`.SwipeReveal`) so scroll can chain into the parent scroller without the revealed menu or action strip bouncing.
 - **DO** leave `overscroll-behavior: auto` (the default) on inner scrollable content panes (`.SwipeReveal-content.is-scrollable`) where you want normal bounce feedback to happen while still chaining horizontal swipes to the outer swipe scroller.
-- **DO** implement revealed actions and side-menu items as real focusable DOM controls (`<button>`, `<a>`). When `.SwipeReveal-content` is focusable or contains focusable controls, pair a `focusin` listener with `event.target.matches(':focus-visible')` to call `scrollIntoView({ block: 'nearest', inline: 'start' })` so tabbing back into the content pane closes the side panel without affecting pointer interactions.
+- **DO** implement revealed actions and side-menu items as real focusable DOM controls (`<button>`, `<a>`). When `.SwipeReveal-content` is focusable or contains focusable controls, use a `focusin` listener with `event.target.matches(':focus-visible')`. Close the panel with the same content target and scroller-only `scrollTo()` path. Do not use `scrollIntoView()` to close the panel, because it can also scroll the page.
 - **DO NOT** intercept `wheel`, `touchmove`, or `pointermove` events in JavaScript to manually translate the content or emulate scroll chaining. Main-thread gesture interception blocks compositor-driven scrolling, breaks native scroll momentum, and degrades responsiveness.
 
 ## Accessibility considerations
@@ -197,7 +229,7 @@ Browser support for scroll-initial-target: Limited availability.
 Supported by: Chrome 133 (Feb 2025) and Edge 133 (Feb 2025).
 Unsupported in: Firefox and Safari.
 
-When a `.SwipeReveal` container places a `.SwipeReveal-panel` on the left (`inline-start`) side before `.SwipeReveal-content`, browsers that do not support `scroll-initial-target: nearest` will initially render at scroll offset `0` with the leading panel exposed.
+When a `.SwipeReveal` container places a `.SwipeReveal-panel` at `inline-start` before `.SwipeReveal-content`, browsers that do not support `scroll-initial-target: nearest` will initially render at scroll offset `0` with the leading panel exposed.
 
 If your Baseline target does not support `scroll-initial-target`, detect support with `CSS.supports('scroll-initial-target', 'nearest')` and call `scrollTo()` with `behavior: 'instant'` on `load` so containers with a leading panel jump straight to `.SwipeReveal-content` without scrolling the page:
 

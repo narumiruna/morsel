@@ -48,7 +48,7 @@ Set the base text size on `body` only when the design needs a size different fro
 
 #### Fluid Typography
 
-Fluid typography MAY use viewport-relative units such as `vw`, provided that font sizes also include a font-relative component such as `rem` or `em`. For more fluid-scaling techniques, including container query units and `clamp()`, see `fluid-scaling` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "fluid-scaling"`).
+Use `rem` or `em` for text that must follow the user's text scale. A font-relative term or `clamp()` bound does not guarantee proportional text scaling when the font size also depends on viewport or container dimensions. For container-fluid spacing techniques, see `fluid-scaling` (via `DISABLE_TELEMETRY=1 node node_modules/modern-web-guidance/skills/modern-web-guidance/modern-web.mjs retrieve "fluid-scaling"`).
 
 Avoid sizing text exclusively with viewport units:
 
@@ -59,15 +59,15 @@ Avoid sizing text exclusively with viewport units:
 }
 ```
 
-Instead, combine a font-relative value with viewport-relative scaling and use relative minimum and maximum bounds:
+Use a font-relative text size instead:
 
 ```css
 .heading {
-  font-size: clamp(2rem, 1.25rem + 2vw, 4rem);
+  font-size: 2rem;
 }
 ```
 
-Test that text can be resized to at least 200% of its default size without loss of content or functionality. For fluid typography, a useful rule of thumb is to keep the maximum font size no more than 2.5 times the minimum. Also test reflow at a 320 CSS-pixel viewport width (equivalent to 400% zoom from a 1280 CSS-pixel-wide viewport); content MUST remain available without two-dimensional scrolling, except where essential.
+Test that text can be resized to at least 200% of its default size without loss of content or functionality. Test operating system text scaling as well as browser zoom. Also test reflow at a 320 CSS-pixel viewport width (equivalent to 400% zoom from a 1280 CSS-pixel-wide viewport); content MUST remain available without two-dimensional scrolling, except where essential.
 
 ### 3. Use Scalable Responsive Breakpoints
 

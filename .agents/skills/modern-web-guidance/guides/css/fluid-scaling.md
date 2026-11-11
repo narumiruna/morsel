@@ -2,7 +2,7 @@
 
 ## Overview
 
-Fluid scaling allows components to adjust their internal proportions (like font sizes and spacing) based on their current dimensions. This creates a more cohesive design than jumping between fixed breakpoints.
+Fluid scaling lets components adjust their spacing based on their current dimensions. Use font-relative text sizes so text follows the user's text scale.
 
 While fluid scaling was historically achieved using viewport units (scaling based on the screen size), modern container query units allow components to scale relative to their parent container instead. This ensures components look good regardless of where they are placed in a layout, promoting better component isolation and reusability.
 
@@ -25,7 +25,7 @@ To use container query units, you must first define a containment context on a p
 
 ### 2. Use container query units
 
-Use container query units (`cqi`, `cqb`, etc.) to set sizes relative to the container's dimensions.
+Use container query units (`cqi`, `cqb`, etc.) for spacing relative to the container's dimensions. Use `rem` or `em` for text sizes.
 
 *   `cqi`: 1% of the container's inline size (width in horizontal writing modes).
 *   `cqb`: 1% of the container's block size (height in horizontal writing modes).
@@ -34,9 +34,8 @@ Use container query units (`cqi`, `cqb`, etc.) to set sizes relative to the cont
 
 ```css
 .component-title {
-  /* Scale font size based on container width */
-  /* 10cqi means 10% of the container's width */
-  font-size: 10cqi;
+  /* Follow the user's text scale, not the container width */
+  font-size: 1.5rem;
 }
 
 .component-body {
@@ -47,36 +46,38 @@ Use container query units (`cqi`, `cqb`, etc.) to set sizes relative to the cont
 
 ### 3. Constrain values with `clamp()`
 
-To prevent sizes from becoming too small or too large, use the CSS `clamp()` function. This impacts the user's ability to zoom or adjust their base font size. To ensure text meets accessibility guidelines, the maximum size must not be more than 2.5 times the minimum size.
+Use the CSS `clamp()` function to keep spacing within minimum and maximum values. Keep text sizes in `rem` or `em`. A font-relative term or bound does not guarantee that fluid text follows the user's text scale.
 
-**DON'T** make the container smaller when zooming in with the browser. This is to ensure that text can be resized to 200% its default size when zooming in using the browser to adhere to WCAG 1.4.4 Resize Text (Level AA).
+For example, in a fixed `600px` container, `clamp(1rem, 5cqi, 2.5rem)` gives a font size of `30px` with a `16px` root font size, but only `32px` with a `32px` root font size. Continuous fluid typography does not guarantee proportional text scaling. Use font-relative text sizes and keep container-fluid values for spacing:
 
 ```css
-.component-title {
-  /* Clamp font size between 1rem and 2.5rem, scaling with 5% of container width */
-  font-size: clamp(1rem, 5cqi, 2.5rem);
+.component-body {
+  /* Keep padding between 1rem and 2.5rem, based on 5% of the container width */
+  padding: clamp(1rem, 5cqi, 2.5rem);
 }
 ```
+
+Test operating system text scaling and browser zoom. Text must resize to at least 200% of its default size without loss of content or functionality (WCAG 1.4.4 Resize Text, Level AA).
 
 ### Fallback strategies
 
 Baseline status for Container queries (size): Widely available. It's been Baseline since 2023-02-14.
 Supported by: Chrome 105 (Sep 2022), Edge 105 (Sep 2022), Firefox 110 (Feb 2023), and Safari 16 (Sep 2022).
 
-If container queries are not supported by the browser, you should provide a fallback using viewport units or standard media queries.
+If container query units are not supported, use font-relative spacing as a fallback.
 
 ```css
-.component-title {
+.component-body {
   /* Fallback for browsers that do not support container units */
-  font-size: clamp(1rem, 5vw, 2.5rem);
+  padding: 1.5rem;
 }
 
-@supports (font-size: 1cqi) {
-  .component-title {
-    /* Use container units where supported */
-    font-size: clamp(1rem, 5cqi, 2.5rem);
+@supports (padding: 1cqi) {
+  .component-body {
+    /* Use container units for padding where supported */
+    padding: clamp(1rem, 5cqi, 2.5rem);
   }
 }
 ```
 
-This fallback ensures that the text still scales, but it will be based on the screen width rather than the component's width. This should be tested to verify it works in your use case.
+The text keeps its font-relative size in both cases. Test that the layout can contain enlarged text with both spacing rules.

@@ -223,7 +223,7 @@ The shadows paint behind the content, so content with its own opaque background 
 
 #### Fades, or shadows on any background: JavaScript measurements
 
-For vertical scrollers, measure the scroll position and content height to set the hint classes. This adds no layout items. Observe the scroller and its content children to update hints when their sizes change.
+For vertical scrollers, measure the scroll position and content height to set the hint classes. This adds no layout items. Observe the scroller and its content children to update hints when their sizes change. When direct children are added or removed, update the child observations and hints. Observe only child-list changes so hint class changes do not trigger the mutation observer.
 
 ```js
 if (!CSS.supports('animation-timeline', 'scroll()')) {
@@ -239,8 +239,25 @@ if (!CSS.supports('animation-timeline', 'scroll()')) {
     window.addEventListener('resize', updateHints);
     const observer = new ResizeObserver(updateHints);
     observer.observe(scroller);
-    for (const child of scroller.children) observer.observe(child);
-    updateHints();
+    const observedChildren = new Set();
+    const refreshChildren = () => {
+      for (const child of observedChildren) {
+        if (child.parentElement !== scroller) {
+          observer.unobserve(child);
+          observedChildren.delete(child);
+        }
+      }
+      for (const child of scroller.children) {
+        if (!observedChildren.has(child)) {
+          observer.observe(child);
+          observedChildren.add(child);
+        }
+      }
+      updateHints();
+    };
+    const childObserver = new MutationObserver(refreshChildren);
+    childObserver.observe(scroller, { childList: true });
+    refreshChildren();
   }
 }
 ```
