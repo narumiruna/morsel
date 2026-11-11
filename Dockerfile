@@ -8,7 +8,7 @@ RUN npm ci
 COPY packages/viewer/ packages/viewer/
 RUN npm run build --workspace @narumitw/morsel-viewer
 
-FROM golang:1.27.3-alpine3.23 AS api-build
+FROM golang:1.27.4-alpine3.23 AS api-build
 WORKDIR /src/packages/server
 COPY packages/server/go.mod packages/server/go.sum ./
 RUN go mod download

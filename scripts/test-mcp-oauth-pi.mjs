@@ -983,7 +983,7 @@ async function main() {
     }
     env = {
       ...process.env,
-      GOTOOLCHAIN: "go1.26.10",
+      GOTOOLCHAIN: "go1.26.11",
       MORSEL_ENVIRONMENT: "development",
       PI_CODING_AGENT_DIR: join(directory, "pi"),
       HOME: join(directory, "home"),

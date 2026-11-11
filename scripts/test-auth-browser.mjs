@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 // Build only with the patched, pinned Go toolchain.
-process.env.GOTOOLCHAIN = "go1.26.10"
+process.env.GOTOOLCHAIN = "go1.26.11"
 const adminURL = process.env.MORSEL_TEST_DATABASE_URL
 if (!adminURL) {
   console.error("MORSEL_TEST_DATABASE_URL is required (PostgreSQL role must have CREATEDB)")
