@@ -112,21 +112,31 @@ For browsers that do not support `scroll-target-group`, you should use a fallbac
     const navLinks = document.querySelectorAll('nav a');
     const sections = document.querySelectorAll('main section');
 
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const id = entry.target.getAttribute('id');
-          navLinks.forEach(link => {
-            const isActive = link.getAttribute('href') === `#${id}`;
-            // Use the escaped colon class for consistent styling
-            link.classList.toggle('target-current', isActive);
-            link.setAttribute('aria-current', isActive);
-          });
-        }
-      });
-    }, { rootMargin: '-50% 0px -50% 0px', threshold: 0 });
+    let observer;
+    function observeSections() {
+      observer?.disconnect();
+      // Percentage root margins use the root width, not its height.
+      // Keep a one-pixel observation band at the vertical midpoint.
+      const height = Math.max(1, document.documentElement.clientHeight);
+      const top = Math.floor(height / 2);
+      const bottom = height - top - 1;
+      observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute('id');
+            navLinks.forEach(link => {
+              const isActive = link.getAttribute('href') === `#${id}`;
+              link.classList.toggle('target-current', isActive);
+              link.setAttribute('aria-current', isActive);
+            });
+          }
+        });
+      }, { rootMargin: `-${top}px 0px -${bottom}px 0px`, threshold: 0 });
 
-    sections.forEach(section => observer.observe(section));
+      sections.forEach(section => observer.observe(section));
+    }
+    observeSections();
+    window.addEventListener('resize', observeSections);
   }
 </script>
 

@@ -1,6 +1,6 @@
 # Rearrange Items with Drag and Drop
 
-Add reordering to an existing list or row, vertical or horizontal. Reorder the real children in the DOM (not via CSS `order` or `flex-direction: *-reverse`) so visual, keyboard, and reading order stay aligned. For free-form 2D repositioning of a floating element such as a dialog or toolbar, see `drag` (via `npx -y modern-web-guidance@latest retrieve "drag"`). This guide covers one axis at a time; it does not cover reordering a grid or wrapped layout, or moving items between lists.
+Add reordering to an existing list or row, vertical or horizontal. Reorder the real children in the DOM (not via CSS `order` or `flex-direction: *-reverse`) so visual, keyboard, and reading order stay aligned. For free-form 2D repositioning of a floating element such as a dialog or toolbar, see `drag` (via `npx -y modern-web-guidance@1.0.0 retrieve "drag"`). This guide covers one axis at a time; it does not cover reordering a grid or wrapped layout, or moving items between lists.
 
 When items contain interactive controls or selectable text, provide a dedicated drag handle rather than making the entire item draggable. Then set up the pointer drag:
 

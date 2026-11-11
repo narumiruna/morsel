@@ -1,6 +1,6 @@
 # Encrypt data client-side with WebCrypto
 
-Use the Web Cryptography API (`crypto.subtle`) to establish shared secrets over untrusted networks using quantum-resistant Key Encapsulation Mechanisms (KEMs) or classical key agreement, and encrypt sensitive data in the browser with Authenticated Encryption with Associated Data (AEAD). For signing and verifying messages or artifacts without encrypting them, see `digital-signatures` (via `npx -y modern-web-guidance@latest retrieve "digital-signatures"`).
+Use the Web Cryptography API (`crypto.subtle`) to establish shared secrets over untrusted networks using quantum-resistant Key Encapsulation Mechanisms (KEMs) or classical key agreement, and encrypt sensitive data in the browser with Authenticated Encryption with Associated Data (AEAD). For signing and verifying messages or artifacts without encrypting them, see `digital-signatures` (via `npx -y modern-web-guidance@1.0.0 retrieve "digital-signatures"`).
 
 An end-to-end envelope encryption flow splits into two phases:
 
@@ -31,6 +31,8 @@ const recipientKeyPair = await crypto.subtle.generateKey(
 ```
 
 ## 2. Export and import keys
+
+**Authenticate the recipient's public key before importing it.** Obtain it from an identity-authenticated directory over HTTPS, or verify its fingerprint through a trusted channel. Bind the key to the intended recipient and expected algorithm. Reject an unverified or unexpected key change. Encryption and KEM operations do not prove who owns a public key; a substituted key lets an attacker receive the plaintext.
 
 Modern WebCrypto algorithms (`'MLKEM768-X25519'`, `'ML-KEM-768'`, `'ML-KEM-1024'`, and `'ChaCha20-Poly1305'`) **reject the legacy `'raw'` format** in `importKey()` and `exportKey()` with a `NotSupportedError`. Always specify the explicit key format:
 

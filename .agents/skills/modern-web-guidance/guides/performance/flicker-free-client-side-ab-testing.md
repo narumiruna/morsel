@@ -6,7 +6,7 @@ Client-side A/B testing tools work by loading a script that modifies the DOM aft
 
 ## The Solution
 
-The `blocking=render` attribute allows a `<script>` or `<link>` element placed in the `<head>` to block rendering—but not parsing—until the resource has been fetched and executed. This gives experimentation scripts the same render-blocking behavior that stylesheets have by default, ensuring the browser never paints the page until the experiment variant has been applied. No opacity hacks, no arbitrary timeouts, and no flicker.
+The `blocking=render` attribute can delay rendering while a `<script>` in the `<head>` loads and becomes ready to execute. Apply the variant synchronously in that first execution task, before the browser can paint. The attribute does not keep rendering blocked across `await`, timers, or later callbacks. Supply the configuration before execution. A stylesheet with `blocking="render"` can delay rendering until its styles are ready.
 
 ### Implementation Strategy
 
@@ -59,19 +59,20 @@ If the experiment requires a variant stylesheet, use `blocking="render"` on the 
 
 ### Inline Experiment Script
 
-If the experiment logic is lightweight enough to inline, use an inline module script with `blocking="render"`. This is useful when the experiment logic fetches a configuration and applies DOM changes directly.
+For a small inline experiment, put the assigned variant in the HTML before the module runs. Apply it synchronously. Do not fetch the configuration from this script or wait for a promise before setting the variant.
 
 ```html
 <head>
   <!--
     DO: Use an inline module script when the experiment logic is small.
     Module scripts are deferred by default (non-parser-blocking),
-    and blocking="render" ensures rendering waits for execution.
+    and blocking="render" delays rendering until the module can run.
+    The configuration is already available, so applying it does not yield.
   -->
+  <!-- The server supplies this assignment. Escape '<' as '\u003c' when serializing JSON into HTML. -->
+  <script type="application/json" id="experiment-config">{"variant":"b"}</script>
   <script type="module" blocking="render">
-    // Fetch the experiment configuration from your testing platform.
-    const config = await fetch('/api/experiment?id=homepage-cta')
-      .then(res => res.json());
+    const config = JSON.parse(document.getElementById('experiment-config').textContent);
 
     // Apply the variant by setting a data attribute on <html>.
     // CSS rules keyed to this attribute will style the variant.
@@ -95,6 +96,7 @@ If the experiment logic is lightweight enough to inline, use an inline module sc
 ## Best Practices
 
 - **MANDATORY:** The experimentation script MUST execute quickly. A slow script delays all rendering. Set a performance budget (e.g., under 100ms execution time) for the render-blocking script.
+- **DO NOT** wait for a network request, timer, or promise before applying the variant. `blocking="render"` does not cover asynchronous work. Supply the assignment in HTML, or render the assigned variant on the server.
 - **DO** split heavy experiment logic from the render-blocking script. Load a small, render-blocking stub that applies the variant, then load heavier tracking or analytics scripts separately with `async` or `defer` (without `blocking="render"`).
 - **DO** use a data attribute on `<html>` or `<body>` to signal the active variant, and use CSS selectors keyed to that attribute for variant styling. This avoids direct DOM manipulation in the render-blocking script.
 - **DO NOT** use `blocking="render"` on analytics, tracking, or other non-visual scripts. Only scripts that must change what the user sees on first paint should block rendering.
