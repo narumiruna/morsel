@@ -1,0 +1,8 @@
+{
+  "name": "modern-web-guidance-runner",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "modern-web-guidance": "1.0.0"
+  }
+}
