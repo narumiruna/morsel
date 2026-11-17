@@ -272,6 +272,11 @@ export function ShareManagement({
     }
   }
 
+  // Keep pagination focus stable when loading or reaching the first or last page.
+  const paginationBusy = busy || revoking || listLoading || !page
+  const previousPageDisabled = paginationBusy || cursors.length === 0
+  const nextPageDisabled = paginationBusy || !page?.next_cursor
+
   return (
     <Card asChild>
       <section aria-labelledby="shares-heading" className="account-shares">
@@ -595,8 +600,10 @@ export function ShareManagement({
         <Flex gap="3" wrap="wrap" mt="3" aria-label="Share pagination">
           <Button
             variant="soft"
-            disabled={busy || revoking || listLoading || !page || cursors.length === 0}
+            aria-disabled={previousPageDisabled}
+            data-disabled={previousPageDisabled || undefined}
             onClick={() => {
+              if (previousPageDisabled) return
               listRequest.current?.abort()
               setPage(null)
               setCursors((values) => values.slice(0, -1))
@@ -606,9 +613,10 @@ export function ShareManagement({
           </Button>
           <Button
             variant="soft"
-            disabled={busy || revoking || listLoading || !page?.next_cursor}
+            aria-disabled={nextPageDisabled}
+            data-disabled={nextPageDisabled || undefined}
             onClick={() => {
-              if (!page?.next_cursor) return
+              if (nextPageDisabled) return
               listRequest.current?.abort()
               setPage(null)
               setCursors((values) => [...values, page.next_cursor as string])

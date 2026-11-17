@@ -450,7 +450,10 @@ describe("account share management", () => {
       expect(params.get("q")).toBe("Historical")
       expect(params.get("status")).toBe("active")
       expect(params.has("cursor")).toBe(false)
-      expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
+      expect(screen.getByRole("button", { name: "Previous shares" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      )
       await user.click(screen.getByRole("button", { name: "Next shares" }))
       await screen.findByText("30 matching shares · Page 2")
       params = new URL(String(managementRequests().at(-1)?.[0]), "https://example.test")
@@ -462,29 +465,41 @@ describe("account share management", () => {
     },
   )
 
-  it("keeps pagination controls and keyboard focus stable while loading the next page", async () => {
-    const pending = deferred<Response>()
-    intercept = (path) => {
-      if (!path.startsWith("account/shares?")) return
-      return new URLSearchParams(path.split("?")[1]).has("cursor")
-        ? pending.promise
-        : Promise.resolve(json({ items: [shares[0]], matching_count: 60, next_cursor: "next" }))
-    }
-    await showPage()
-    await screen.findByRole("table", { name: "Share history" })
-    const user = userEvent.setup()
-    const next = screen.getByRole("button", { name: "Next shares" })
-    next.focus()
-    await user.keyboard("{Enter}")
-    expect(next).toBeDisabled()
-    expect(next).toHaveFocus()
-    await act(async () =>
-      pending.resolve(json({ items: [shares[0]], matching_count: 60, next_cursor: "third" })),
-    )
-    await screen.findByText("60 matching shares · Page 2")
-    expect(next).toBeEnabled()
-    expect(next).toHaveFocus()
-  })
+  it.each(["Next", "Previous"])(
+    "keeps pagination controls and keyboard focus stable while loading the %s page",
+    async (direction) => {
+      intercept = (path) =>
+        path.startsWith("account/shares?")
+          ? Promise.resolve(json({ items: [shares[0]], matching_count: 60, next_cursor: "next" }))
+          : undefined
+      await showPage()
+      await screen.findByText("60 matching shares · Page 1")
+      const user = userEvent.setup()
+      if (direction === "Previous") {
+        await user.click(screen.getByRole("button", { name: "Next shares" }))
+        await screen.findByText("60 matching shares · Page 2")
+      }
+      const pending = deferred<Response>()
+      intercept = (path) => (path.startsWith("account/shares?") ? pending.promise : undefined)
+      const button = screen.getByRole("button", { name: `${direction} shares` })
+      button.focus()
+      await user.keyboard("{Enter}")
+      expect(button).toHaveAttribute("aria-disabled", "true")
+      expect(button).not.toBeDisabled()
+      expect(button).toHaveFocus()
+      const requestCount = managementRequests().length
+      await user.keyboard("{Enter} ")
+      fireEvent.click(screen.getByRole("button", { name: "Next shares" }))
+      fireEvent.click(screen.getByRole("button", { name: "Previous shares" }))
+      expect(managementRequests()).toHaveLength(requestCount)
+      await act(async () =>
+        pending.resolve(json({ items: [shares[0]], matching_count: 60, next_cursor: "third" })),
+      )
+      await screen.findByText(`60 matching shares · Page ${direction === "Next" ? 2 : 1}`)
+      expect(button).toHaveAttribute("aria-disabled", direction === "Next" ? "false" : "true")
+      expect(button).toHaveFocus()
+    },
+  )
 
   it("offers a keyboard-operated first-page reset for invalid cursors without retrying automatically", async () => {
     intercept = (path) => {
@@ -646,7 +661,10 @@ describe("account share management", () => {
     const params = new URL(String(managementRequests().at(-1)?.[0]), "https://example.test")
       .searchParams
     expect(params.has("cursor")).toBe(false)
-    expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Previous shares" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
     expect(requests(`account/shares/${firstID}`, "DELETE")).toHaveLength(1)
   })
 
@@ -669,20 +687,32 @@ describe("account share management", () => {
     await showPage()
     const user = userEvent.setup()
     await screen.findByRole("link", { name: "Preview share Historical share" })
-    expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Previous shares" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
     await user.click(screen.getByRole("button", { name: "Next shares" }))
     await screen.findByRole("link", { name: "Preview share Older share" })
-    expect(screen.getByRole("button", { name: "Next shares" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Next shares" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
     await user.click(screen.getByRole("button", { name: "Previous shares" }))
     await screen.findByRole("link", { name: "Preview share Historical share" })
     await user.click(screen.getByRole("button", { name: "Next shares" }))
     await screen.findByRole("link", { name: "Preview share Older share" })
     await user.selectOptions(screen.getByLabelText("Share status"), "expired")
     await screen.findByText("No shares match this search or status.")
-    expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Previous shares" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
     await user.selectOptions(screen.getByLabelText("Share status"), "all")
     await screen.findByRole("link", { name: "Preview share Historical share" })
-    expect(screen.getByRole("button", { name: "Previous shares" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Previous shares" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
   })
 
   it("requires explicit confirmation, permits cancellation, verifies with fresh state and refreshes list and detail", async () => {

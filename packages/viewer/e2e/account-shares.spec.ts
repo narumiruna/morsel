@@ -143,6 +143,45 @@ async function mockAccount(page: Page) {
   }
 }
 
+for (const direction of ["Next", "Previous"]) {
+  test(`preserves pagination focus while loading the ${direction} page`, async ({ page }) => {
+    const api = await mockAccount(page)
+    await page.goto("/manage/shares")
+    await expect(page.getByText("2 matching shares · Page 1")).toBeVisible()
+    if (direction === "Previous") {
+      await page.getByRole("button", { name: "Next shares" }).click()
+      await expect(page.getByText("2 matching shares · Page 2")).toBeVisible()
+    }
+    let complete!: () => void
+    const pending = new Promise<void>((resolve) => {
+      complete = resolve
+    })
+    let requests = 0
+    await page.route("**/v1/account/shares?**", async (route) => {
+      requests += 1
+      await pending
+      await route.fallback()
+    })
+    const button = page.getByRole("button", { name: `${direction} shares` })
+    await button.focus()
+    await page.keyboard.press("Enter")
+    await expect(button).toHaveAttribute("aria-disabled", "true")
+    await expect(button).toBeFocused()
+    await expect.poll(() => requests).toBe(1)
+    await page.keyboard.press("Enter")
+    await page.keyboard.press("Space")
+    await page.getByRole("button", { name: "Next shares" }).dispatchEvent("click")
+    await page.getByRole("button", { name: "Previous shares" }).dispatchEvent("click")
+    expect(requests).toBe(1)
+    complete()
+    await expect(
+      page.getByText(`2 matching shares · Page ${direction === "Next" ? 2 : 1}`),
+    ).toBeVisible()
+    await expect(button).toBeFocused()
+    expect(api.listQueries).toHaveLength(direction === "Next" ? 2 : 3)
+  })
+}
+
 for (const width of [1280, 375]) {
   test(`sorts all shares by views and creation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
