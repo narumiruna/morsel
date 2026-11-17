@@ -17,6 +17,7 @@
     "release:version": "node scripts/changeset.mjs version",
     "test:release": "node --test scripts/test-release.mjs",
     "test:deploy": "node --test scripts/test-deploy.mjs",
+    "pretest": "npm run build --workspace @narumitw/diagram-viewer",
     "test": "vitest run",
     "test:browser": "npm run test:browser --workspace @narumitw/morsel-viewer",
     "test:auth:browser": "node scripts/test-auth-browser.mjs",

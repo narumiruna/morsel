@@ -45,6 +45,16 @@ Signed-in recipients see instructions to log out or use a private window, then r
 
 Fragment cleanup cannot erase message previews, URL rewriting, retained external copies, or browser history copies made before cleanup. Real messaging behavior and supported physical passkeys remain deployment checks, not behavior established by virtual authenticators.
 
+## Diagram viewer package
+
+The frame and controls come from the reusable
+[`@narumitw/diagram-viewer`](../packages/diagram-viewer/README.md) workspace.
+It provides a default viewer, composable controls, shared action bindings for
+app-specific buttons, and a framework-independent browser core. Morsel retains
+Mermaid sanitation, Vega resource policy, renderer lifecycles, theme selection,
+and source/render limits. The package is configured for public npm access;
+this extraction does not publish it to the registry.
+
 ## Mermaid diagram controls
 
 Mermaid diagrams open fitted to the available space without upscaling. Use **Reset zoom** to restore a readable size, which may crop a large diagram, or **Fit to screen** to display the entire diagram. Pan by dragging or using the arrow keys. Zoom with the toolbar, `+`/`-`, or `Ctrl`/`Command` plus the mouse wheel. Press `0` to fit the diagram.
@@ -53,7 +63,7 @@ Select the global Mermaid style on the [Settings page](#settings). Diagram toolb
 
 Fullscreen uses the browser API when available and an in-page fallback otherwise. Inline one-finger gestures continue scrolling the document. In fullscreen, one finger pans and two fingers pan and zoom. Escape closes fallback fullscreen and returns focus to the control that opened it.
 
-The toolbar can show or copy source, copy or download sanitized SVG, and create a local PNG. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearances and style changes. The last successful SVG remains visible if an update fails; exports use that SVG until a new render succeeds.
+The toolbar can show or copy source, download sanitized SVG, and create a local PNG. There is no Copy SVG action. PNG output is limited to 8,192 pixels per dimension and 16 million pixels. Export never calls an external rendering service. Diagrams rerender for light and dark appearances and style changes. The last successful SVG remains visible if an update fails; exports use that SVG until a new render succeeds.
 
 Diagrams near the viewport render on demand. Failed renders preserve their source and expose **Retry diagram**. Morsel allows up to 20 diagrams per document and 50 KiB of UTF-8 source per diagram. Rendering is sequential and uses Mermaid's `securityLevel: "strict"`, `htmlLabels: false`, and DOMPurify SVG sanitation.
 

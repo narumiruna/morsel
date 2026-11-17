@@ -1,4 +1,10 @@
+import { readFileSync } from "node:fs"
 import { defineConfig, devices } from "@playwright/test"
+
+const isWSL =
+  Boolean(process.env.WSL_DISTRO_NAME || process.env.WSL_INTEROP) ||
+  (process.platform === "linux" &&
+    /microsoft/i.test(readFileSync("/proc/sys/kernel/osrelease", "utf8")))
 
 const live = process.env.MORSEL_E2E_LIVE === "1"
 const previewPort = process.env.MORSEL_E2E_PREVIEW_PORT ?? "4173"
@@ -14,6 +20,7 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: live ? `${liveBaseURL}/` : `http://127.0.0.1:${previewPort}/`,
+    launchOptions: { args: isWSL ? ["--ozone-platform=wayland"] : [] },
     trace: "retain-on-failure",
   },
   webServer: live

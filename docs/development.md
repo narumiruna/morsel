@@ -2,7 +2,7 @@
 
 ## Viewer
 
-Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. Install both npm workspaces from the repository root. The development server proxies `/v1/*`, `/mcp`, the four explicit OAuth protocol routes, and both OAuth well-known documents to the Go API at `127.0.0.1:12647`. It does not proxy the complete `/oauth` prefix: `/oauth/consent` remains the viewer SPA route.
+Requirements: Node.js 24.15 or newer in the 24.x line, or Node.js 26+; npm 11+. Install the npm workspaces from the repository root. The development server proxies `/v1/*`, `/mcp`, the four explicit OAuth protocol routes, and both OAuth well-known documents to the Go API at `127.0.0.1:12647`. It does not proxy the complete `/oauth` prefix: `/oauth/consent` remains the viewer SPA route.
 
 ```sh
 npm ci
@@ -16,6 +16,29 @@ npm run ci
 npx playwright install chromium
 npm run test:browser
 ```
+
+The reusable [`@narumitw/diagram-viewer`](../packages/diagram-viewer/README.md)
+workspace builds compiled ESM, declarations, and scoped CSS. Viewer dev, build,
+typecheck, test, and browser entry points build this dependency first; no existing
+`dist` directory is required. Root `npm test` also builds it before test discovery.
+
+```sh
+npm run ci --workspace @narumitw/diagram-viewer
+npm run test:browser --workspace @narumitw/diagram-viewer
+npm pack --workspace @narumitw/diagram-viewer --dry-run --json
+docker build --target viewer-build -t morsel-diagram-viewer-check .
+```
+
+Package CI includes an isolated packed-consumer check. It installs exact React
+and tool versions in a temporary directory, typechecks the examples, verifies a
+Node core import without React or browser globals, and exercises the built UI
+in Chromium. Install Chromium before package CI. Standalone layout/accessibility
+captures are ignored under `packages/diagram-viewer/test-results/`. The viewer
+and authentication Playwright configurations detect WSL and pass
+`--ozone-platform=wayland` without changing headless mode. The Docker viewer
+stage copies all dependency manifests and package source before building.
+Root-targeted changesets still version only Morsel. The package is configured
+for public npm access, but the repository release workflow does not publish it.
 
 If port 4173 is occupied, run browser tests with `MORSEL_E2E_PREVIEW_PORT=4181 npm run test:browser` (choose an unused port).
 

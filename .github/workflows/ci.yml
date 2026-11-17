@@ -150,6 +150,9 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      - run: npm run ci --workspace @narumitw/diagram-viewer
+      - run: npm run test:browser --workspace @narumitw/diagram-viewer
+      - run: npm pack --workspace @narumitw/diagram-viewer --dry-run --json
       - run: npm run ci --workspace @narumitw/morsel-viewer
       - name: Audit production dependencies
         run: npm audit --omit=dev --workspace @narumitw/morsel-viewer

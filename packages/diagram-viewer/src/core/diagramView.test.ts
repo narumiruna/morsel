@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createDiagramView, maxDiagramScale, minDiagramScale } from "./diagramView"
+import { createDiagramView, maxDiagramScale, minDiagramScale } from "./diagramView.js"
 
 function fixture() {
   const viewport = document.createElement("section")

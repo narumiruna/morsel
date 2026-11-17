@@ -28,7 +28,8 @@ const exportMock = vi.hoisted(() => ({
   createPngExport: vi.fn(),
   downloadDiagram: vi.fn(),
 }))
-vi.mock("./diagramExport", () => exportMock)
+// Test-only seam into the compiled package; application imports use public exports.
+vi.mock("../../../diagram-viewer/dist/core/diagramExport.js", () => exportMock)
 function ThemeProvider({ children }: { children: ReactNode }) {
   return (
     <BaseThemeProvider>
@@ -309,10 +310,14 @@ $\htmlStyle{background:url(https://evil.example/image.png)}{styled}$
         name: "Interactive Vega-Lite chart. Use arrow keys to pan, plus or minus to zoom, and zero to fit.",
       }),
     )
-    expect(graphic.closest(".diagram-card")).toHaveAttribute("class", "diagram-card vega-lite-card")
+    expect(graphic.closest(".diagram-card")).toHaveAttribute(
+      "class",
+      "ndv-root diagram-card vega-lite-card",
+    )
     expect(screen.getByRole("button", { name: "Fit to screen" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Fullscreen" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Show source" })).toBeVisible()
+    await waitFor(() => expect(screen.getByRole("button", { name: "Zoom in" })).toBeEnabled())
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
     expect(screen.getByLabelText("Current zoom")).toHaveTextContent("125%")
@@ -579,7 +584,7 @@ $\htmlStyle{background:url(https://evil.example/image.png)}{styled}$
     await waitFor(() =>
       expect(exportMock.createPngExport).toHaveBeenLastCalledWith(
         expect.any(SVGSVGElement),
-        "light",
+        "#ffffff",
       ),
     )
 
@@ -589,7 +594,7 @@ $\htmlStyle{background:url(https://evil.example/image.png)}{styled}$
     await waitFor(() =>
       expect(exportMock.createPngExport).toHaveBeenLastCalledWith(
         expect.any(SVGSVGElement),
-        "dark",
+        "#111113",
       ),
     )
     expect(mermaidMock.configuration).toMatchObject({ theme: "dark" })
