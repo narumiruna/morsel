@@ -318,49 +318,54 @@ test("publish failure is propagated without changing versions or changesets", as
   assert.deepEqual(await snapshot(root), before)
 })
 
-test("npm workflow grants only package publication permissions on main", async () => {
-  const workflow = await readFile(join(repositoryRoot, ".github/workflows/npm-release.yml"), "utf8")
-  assert.match(workflow, /^name: Publish diagram-viewer$/m)
+test("npm job grants only package publication permissions within the release workflow", async () => {
+  const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
+  assert.match(workflow, /^name: Publish$/m)
+  await assert.rejects(readFile(join(repositoryRoot, ".github/workflows/npm-release.yml")), {
+    code: "ENOENT",
+  })
+  assert.equal([...workflow.matchAll(/id-token: write/g)].length, 1)
   assert.match(workflow, /on:\n {2}workflow_dispatch:\n {2}push:\n {4}branches: \[main\]/)
   assert.match(workflow, /^permissions:\n {2}contents: read$/m)
   assert.match(
     workflow,
     /concurrency:\n {2}group: \$\{\{ github.workflow \}\}-\$\{\{ github.ref \}\}\n {2}cancel-in-progress: false/,
   )
-  assert.match(workflow, /if: github.ref == 'refs\/heads\/main'/)
-  assert.match(workflow, /runs-on: ubuntu-latest/)
-  assert.match(workflow, / {4}permissions:\n {6}contents: read\n {6}id-token: write/)
-  assert.match(workflow, /persist-credentials: false/)
-  assert.match(workflow, /node-version: 26/)
-  assert.match(workflow, /registry-url: https:\/\/registry.npmjs.org/)
-  assert.match(workflow, /package-manager-cache: false/)
-  assert.equal([...workflow.matchAll(/name: Verify latest main/g)].length, 1)
+  const npm = workflow.split("\n  npm-publish:\n")[1]?.split(/\n {2}[\w-]+:\n/)[0]
+  assert.ok(npm, "Publish must retain an independent npm publication job")
+  assert.match(npm, /^ {4}name: Publish diagram-viewer$/m)
+  assert.match(npm, /if: github.ref == 'refs\/heads\/main'/)
+  assert.match(npm, /runs-on: ubuntu-latest/)
+  assert.match(npm, / {4}permissions:\n {6}contents: read\n {6}id-token: write/)
+  assert.match(npm, /persist-credentials: false/)
+  assert.match(npm, /node-version: 26/)
+  assert.match(npm, /registry-url: https:\/\/registry.npmjs.org/)
+  assert.match(npm, /package-manager-cache: false/)
+  assert.equal([...npm.matchAll(/name: Verify latest main/g)].length, 1)
   const latestMain = [
     "      - name: Verify latest main",
     "        run: |",
     "          git fetch origin main",
     '          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"',
   ].join("\n")
-  assert.ok(workflow.includes(latestMain))
-  assert.ok(workflow.indexOf(latestMain) > workflow.indexOf("- run: npm ci"))
-  assert.ok(
-    workflow.indexOf(latestMain) < workflow.indexOf("- run: npm run release:diagram-viewer"),
-  )
+  assert.ok(npm.includes(latestMain))
+  assert.ok(npm.indexOf(latestMain) > npm.indexOf("- run: npm ci"))
+  assert.ok(npm.indexOf(latestMain) < npm.indexOf("- run: npm run release:diagram-viewer"))
   const jobs = workflow.split("\njobs:\n")[1]
   assert.deepEqual(
     [...jobs.matchAll(/^ {2}([a-z-]+):$/gm)].map((match) => match[1]),
-    ["publish"],
+    ["publish", "npm-publish", "container", "release", "deploy"],
   )
   assert.deepEqual(
-    [...workflow.matchAll(/- uses: (.+)/g)].map((match) => match[1]),
+    [...npm.matchAll(/- uses: (.+)/g)].map((match) => match[1]),
     ["actions/checkout@v7", "actions/setup-node@v7"],
   )
   assert.deepEqual(
-    [...workflow.matchAll(/- run: (.+)/g)].map((match) => match[1]),
+    [...npm.matchAll(/- run: (.+)/g)].map((match) => match[1]),
     ["npm ci", "npm run release:diagram-viewer"],
   )
   assert.doesNotMatch(
-    workflow,
+    npm,
     /secrets:|secrets\.|NPM_TOKEN|NODE_AUTH_TOKEN|contents: write|packages: write|pull-requests: write|workflow_call:|needs:/,
   )
 })

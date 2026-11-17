@@ -234,11 +234,12 @@ npm run changeset -- status
 
 Use `minor` for features or `major` for breaking changes. The shared version PR
 updates this package's version, changelog, and workspace dependency metadata.
-The separate **Publish diagram-viewer** workflow publishes new committed versions
-with public access and provenance. It skips pending package changesets and
-versions already on npm. It does not create Morsel tags or deploy the service.
+The independent **Publish diagram-viewer** job in the **Publish** workflow
+publishes new committed versions with public access and provenance. It skips
+pending package changesets and versions already on npm. It does not create Morsel
+tags or deploy the service.
 
 The package owner must configure an npm trusted publisher for
-`narumiruna/morsel`, workflow `npm-release.yml`, with direct `npm publish` allowed.
+`narumiruna/morsel`, workflow `release.yml`, with direct `npm publish` allowed.
 See [public npm releases](../../docs/development.md#public-npm-releases) for setup
 and failure handling. Validation uses test doubles; it never runs a real publish.

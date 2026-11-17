@@ -344,15 +344,16 @@ are allowed. A changeset can name both when needed. Commit the generated
 
 The **Publish** workflow runs on pushes to `main` and through manual dispatch:
 
-1. `node scripts/prepare-release.mjs` checks both release targets. An empty list,
-   including changesets without targets, leaves files unchanged and skips the PR.
-   - Preparation applies the highest pending bump for each selected target. It
-     updates its version and changelog, the viewer's package dependency, and
-     lockfile metadata, then removes the consumed changesets.
-   - `peter-evans/create-pull-request@v8` creates or updates the existing
-     `changeset-release/main` PR. Its body contains each new release entry. The
-     action stages the root release files, diagram-viewer manifest/changelog,
-     and viewer manifest. PR creation needs the existing GitHub permissions.
+1. `changesets/action@v2` creates or updates the existing
+   `changeset-release/main` PR when nonempty changesets remain. Empty changesets
+   leave version files unchanged and skip PR creation.
+   - The action runs `npm run release:version` to apply the highest pending bump
+     for each selected target, update changelogs and workspace/lock metadata,
+     and remove consumed changesets. The custom version command includes Morsel's
+     root version, which stock workspace discovery does not version.
+   - The action commits all changed release files through the GitHub API. Its PR
+     notes list changed workspace versions; review Morsel release notes in the
+     root `CHANGELOG.md`. PR creation needs the existing GitHub permissions.
    - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
 2. After the version PR is merged and no root release remains pending,
    `npm run release` creates and pushes one Morsel `vX.Y.Z` tag from the checked-out
@@ -398,9 +399,14 @@ package release. The shared version PR updates the package changelog/version,
 the viewer's dependency, and workspace lock metadata. It does not bump the
 private viewer version.
 
-The separate **Publish diagram-viewer** workflow (`npm-release.yml`) runs on main
-pushes or manual dispatch from main. It uses GitHub-hosted runners, Node.js 26,
-and npm trusted publishing:
+The **Publish** workflow (`release.yml`) runs on main pushes or manual dispatch
+from main. Its independent `npm-publish` job (**Publish diagram-viewer**) uses
+GitHub-hosted runners, Node.js 26, and npm trusted publishing. It does not depend
+on the Morsel publication jobs, and its result does not gate service deployment.
+Tests and checks stay in `ci.yml`; the release workflow only prepares versions
+and publishes releases.
+
+The npm job follows these rules:
 
 1. The job verifies its checkout still matches the latest `origin/main` before
    publication. Pending diagram-viewer changesets skip publication. Root-only
@@ -420,7 +426,7 @@ The package owner must configure a trusted publisher on npm for:
 
 - GitHub owner: `narumiruna`
 - Repository: `morsel`
-- Workflow filename: `npm-release.yml` (filename only)
+- Workflow filename: `release.yml` (filename only)
 - Allowed action: direct `npm publish`
 
 New trusted publishers permit staged publication by default. Direct publication
@@ -429,14 +435,19 @@ successful publish does not occur within two days. Use the
 [official npm setup guide](https://docs.npmjs.com/trusted-publishers/) to confirm
 the current account-side settings. No new stored npm token is used.
 
-The workflow has `contents: read` and job-scoped `id-token: write`. It does not
-cache release dependencies. npm requires version 11.5.1+ and Node.js 22.14+ for
-this OIDC path; the selected Node.js 26 runner meets these requirements.
+If a trusted publisher already names `npm-release.yml`, add a new connection for
+`release.yml` before merging a package version PR. Existing connections cannot be
+edited. After the first authorized publication with the new connection succeeds,
+remove the obsolete connection. Renaming a workflow does not transfer npm trust.
+
+The npm job has only `contents: read` and `id-token: write`. The Morsel jobs do not
+receive OIDC permission. The npm job does not cache release dependencies. npm
+requires version 11.5.1+ and Node.js 22.14+ for this OIDC path; the selected Node.js 26 runner meets these requirements.
 
 Local tests use fake npm commands and do not establish trusted publisher access.
 `npm whoami` does not prove OIDC publish permission. The owner must verify the
-first authorized **Publish diagram-viewer** run after setup. Account-side setup
-and real publication remain unverified until that run. Do not merge a version
+first authorized **Publish diagram-viewer** job in **Publish** after setup.
+Account-side setup and real publication remain unverified until that run. Do not merge a version
 PR or dispatch a publication job only to test it. Do not use
 `npm run release:diagram-viewer` as a preview command.
 

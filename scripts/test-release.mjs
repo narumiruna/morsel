@@ -17,7 +17,6 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { runInNewContext } from "node:vm"
 import { runChangeset } from "./changeset.mjs"
-import { prepareRelease } from "./prepare-release.mjs"
 import { publishRepository } from "./release.mjs"
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url))
@@ -186,70 +185,6 @@ test("empty releases and unsupported arguments do not change files", async (t) =
     await assert.rejects(runChangeset(args, root), /npm run changeset/)
   }
   assert.equal(git(root, "status", "--porcelain"), "")
-})
-
-for (const emptyChangeset of [false, true]) {
-  test(`PR preparation skips ${emptyChangeset ? "changesets without releases" : "an empty changeset directory"}`, async (t) => {
-    const root = await fixture(t)
-    if (emptyChangeset) {
-      await writeFile(join(root, ".changeset/empty.md"), "---\n{}\n---\n\nNo release needed.\n")
-    }
-    const before = git(root, "status", "--porcelain")
-    const files = await readdir(join(root, ".changeset"))
-    assert.equal(await prepareRelease(root), null)
-    assert.equal(git(root, "status", "--porcelain"), before)
-    assert.deepEqual(await readdir(join(root, ".changeset")), files)
-    assert.equal((await json(join(root, "package.json"))).version, "0.0.1")
-    assert.equal(git(root, "tag", "--list"), "")
-  })
-}
-
-test("PR preparation includes only the new root release and leaves workspaces unchanged", async (t) => {
-  const root = await fixture(t)
-  await add(root, "patch", "Fix repository rendering.")
-  await add(root, "minor", "Add repository settings.")
-  git(root, "add", "--", ".changeset")
-  git(root, "commit", "--quiet", "-m", "test: add release PR changesets")
-  const head = git(root, "rev-parse", "HEAD")
-  const workspaces = await Promise.all(
-    workspaceNames.map((workspace) =>
-      readFile(join(root, `packages/${workspace}/package.json`), "utf8"),
-    ),
-  )
-  const lockfile = await json(join(root, "package-lock.json"))
-
-  const body = await prepareRelease(root)
-  assert.match(body, /# Releases\n\n## @narumitw\/morsel@0\.1\.0\n/)
-  assert.ok(body.includes("Fix repository rendering."))
-  assert.ok(body.includes("Add repository settings."))
-  assert.doesNotMatch(body, /Initial release\.|morsel-client|morsel-viewer|publish to npm/)
-  assert.equal((await json(join(root, "package.json"))).version, "0.1.0")
-  lockfile.version = "0.1.0"
-  lockfile.packages[""].version = "0.1.0"
-  assert.deepEqual(await json(join(root, "package-lock.json")), lockfile)
-  assert.deepEqual((await readdir(join(root, ".changeset"))).sort(), ["README.md", "config.json"])
-  for (const [index, workspace] of workspaceNames.entries()) {
-    assert.equal(
-      await readFile(join(root, `packages/${workspace}/package.json`), "utf8"),
-      workspaces[index],
-    )
-  }
-  assert.equal(git(root, "rev-parse", "HEAD"), head)
-  assert.equal(git(root, "tag", "--list"), "")
-  const before = git(root, "status", "--porcelain")
-  assert.equal(await prepareRelease(root), null)
-  assert.equal(git(root, "status", "--porcelain"), before)
-})
-
-test("PR preparation rejects workspace releases before changing files", async (t) => {
-  const root = await fixture(t)
-  await writeFile(
-    join(root, ".changeset/invalid.md"),
-    '---\n"@narumitw/morsel-client": patch\n---\n\nWrong release target.\n',
-  )
-  const before = git(root, "status", "--porcelain")
-  await assert.rejects(prepareRelease(root), /must target only @narumitw\/morsel/)
-  assert.equal(git(root, "status", "--porcelain"), before)
 })
 
 test("a mixed root and workspace changeset is rejected before any writes", async (t) => {
@@ -500,31 +435,6 @@ for (const [description, corrupt] of [
     assert.equal(git(root, "diff"), before)
     assert.deepEqual(await readdir(join(root, ".changeset")), changesets)
     assert.deepEqual(await readdir(join(root, "packages/diagram-viewer")), ["package.json"])
-  })
-}
-
-for (const combined of [false, true]) {
-  test(`PR preparation includes ${combined ? "root and package" : "only package"} release notes`, async (t) => {
-    const root = await fixture(t)
-    await add(root, "patch", "Fix diagram controls.", diagramName)
-    if (combined) await add(root, "minor", "Add repository settings.")
-    const body = await prepareRelease(root)
-    assert.match(body, /## @narumitw\/diagram-viewer@0\.1\.1\n/)
-    assert.match(body, /Fix diagram controls\./)
-    assert.match(body, /npm/)
-    assert.doesNotMatch(body, /morsel-viewer|morsel-client|Initial release\./)
-    if (combined) {
-      assert.match(body, /## @narumitw\/morsel@0\.1\.0\n/)
-      assert.match(body, /Add repository settings\./)
-      assert.match(body, /repository tag, container, and GitHub release/)
-    } else {
-      assert.doesNotMatch(
-        body,
-        /container|deploy|repository tag|GitHub release|## @narumitw\/morsel@/,
-      )
-      assert.equal((await json(join(root, "package.json"))).version, "0.0.1")
-    }
-    assert.equal(await prepareRelease(root), null)
   })
 }
 
@@ -829,104 +739,39 @@ for (const [version, expected] of [
   })
 }
 
-for (const state of [
-  "no changesets",
-  "empty changeset",
-  "root release",
-  "package release",
-  "combined release",
-]) {
-  test(`PR preparation CLI emits the correct outputs for ${state}`, async (t) => {
-    const root = await fixture(t)
-    if (state === "root release" || state === "combined release") {
-      await add(root, "patch", "Fix repository rendering.")
-    }
-    if (state === "package release" || state === "combined release") {
-      await add(root, "patch", "Fix diagram controls.", diagramName)
-    }
-    if (state === "empty changeset") {
-      await writeFile(join(root, ".changeset/empty.md"), "---\n{}\n---\n\nNo release needed.\n")
-    }
-    await mkdir(join(root, "scripts"))
-    for (const filename of ["prepare-release.mjs", "changeset.mjs"]) {
-      await copyFile(join(repositoryRoot, "scripts", filename), join(root, "scripts", filename))
-    }
-    await symlink(join(repositoryRoot, "node_modules"), join(root, "node_modules"), "dir")
-    const runnerTemp = await mkdtemp(join(tmpdir(), "morsel-release-pr-output-"))
-    t.after(() => rm(runnerTemp, { recursive: true, force: true }))
-    const output = join(runnerTemp, "output")
-    await writeFile(output, "existing=value\n")
-    const before = git(root, "status", "--porcelain")
-    const result = spawnSync(process.execPath, [join(root, "scripts/prepare-release.mjs")], {
-      cwd: join(root, "packages/viewer"),
-      env: { ...process.env, GITHUB_OUTPUT: output, RUNNER_TEMP: runnerTemp },
-      encoding: "utf8",
-    })
-    assert.equal(result.status, 0, result.stderr)
-    if (state.endsWith("release")) {
-      const bodyPath = join(runnerTemp, "morsel-release-pr.md")
-      assert.equal(
-        await readFile(output, "utf8"),
-        `existing=value\nhas-releases=true\nbody-path=${bodyPath}\n`,
-      )
-      const body = await readFile(bodyPath, "utf8")
-      if (state !== "package release") {
-        assert.match(body, /## @narumitw\/morsel@0\.0\.2\n/)
-        assert.ok(body.includes("Fix repository rendering."))
-        assert.equal((await json(join(root, "package.json"))).version, "0.0.2")
-      } else {
-        assert.equal((await json(join(root, "package.json"))).version, "0.0.1")
-        assert.doesNotMatch(body, /container|deploy|repository tag|GitHub release/)
-      }
-      if (state !== "root release") {
-        assert.match(body, /## @narumitw\/diagram-viewer@0\.1\.1\n/)
-        assert.ok(body.includes("Fix diagram controls."))
-      }
-      assert.doesNotMatch(body, /Initial release\./)
-    } else {
-      assert.equal(await readFile(output, "utf8"), "existing=value\nhas-releases=false\n")
-      assert.deepEqual(await readdir(runnerTemp), ["output"])
-      assert.equal(git(root, "status", "--porcelain"), before)
-      assert.match(result.stdout, /No repository release to prepare\./)
-    }
-  })
-}
-
-test("workflow creates one version PR for nonempty allowed releases", async () => {
+test("workflow uses Changesets Action for version PRs before the existing deployment chain", async () => {
   const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
-  assert.ok(workflow.includes("  workflow_dispatch:\n"))
-  assert.ok(workflow.includes("  push:\n    branches: [main]\n"))
-  assert.ok(workflow.includes("node-version: 26"))
-  assert.ok(workflow.includes("pull-requests: write"))
+  const publish = workflow.split("\n  publish:\n")[1]?.split(/\n {2}[\w-]+:\n/)[0]
+  assert.ok(publish, "Publish must retain the repository publication job")
+  assert.match(publish, /if: github.ref == 'refs\/heads\/main'/)
+  assert.match(publish, /node-version: 26/)
+  assert.match(publish, /permissions:\n {6}contents: write\n {6}pull-requests: write/)
   assert.match(
-    workflow,
-    /name: Prepare version PR\n\s+id: version\n\s+run: node scripts\/prepare-release\.mjs/,
+    publish,
+    /uses: changesets\/action@v2\n {8}with:\n {10}version-script: npm run release:version/,
   )
-  assert.match(
-    workflow,
-    /name: Create version PR\n\s+if: steps\.version\.outputs\.has-releases == 'true'\n\s+uses: peter-evans\/create-pull-request@v8/,
-  )
-  assert.ok(workflow.includes("branch: changeset-release/main\n          base: main"))
-  assert.ok(workflow.includes('commit-message: "chore(release): version repository and packages"'))
-  assert.ok(workflow.includes('title: "chore(release): version repository and packages"'))
-  assert.match(workflow, /body-path: \$\{\{ steps\.version\.outputs\.body-path \}\}/)
-  assert.match(
-    workflow,
-    /add-paths: \|\n +\.changeset\/\*\.md\n +CHANGELOG\.md\n +package\.json\n +package-lock\.json\n +packages\/diagram-viewer\/package\.json\n +packages\/diagram-viewer\/CHANGELOG\.md\n +packages\/viewer\/package\.json\n/,
-  )
+  assert.match(publish, /commit-message: "chore\(release\): version repository and packages"/)
+  assert.match(publish, /pr-title: "chore\(release\): version repository and packages"/)
   assert.ok(
-    workflow.indexOf("run: npm run release\n") <
-      workflow.indexOf("run: node scripts/prepare-release.mjs\n"),
+    publish.indexOf("run: npm run release\n") < publish.indexOf("uses: changesets/action@v2"),
   )
-  assert.ok(
-    workflow.indexOf("run: node scripts/prepare-release.mjs\n") <
-      workflow.indexOf("uses: peter-evans/create-pull-request@v8"),
+  assert.match(publish, /id: release/)
+  assert.match(publish, /tag: \$\{\{ steps\.release\.outputs\.tag \}\}/)
+  assert.doesNotMatch(
+    publish,
+    /publish-script:|npm publish|registry-url:|id-token:|release:diagram-viewer/,
   )
-  assert.doesNotMatch(workflow, /changesets\/action@/)
+  assert.doesNotMatch(workflow, /prepare-release\.mjs|peter-evans\/create-pull-request@/)
   assert.ok(workflow.includes("if: needs.publish.outputs.tag != ''"))
   assert.ok(workflow.includes("uses: ./.github/workflows/container.yml"))
   assert.ok(workflow.includes("needs: [publish, container]"))
-  assert.doesNotMatch(workflow, /publish-script:|npm publish|registry-url:|id-token:/)
+})
+
+test("release workflow leaves tests and checks to CI", async () => {
+  const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8")
+  assert.doesNotMatch(workflow, /npm test|npm run (?:ci|test|check|lint|typecheck)(?=[:\s]|$)/)
+  const ci = await readFile(join(repositoryRoot, ".github/workflows/ci.yml"), "utf8")
+  assert.match(ci, /run: npm run test:release/)
 })
 
 test("publication deploys its tag only after the GitHub release succeeds", async () => {
