@@ -1,5 +1,21 @@
 # @narumitw/morsel
 
+## 0.4.0
+
+### Minor Changes
+
+- 336cb31: Extract a reusable diagram viewer workspace configured for public npm access.
+  Provide composable React controls, shared action bindings, scoped styles, and a
+  renderer-independent browser core.
+  Keep Mermaid and Vega-Lite rendering in Morsel and preserve existing source,
+  camera, fullscreen, and export controls.
+
+### Patch Changes
+
+- bdfd97c: Preserve keyboard focus on share pagination controls while loading and block repeated navigation.
+- 527628e: Support diagram-viewer package changesets alongside repository changesets. Keep
+  Morsel tags, container publication, and deployment separate from npm publication.
+
 ## 0.3.1
 
 ### Patch Changes
