@@ -135,8 +135,9 @@ test("default controls and custom native button share actions without shared ins
   expect(await transform(custom)).toBe(before)
   await page.keyboard.press("Tab")
   await expect(custom.getByRole("button", { name: "Zoom in", exact: true })).toBeFocused()
+  const beforeEnterZoom = await custom.getByLabel("Current zoom").textContent()
   await page.keyboard.press("Enter")
-  await expect(custom.getByLabel("Current zoom")).not.toHaveText(customZoom ?? "")
+  await expect(custom.getByLabel("Current zoom")).not.toHaveText(beforeEnterZoom ?? "")
   const sourceIDs = await page
     .locator(".ndv-source")
     .evaluateAll((elements) => elements.map((element) => element.id))
@@ -309,6 +310,62 @@ for (const mode of ["unavailable", "rejected"]) {
     ).toBeEnabled()
   })
 }
+
+test("fallback restores host scroll longhands and priorities on exit and unmount", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: undefined,
+    })
+  })
+  await openFixture(page)
+  await page.addStyleTag({ content: "main { height: 450px; overflow: hidden; }" })
+  await page.locator("main").evaluate((element) => {
+    element.style.setProperty("overflow-y", "auto", "important")
+    element.style.setProperty("overscroll-behavior-y", "contain", "important")
+    document.body.style.setProperty("overflow-x", "scroll", "important")
+    document.body.style.setProperty("overflow-y", "auto")
+    document.documentElement.style.setProperty("overscroll-behavior-x", "none", "important")
+  })
+  const snapshot = () =>
+    page.evaluate(() =>
+      [document.querySelector("main"), document.body, document.documentElement].map((element) => {
+        if (!(element instanceof HTMLElement)) throw new Error("Missing scroll container")
+        return ["overflow-x", "overflow-y", "overscroll-behavior-x", "overscroll-behavior-y"].map(
+          (property) => ({
+            value: element.style.getPropertyValue(property),
+            priority: element.style.getPropertyPriority(property),
+          }),
+        )
+      }),
+    )
+  const before = await snapshot()
+  const card = defaultCard(page)
+  await card.getByRole("button", { name: "Fullscreen", exact: true }).click()
+  await expect(card).toHaveAttribute("role", "dialog")
+  await page.keyboard.press("Escape")
+  await expect(card).not.toHaveAttribute("role", "dialog")
+  expect(await snapshot()).toEqual(before)
+  await expect(page.locator("main")).toHaveCSS("overflow-y", "auto")
+  await page.locator("main").evaluate((element) => {
+    element.scrollTop = 0
+  })
+  await page.locator("main").hover({ position: { x: 4, y: 4 } })
+  await page.mouse.wheel(0, 80)
+  await expect
+    .poll(() => page.locator("main").evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0)
+  await card.getByRole("button", { name: "Fullscreen", exact: true }).click()
+  await expect(card).toHaveAttribute("role", "dialog")
+  await page
+    .getByRole("button", { name: "Unmount viewers", includeHidden: true })
+    .evaluate((element: HTMLButtonElement) => element.click())
+  await expect(page.locator(".ndv-root")).toHaveCount(0)
+  expect(await snapshot()).toEqual(before)
+  await expect(page.locator("main")).toHaveCSS("overflow-y", "auto")
+})
 
 test("imperative Vega mount and native chart controls survive toolbar and content updates", async ({
   page,

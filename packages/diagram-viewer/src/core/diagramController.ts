@@ -134,8 +134,7 @@ interface IsolationRecord {
 
 interface ScrollLockRecord {
   element: HTMLElement
-  overflow: string
-  overscrollBehavior: string
+  declarations: { property: string; value: string; priority: string }[]
 }
 
 // Like native fullscreen, only one fallback can own document isolation at a time.
@@ -202,8 +201,9 @@ export function createDiagramController(
     for (const item of isolation) item.element.inert = item.inert
     isolation = []
     for (const item of scrollLocks) {
-      item.element.style.overflow = item.overflow
-      item.element.style.overscrollBehavior = item.overscrollBehavior
+      for (const { property, value, priority } of item.declarations) {
+        item.element.style.setProperty(property, value, priority)
+      }
     }
     scrollLocks = []
     if (fallbackOwners.get(document) === closeFallback) fallbackOwners.delete(document)
@@ -252,8 +252,17 @@ export function createDiagramController(
     }
     scrollLocks = [...containers].map((element) => ({
       element,
-      overflow: element.style.overflow,
-      overscrollBehavior: element.style.overscrollBehavior,
+      // A shorthand can be empty when only one axis is set or priorities differ.
+      declarations: [
+        "overflow-x",
+        "overflow-y",
+        "overscroll-behavior-x",
+        "overscroll-behavior-y",
+      ].map((property) => ({
+        property,
+        value: element.style.getPropertyValue(property),
+        priority: element.style.getPropertyPriority(property),
+      })),
     }))
     for (const item of scrollLocks) {
       item.element.style.overflow = "hidden"

@@ -164,9 +164,10 @@ Fit selects an overview; reset selects readable labels and can crop the image.
 
 Fullscreen keeps the live DOM node. If the native API fails, the existing
 in-place fallback isolates background siblings with `inert`, locks scroll
-containers, and restores their previous values and opener focus on exit or
-unmount. Escape and the fullscreen button close fallback mode. A failed or late
-native request cannot reopen the fallback after destruction.
+containers, and restores each affected inline axis declaration and its priority
+on exit or unmount. It also returns focus to the opener. Escape and the fullscreen
+button close fallback mode. A failed or late native request cannot reopen the
+fallback after destruction.
 
 ## Framework-independent core
 

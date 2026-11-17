@@ -393,6 +393,49 @@ describe("fullscreen lifecycle", () => {
     expect(frames.size).toBe(0)
   })
 
+  it.each(["close", "escape", "destroy"] as const)(
+    "restores scroll longhands and priorities on %s",
+    async (exit) => {
+      const { controller, root, viewport } = fixture()
+      const container = document.createElement("div")
+      container.style.setProperty("overflow-y", "auto", "important")
+      container.style.setProperty("overscroll-behavior-y", "contain", "important")
+      root.before(container)
+      container.append(root)
+      document.body.style.setProperty("overflow-x", "scroll", "important")
+      document.body.style.setProperty("overflow-y", "auto")
+      document.body.style.setProperty("overscroll-behavior", "contain none", "important")
+      document.documentElement.style.setProperty("overscroll-behavior-x", "none", "important")
+      const properties = [
+        "overflow-x",
+        "overflow-y",
+        "overscroll-behavior-x",
+        "overscroll-behavior-y",
+      ]
+      const elements = [container, document.body, document.documentElement]
+      const snapshot = () =>
+        elements.map((element) =>
+          properties.map((property) => ({
+            value: element.style.getPropertyValue(property),
+            priority: element.style.getPropertyPriority(property),
+          })),
+        )
+      const before = snapshot()
+      expect(container.style.overflow).toBe("")
+      root.requestFullscreen = vi.fn().mockRejectedValue(new Error("Unavailable"))
+      await controller.run("fullscreen")
+      flushFrames()
+      expect(controller.getState().fallback).toBe(true)
+      expect(container.style.overflow).toBe("hidden")
+      if (exit === "destroy") controller.destroy()
+      else if (exit === "escape")
+        viewport.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      else await controller.run("fullscreen")
+      flushFrames()
+      expect(snapshot()).toEqual(before)
+    },
+  )
+
   it("does not focus the hidden viewport while source is shown", async () => {
     const { controller, button, viewport } = fixture()
     button.focus()
