@@ -1,5 +1,3 @@
-import type { Appearance } from "../theme"
-
 export const maxPngDimension = 8_192
 export const maxPngPixels = 16_000_000
 const maxSerializedSvgBytes = 16 * 1024 * 1024
@@ -26,7 +24,7 @@ function naturalSize(svg: SVGSVGElement): NaturalSize {
   return { height, width, x, y }
 }
 
-export function serializeDiagramSvg(svg: SVGSVGElement, appearance: Appearance): string {
+export function serializeDiagramSvg(svg: SVGSVGElement, backgroundColor = "#ffffff"): string {
   const clone = svg.cloneNode(true) as SVGSVGElement
   const size = naturalSize(svg)
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg")
@@ -41,7 +39,7 @@ export function serializeDiagramSvg(svg: SVGSVGElement, appearance: Appearance):
   background.setAttribute("y", String(size.y))
   background.setAttribute("width", String(size.width))
   background.setAttribute("height", String(size.height))
-  background.setAttribute("fill", appearance === "dark" ? "#111113" : "#ffffff")
+  background.setAttribute("fill", backgroundColor)
   clone.prepend(background)
 
   const output = `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`
@@ -74,7 +72,10 @@ function loadImage(source: string): Promise<HTMLImageElement> {
   })
 }
 
-export async function createPngExport(svg: SVGSVGElement, appearance: Appearance): Promise<Blob> {
+export async function createPngExport(
+  svg: SVGSVGElement,
+  backgroundColor = "#ffffff",
+): Promise<Blob> {
   const size = naturalSize(svg)
   const preferredScale = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
   const scale = Math.min(
@@ -86,16 +87,17 @@ export async function createPngExport(svg: SVGSVGElement, appearance: Appearance
   if (!Number.isFinite(scale) || scale <= 0) {
     throw new Error("Diagram is too large to export safely.")
   }
-  const width = Math.max(1, Math.round(size.width * scale))
-  const height = Math.max(1, Math.round(size.height * scale))
-  const image = await loadImage(serializeDiagramSvg(svg, appearance))
+  // Round down so fractional dimensions cannot exceed the pixel budget.
+  const width = Math.max(1, Math.floor(size.width * scale))
+  const height = Math.max(1, Math.floor(size.height * scale))
+  const image = await loadImage(serializeDiagramSvg(svg, backgroundColor))
   try {
     const canvas = document.createElement("canvas")
     canvas.width = width
     canvas.height = height
     const context = canvas.getContext("2d")
     if (!context) throw new Error("PNG export is unavailable in this browser.")
-    context.fillStyle = appearance === "dark" ? "#111113" : "#ffffff"
+    context.fillStyle = backgroundColor
     context.fillRect(0, 0, width, height)
     context.drawImage(image, 0, 0, width, height)
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"))
@@ -108,18 +110,17 @@ export async function createPngExport(svg: SVGSVGElement, appearance: Appearance
   }
 }
 
-export function downloadDiagram(
-  blob: Blob,
-  extension: "png" | "svg",
-  basename = "mermaid-diagram",
-): void {
+export function downloadDiagram(blob: Blob, extension: "png" | "svg", basename = "diagram"): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url
   link.download = `${basename}.${extension}`
   link.hidden = true
-  document.body.append(link)
-  link.click()
-  link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 0)
+  try {
+    document.body.append(link)
+    link.click()
+  } finally {
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+  }
 }

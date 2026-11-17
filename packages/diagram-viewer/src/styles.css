@@ -1,0 +1,176 @@
+.ndv-root {
+  --ndv-background: #fff;
+  --ndv-foreground: #202124;
+  --ndv-border: #d5d7da;
+  --ndv-control: #eef0f3;
+  box-sizing: border-box;
+  margin-block: 1.5rem;
+  border: 1px solid var(--ndv-border);
+  border-radius: var(--ndv-radius, 8px);
+  background: var(--ndv-background);
+  color: var(--ndv-foreground);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.ndv-root *,
+.ndv-root *::before,
+.ndv-root *::after {
+  box-sizing: border-box;
+}
+
+.ndv-root [hidden] {
+  display: none;
+}
+
+.ndv-root:fullscreen,
+.ndv-root.diagram-expanded {
+  position: fixed;
+  z-index: 2147483647;
+  inset: 0;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ndv-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--ndv-border);
+  padding: 0.75rem;
+}
+
+.ndv-control-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.ndv-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--ndv-radius, 6px);
+  padding: 0.5rem;
+  background: var(--ndv-control);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ndv-control:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ndv-control[aria-pressed="true"] {
+  border-color: currentColor;
+}
+
+.ndv-root :focus-visible {
+  outline: 2px solid var(--ndv-focus, #1463d6);
+  outline-offset: 2px;
+}
+
+.ndv-tooltip {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 4px);
+  left: 0;
+  width: max-content;
+  max-width: 10rem;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  background: var(--ndv-foreground);
+  color: var(--ndv-background);
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.ndv-toolbar output {
+  min-width: 3rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.ndv-viewport {
+  position: relative;
+  min-height: 10rem;
+  max-height: 75vh;
+  overflow: hidden;
+  border-radius: inherit;
+  padding: 1rem;
+  background: var(--ndv-background);
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.ndv-viewport:active {
+  cursor: grabbing;
+}
+
+.ndv-root:fullscreen .ndv-viewport,
+.ndv-root.diagram-expanded .ndv-viewport {
+  max-height: none;
+  height: auto;
+  flex: 1;
+  /* The expanded canvas owns pan/pinch. Inline diagrams keep document scrolling. */
+  touch-action: none;
+}
+
+.ndv-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.ndv-svg svg {
+  display: block;
+  /* biome-ignore lint/complexity/noImportantStyles: Override renderer inline sizing. */
+  width: 100% !important;
+  /* biome-ignore lint/complexity/noImportantStyles: Override renderer inline sizing. */
+  max-width: none !important;
+  /* biome-ignore lint/complexity/noImportantStyles: Override renderer inline sizing. */
+  height: 100% !important;
+  overflow: visible;
+}
+
+.ndv-pan-hint,
+.ndv-status:not(:empty) {
+  margin: 0;
+  border-top: 1px solid var(--ndv-border);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.ndv-source {
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 1rem;
+  font-size: 0.875rem;
+}
+
+.ndv-loading {
+  min-height: 8rem;
+}
+
+@media (forced-colors: active) {
+  .ndv-control {
+    border-color: ButtonText;
+  }
+}

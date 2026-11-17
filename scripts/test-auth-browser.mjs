@@ -117,7 +117,8 @@ async function availablePort() {
 }
 
 try {
-  console.log("Building viewer and authentication browser backend")
+  console.log("Building diagram-viewer, viewer, and authentication browser backend")
+  // The viewer prebuild compiles its workspace dependency, including on clean checkouts.
   await run("npm", ["run", "build", "--workspace", "@narumitw/morsel-viewer"])
   for (const name of ["server", "migrate", "account", "test-auth"]) {
     if (stopping) throw new Error("Test interrupted")

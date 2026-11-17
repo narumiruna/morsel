@@ -1,4 +1,10 @@
+import { readFileSync } from "node:fs"
 import { defineConfig, devices } from "@playwright/test"
+
+const isWSL =
+  Boolean(process.env.WSL_DISTRO_NAME || process.env.WSL_INTEROP) ||
+  (process.platform === "linux" &&
+    /microsoft/i.test(readFileSync("/proc/sys/kernel/osrelease", "utf8")))
 
 const baseURL = process.env.MORSEL_AUTH_TEST_ORIGIN
 if (!baseURL || !process.env.MORSEL_AUTH_TEST_HELPER || !process.env.MORSEL_AUTH_TEST_OUTPUT) {
@@ -18,6 +24,7 @@ export default defineConfig({
   outputDir: process.env.MORSEL_AUTH_TEST_OUTPUT,
   use: {
     baseURL,
+    launchOptions: { args: isWSL ? ["--ozone-platform=wayland"] : [] },
     trace: "off",
     screenshot: "off",
     video: "off",

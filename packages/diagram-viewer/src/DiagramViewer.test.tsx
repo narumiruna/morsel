@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { DiagramViewer } from "./DiagramViewer"
-import { createPngExport, downloadDiagram } from "./diagramExport"
+import { createPngExport, downloadDiagram } from "./core/diagramExport.js"
+import { DiagramViewer } from "./index.js"
 
-vi.mock("./diagramExport", () => ({
+vi.mock("./core/diagramExport.js", () => ({
   createPngExport: vi.fn().mockResolvedValue(new Blob(["png"], { type: "image/png" })),
   downloadDiagram: vi.fn(),
 }))
@@ -12,13 +12,22 @@ const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text>
 
 function renderViewer(
   props: Partial<{
-    appearance: "light" | "dark"
+    background: string
     refreshing: boolean
     renderError: string
     retryRender: () => void
   }> = {},
 ) {
-  return render(<DiagramViewer kind="mermaid" svg={svg} source="graph TD; A-->B" {...props} />)
+  return render(
+    <DiagramViewer
+      graphicName="Mermaid diagram"
+      stageClassName="mermaid-diagram"
+      filename="mermaid-diagram"
+      svg={svg}
+      source="graph TD; A-->B"
+      {...props}
+    />,
+  )
 }
 
 describe("DiagramViewer", () => {
@@ -41,7 +50,9 @@ describe("DiagramViewer", () => {
 
   it("keeps the initial status empty without whitespace nodes", () => {
     const { container } = renderViewer()
+    expect(container.querySelector(".diagram-card")).toHaveAttribute("aria-busy", "false")
     const status = container.querySelector(".diagram-status")
+    expect(container.querySelector(".ndv-root")).toHaveAttribute("aria-busy", "false")
     expect(status?.childNodes).toHaveLength(0)
     expect(status?.matches(":empty")).toBe(true)
     expect(status?.matches(".diagram-status:not(:empty)")).toBe(false)
@@ -84,7 +95,7 @@ describe("DiagramViewer", () => {
   it("allows zooming back to an overview floor below 25 percent", () => {
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(100)
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(300)
-    render(<DiagramViewer kind="mermaid" svg='<svg viewBox="0 0 1000 500"></svg>' source="" />)
+    render(<DiagramViewer svg='<svg viewBox="0 0 1000 500"></svg>' source="" />)
     const zoomOut = screen.getByRole("button", { name: "Zoom out" })
     expect(screen.getByLabelText("Current zoom")).toHaveTextContent("10%")
     expect(zoomOut).toBeDisabled()
@@ -99,7 +110,7 @@ describe("DiagramViewer", () => {
   it("uses the exact minimum rather than the rounded zoom percentage", () => {
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(250.1)
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(300)
-    render(<DiagramViewer kind="mermaid" svg='<svg viewBox="0 0 1000 500"></svg>' source="" />)
+    render(<DiagramViewer svg='<svg viewBox="0 0 1000 500"></svg>' source="" />)
     const zoomOut = screen.getByRole("button", { name: "Zoom out" })
     expect(screen.getByLabelText("Current zoom")).toHaveTextContent("25%")
     expect(zoomOut).toBeEnabled()
@@ -111,7 +122,6 @@ describe("DiagramViewer", () => {
   it("uses the exact maximum rather than the rounded zoom percentage", () => {
     render(
       <DiagramViewer
-        kind="mermaid"
         svg='<svg viewBox="0 0 100 50"><text style="font-size: 3.5035px">A</text></svg>'
         source=""
       />,
@@ -130,7 +140,7 @@ describe("DiagramViewer", () => {
   it.each(["mermaid", "vega-lite"] as const)(
     "keeps %s controls consistent without preference selectors",
     (kind) => {
-      render(<DiagramViewer kind={kind} svg={svg} source="graph TD; A-->B" />)
+      render(<DiagramViewer typeLabel={kind} svg={svg} source="graph TD; A-->B" />)
       expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
       for (const button of screen.getAllByRole("button")) {
         expect(button).toHaveClass("diagram-control")
@@ -148,7 +158,10 @@ describe("DiagramViewer", () => {
         name: "Interactive Mermaid diagram. Use arrow keys to pan, plus or minus to zoom, and zero to fit.",
       }),
     )
-    expect(container.querySelector(".diagram-card")).toHaveAttribute("class", "diagram-card")
+    expect(container.querySelector(".diagram-card")).toHaveAttribute(
+      "class",
+      "ndv-root diagram-card",
+    )
     fireEvent.click(screen.getByRole("button", { name: "Retry diagram" }))
     expect(retryRender).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole("button", { name: "Download SVG" }))
@@ -290,12 +303,12 @@ describe("DiagramViewer", () => {
   })
 
   it("exports PNG once and preserves focus-visible feedback", async () => {
-    renderViewer({ appearance: "dark" })
+    renderViewer({ background: "#111113" })
     const button = screen.getByRole("button", { name: "Download PNG" })
     button.focus()
     fireEvent.click(button)
     await waitFor(() => expect(createPngExport).toHaveBeenCalled())
-    expect(createPngExport).toHaveBeenCalledWith(expect.any(SVGSVGElement), "dark")
+    expect(createPngExport).toHaveBeenCalledWith(expect.any(SVGSVGElement), "#111113")
     await screen.findByText("PNG download started.")
     expect(downloadDiagram).toHaveBeenCalledWith(expect.any(Blob), "png", "mermaid-diagram")
     expect(button).toHaveFocus()
