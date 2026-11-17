@@ -1,6 +1,6 @@
 # @narumitw/diagram-viewer
 
-Private React diagram frame, composable controls, and browser-only core. It has no
+React diagram frame, composable controls, and browser-only core. It has no
 Mermaid, Vega, Radix, or Morsel runtime dependency. Rendering stays in the host.
 The verified React and React DOM version is **19.3.1**. License: AGPL-3.0-only.
 
@@ -16,8 +16,10 @@ npm run test:browser --workspace @narumitw/diagram-viewer
 npm pack --workspace @narumitw/diagram-viewer --pack-destination /tmp
 ```
 
-The package stays private; these commands do not publish it. In another local
-React 19.3.1 app, install the resulting tarball:
+The package is configured for public npm access, but these commands only build,
+test, and pack it. No registry publication is performed by the repository release
+workflow. Until a registry release exists, install the resulting tarball in
+another React 19.3.1 app:
 
 ```sh
 npm install /tmp/narumitw-diagram-viewer-0.1.0.tgz
@@ -216,4 +218,7 @@ with the host application's owner. Publication, registry access, license review
 for distribution, and migrations in other apps require separate authorization.
 Browser captures are ignored under `test-results/`. Automated Chromium checks do
 not establish physical-device, screen-reader, or other-browser compatibility.
-No npm publication or independent release workflow is enabled.
+Public access is set by `publishConfig.access` in the package manifest. The
+repository release workflow does not publish or independently version this
+package; an npm publish operation still requires separate approval and scope
+access.

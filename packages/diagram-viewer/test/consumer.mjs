@@ -46,6 +46,11 @@ try {
     "--omit=peer",
     join(directory, packed.filename),
   ])
+  const manifest = JSON.parse(
+    await readFile(join(directory, "node_modules/@narumitw/diagram-viewer/package.json"), "utf8"),
+  )
+  assert.notEqual(manifest.private, true, "The packed package must permit publication")
+  assert.equal(manifest.publishConfig?.access, "public", "Scoped npm access must be public")
   await writeFile(
     join(directory, "core.mjs"),
     `

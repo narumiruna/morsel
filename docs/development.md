@@ -17,7 +17,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-The private [`@narumitw/diagram-viewer`](../packages/diagram-viewer/README.md)
+The reusable [`@narumitw/diagram-viewer`](../packages/diagram-viewer/README.md)
 workspace builds compiled ESM, declarations, and scoped CSS. Viewer dev, build,
 typecheck, test, and browser entry points build this dependency first; no existing
 `dist` directory is required. Root `npm test` also builds it before test discovery.
@@ -37,7 +37,8 @@ captures are ignored under `packages/diagram-viewer/test-results/`. The viewer
 and authentication Playwright configurations detect WSL and pass
 `--ozone-platform=wayland` without changing headless mode. The Docker viewer
 stage copies all dependency manifests and package source before building.
-Root-targeted changesets still version only Morsel; the package stays private.
+Root-targeted changesets still version only Morsel. The package is configured
+for public npm access, but the repository release workflow does not publish it.
 
 If port 4173 is occupied, run browser tests with `MORSEL_E2E_PREVIEW_PORT=4181 npm run test:browser` (choose an unused port).
 

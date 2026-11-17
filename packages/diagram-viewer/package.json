@@ -1,7 +1,9 @@
 {
   "name": "@narumitw/diagram-viewer",
   "version": "0.1.0",
-  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Composable React diagram viewer and framework-independent browser controls",
   "license": "AGPL-3.0-only",
   "repository": {

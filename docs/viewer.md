@@ -47,12 +47,13 @@ Fragment cleanup cannot erase message previews, URL rewriting, retained external
 
 ## Diagram viewer package
 
-The frame and controls come from the private
+The frame and controls come from the reusable
 [`@narumitw/diagram-viewer`](../packages/diagram-viewer/README.md) workspace.
 It provides a default viewer, composable controls, shared action bindings for
 app-specific buttons, and a framework-independent browser core. Morsel retains
 Mermaid sanitation, Vega resource policy, renderer lifecycles, theme selection,
-and source/render limits. This extraction does not publish an npm package.
+and source/render limits. The package is configured for public npm access;
+this extraction does not publish it to the registry.
 
 ## Mermaid diagram controls
 
