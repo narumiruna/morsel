@@ -9,6 +9,7 @@ import {
   DiagramZoom,
   useDiagramAction,
 } from "@narumitw/diagram-viewer"
+import { createDiagramView } from "@narumitw/diagram-viewer/core"
 import "@narumitw/diagram-viewer/styles.css"
 import { useEffect, useRef, useState } from "react"
 
@@ -44,6 +45,17 @@ export function ComposedExample() {
       <DiagramStatus />
     </DiagramRoot>
   )
+}
+
+/** The host supplies node semantics/actions and inline/expanded touch-action CSS. */
+export function SelectableNodeCameraExample(
+  viewport: HTMLElement,
+  stage: HTMLElement,
+  node: SVGElement,
+  isExpanded: () => boolean,
+) {
+  node.setAttribute("data-diagram-node", "")
+  return createDiagramView(viewport, stage, { isExpanded })
 }
 
 /** The host renderer owns and finalizes children; ready signals completion. */
