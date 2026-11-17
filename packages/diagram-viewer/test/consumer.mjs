@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { chromium } from "@playwright/test"
+import { previewURL } from "./preview.mjs"
 
 const workspace = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const directory = await mkdtemp(join(tmpdir(), "diagram-consumer-"))
@@ -120,7 +121,7 @@ console.log("Core imports without browser globals, React, or renderers")
   })
   let baseURL
   for (let attempts = 0; attempts < 100; attempts++) {
-    baseURL = output.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0]
+    baseURL = previewURL(output)
     if (baseURL) break
     if (server.exitCode !== null) throw new Error(output)
     await new Promise((resolve) => setTimeout(resolve, 100))
