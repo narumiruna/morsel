@@ -40,26 +40,34 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: npm run release
-      - name: Prepare version PR
-        id: version
-        run: node scripts/prepare-release.mjs
-      - name: Create version PR
-        if: steps.version.outputs.has-releases == 'true'
-        uses: peter-evans/create-pull-request@v8
+      - uses: changesets/action@v2
         with:
-          branch: changeset-release/main
-          base: main
+          version-script: npm run release:version
           commit-message: "chore(release): version repository and packages"
-          title: "chore(release): version repository and packages"
-          body-path: ${{ steps.version.outputs.body-path }}
-          add-paths: |
-            .changeset/*.md
-            CHANGELOG.md
-            package.json
-            package-lock.json
-            packages/diagram-viewer/package.json
-            packages/diagram-viewer/CHANGELOG.md
-            packages/viewer/package.json
+          pr-title: "chore(release): version repository and packages"
+
+  npm-publish:
+    name: Publish diagram-viewer
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm ci
+      - name: Verify latest main
+        run: |
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+      - run: npm run release:diagram-viewer
 
   container:
     needs: publish

@@ -23,16 +23,18 @@ A changeset can name both allowed targets when one change affects both releases.
 
 The **Publish** workflow prepares one version PR for all pending allowed targets.
 It updates the selected versions and changelogs, workspace dependency metadata,
-and lockfile. Empty release lists do not create a version PR. Review and merge
-the version PR before publication.
+and lockfile through `changesets/action@v2` and the repository version command.
+Empty release lists do not create a version PR. Review and merge the version PR
+before publication.
 
-The two publication paths stay separate:
+The **Publish** workflow keeps two publication paths in independent jobs:
 
-1. **Publish** creates Morsel's `vX.Y.Z` tag, container, GitHub release, and deploys
+1. The Morsel jobs create its `vX.Y.Z` tag, container, GitHub release, and deploy
    that tag. A package-only change does not create a Morsel version or tag.
-2. **Publish diagram-viewer** publishes only `@narumitw/diagram-viewer` to npm.
-   It skips pending package changesets and already published versions. It uses
-   GitHub OIDC and needs an owner-configured npm trusted publisher.
+2. The **Publish diagram-viewer** job publishes only `@narumitw/diagram-viewer` to
+   npm. It skips pending package changesets and already published versions. It
+   uses GitHub OIDC and needs an owner-configured npm trusted publisher for
+   `release.yml`.
 
 Use the repository commands, not the stock `npx changeset` CLI. The stock CLI can
 version other workspaces. `npm run release:version` changes local version files
