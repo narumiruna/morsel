@@ -3,6 +3,9 @@ export const maxDiagramScale = 4
 const minReadableLabelPixels = 14
 const inlineMinHeight = 160
 const inlineMaxHeight = 672
+const touchDragThreshold = 6
+const nativeControlSelector =
+  'input, select, textarea, button, a[href], label, summary, [contenteditable]:not([contenteditable="false"])'
 
 export type DiagramCameraMode = "overview" | "readable"
 
@@ -64,6 +67,12 @@ function center(a: PointerPosition, b: PointerPosition): DiagramPoint {
   return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }
 }
 
+/**
+ * Mount a camera on host-owned content. Mark selectable SVG nodes with
+ * `data-diagram-node` to allow expanded touch pan/pinch while retaining taps.
+ * Native controls and editable descendants keep their own gestures. The host
+ * owns node accessibility/activation and inline/expanded touch-action CSS.
+ */
 export function createDiagramView(
   viewport: HTMLElement,
   stage: HTMLElement,
@@ -78,7 +87,10 @@ export function createDiagramView(
     x: 0,
     y: 0,
   }
-  const pointers = new Map<number, PointerPosition>()
+  const pointers = new Map<number, PointerPosition & { startX: number; startY: number }>()
+  const captures = new Map<number, Element>()
+  const pendingTouchClicks = new Set<number>()
+  let touchMoved = false
   let mousePointerID: number | undefined
   let mouseLast: DiagramPoint | undefined
   let touchLast: DiagramPoint | undefined
@@ -146,7 +158,7 @@ export function createDiagramView(
   function labelFontSize(): number {
     const diagram = svg()
     if (!diagram) return 16
-    const sizes = [...diagram.querySelectorAll<SVGElement>("text")]
+    const sizes = [...diagram.querySelectorAll("text, foreignObject span, foreignObject p")]
       .map((label) => Number.parseFloat(getComputedStyle(label).fontSize))
       .filter((size) => Number.isFinite(size) && size > 0)
     return sizes.length ? Math.min(...sizes) : 16
@@ -272,28 +284,55 @@ export function createDiagramView(
     else showReadable()
   }
 
-  function capture(event: PointerEvent): void {
+  function capture(event: PointerEvent, owner: Element = viewport): void {
     try {
-      viewport.setPointerCapture(event.pointerId)
+      owner.setPointerCapture(event.pointerId)
+      captures.set(event.pointerId, owner)
     } catch {
-      // Pointer capture is an enhancement; document-level pointer events still complete the gesture.
+      // Document-level pointer events still complete the gesture if capture fails.
     }
   }
 
-  function isInteractiveTarget(target: EventTarget | null): boolean {
+  function releaseCapture(pointerID: number): void {
+    const owner = captures.get(pointerID)
+    captures.delete(pointerID)
+    try {
+      owner?.releasePointerCapture(pointerID)
+    } catch {
+      // The browser may already have released or cancelled this pointer.
+    }
+  }
+
+  function isInteractiveTarget(target: EventTarget | null, touchNode?: SVGElement): boolean {
     if (!(target instanceof Element)) return false
-    const control = target.closest(
-      'input, select, textarea, button, a[href], label, summary, [contenteditable]:not([contenteditable="false"]), [tabindex]',
-    )
-    return control !== null && control !== viewport && viewport.contains(control)
+    let control = target.closest(`${nativeControlSelector}, [tabindex]`)
+    while (control && control !== viewport && viewport.contains(control)) {
+      if (control !== touchNode || control.matches(nativeControlSelector)) return true
+      control = control.parentElement?.closest(`${nativeControlSelector}, [tabindex]`) ?? null
+    }
+    return false
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (isInteractiveTarget(event.target)) return
+    if (pointers.size === 0) pendingTouchClicks.clear()
+    const candidate =
+      event.pointerType === "touch" && event.target instanceof Element
+        ? event.target.closest("[data-diagram-node]")
+        : null
+    const touchNode =
+      candidate instanceof SVGElement && stage.contains(candidate) ? candidate : undefined
+    if (isInteractiveTarget(event.target, touchNode)) return
     if (event.pointerType === "touch") {
-      if (!expanded()) return
-      pointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY })
-      capture(event)
+      if (!expanded() || event.button !== 0) return
+      if (pointers.size === 0) touchMoved = false
+      pointers.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        startX: event.clientX,
+        startY: event.clientY,
+      })
+      // Capture on the selectable node so a stationary tap still clicks that node.
+      capture(event, touchNode ?? viewport)
       if (pointers.size === 1) {
         touchLast = { x: event.clientX, y: event.clientY }
       } else if (pointers.size === 2) {
@@ -317,8 +356,15 @@ export function createDiagramView(
   }
 
   function onPointerMove(event: PointerEvent): void {
-    if (event.pointerType === "touch" && pointers.has(event.pointerId)) {
-      pointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY })
+    const pointer = pointers.get(event.pointerId)
+    if (event.pointerType === "touch" && pointer) {
+      if (
+        Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) >
+        touchDragThreshold
+      ) {
+        touchMoved = true
+      }
+      pointers.set(event.pointerId, { ...pointer, clientX: event.clientX, clientY: event.clientY })
       if (pointers.size === 2 && pinch) {
         const [first, second] = [...pointers.values()]
         if (!first || !second) return
@@ -338,7 +384,8 @@ export function createDiagramView(
   }
 
   function stopPointer(event: PointerEvent): void {
-    if (event.pointerType === "touch") {
+    if (pointers.has(event.pointerId)) {
+      if (event.type !== "pointercancel" && touchMoved) pendingTouchClicks.add(event.pointerId)
       pointers.delete(event.pointerId)
       if (pointers.size < 2) pinch = undefined
       const remaining = [...pointers.values()][0]
@@ -348,6 +395,20 @@ export function createDiagramView(
       mousePointerID = undefined
       mouseLast = undefined
     }
+    releaseCapture(event.pointerId)
+  }
+
+  function onClick(event: MouseEvent): void {
+    // Keyboard, assistive technology and programmatic activation are not drag clicks.
+    if (event.detail === 0 || pendingTouchClicks.size === 0) return
+    if ("pointerId" in event) {
+      if (!pendingTouchClicks.delete(event.pointerId as number)) return
+    } else {
+      // Older browsers emit MouseEvent clicks without pointer identity.
+      pendingTouchClicks.clear()
+    }
+    event.preventDefault()
+    event.stopImmediatePropagation()
   }
 
   function onWheel(event: WheelEvent): void {
@@ -394,9 +455,12 @@ export function createDiagramView(
   }
 
   viewport.addEventListener("pointerdown", onPointerDown)
-  viewport.addEventListener("pointermove", onPointerMove, { passive: false })
-  viewport.addEventListener("pointerup", stopPointer)
-  viewport.addEventListener("pointercancel", stopPointer)
+  const ownerDocument = viewport.ownerDocument
+  ownerDocument.addEventListener("pointermove", onPointerMove, { passive: false })
+  ownerDocument.addEventListener("pointerup", stopPointer)
+  ownerDocument.addEventListener("pointercancel", stopPointer)
+  ownerDocument.addEventListener("lostpointercapture", stopPointer)
+  viewport.addEventListener("click", onClick, true)
   viewport.addEventListener("wheel", onWheel, { passive: false })
   viewport.addEventListener("keydown", onKeyDown)
 
@@ -415,10 +479,18 @@ export function createDiagramView(
       cancelAnimationFrame(resizeFrame)
       resizeObserver?.disconnect()
       pointers.clear()
+      mousePointerID = undefined
+      mouseLast = undefined
+      touchLast = undefined
+      pinch = undefined
+      pendingTouchClicks.clear()
+      for (const pointerID of captures.keys()) releaseCapture(pointerID)
       viewport.removeEventListener("pointerdown", onPointerDown)
-      viewport.removeEventListener("pointermove", onPointerMove)
-      viewport.removeEventListener("pointerup", stopPointer)
-      viewport.removeEventListener("pointercancel", stopPointer)
+      ownerDocument.removeEventListener("pointermove", onPointerMove)
+      ownerDocument.removeEventListener("pointerup", stopPointer)
+      ownerDocument.removeEventListener("pointercancel", stopPointer)
+      ownerDocument.removeEventListener("lostpointercapture", stopPointer)
+      viewport.removeEventListener("click", onClick, true)
       viewport.removeEventListener("wheel", onWheel)
       viewport.removeEventListener("keydown", onKeyDown)
     },

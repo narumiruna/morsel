@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Selectable node camera fixture</title>
+    <style>
+      body { margin: 0; min-height: 2400px; }
+      #viewport { width: 500px; height: 300px; overflow: hidden; touch-action: pan-y; }
+      #viewport[data-expanded] { touch-action: none; }
+      #stage { transform-origin: 0 0; }
+      [data-diagram-node] { cursor: pointer; }
+      [data-diagram-node]:focus-visible { outline: 2px solid blue; }
+    </style>
+  </head>
+  <body>
+    <button id="expand" type="button">Expand</button>
+    <button id="destroy" type="button">Destroy</button>
+    <button id="readable" type="button">Readable view</button>
+    <section id="viewport" aria-label="Diagram camera">
+      <div id="stage">
+        <svg viewBox="0 0 1000 500" aria-label="Selectable diagram">
+          <!-- biome-ignore lint/a11y/useSemanticElements: SVG groups have no native button equivalent. -->
+          <g data-diagram-node role="button" tabindex="0" aria-label="Select node">
+            <rect width="400" height="240" fill="lightblue"/>
+            <text x="20" y="40">Selectable node</text>
+            <foreignObject x="20" y="120" width="200" height="80">
+              <button xmlns="http://www.w3.org/1999/xhtml" type="button" id="nested">Nested control</button>
+            </foreignObject>
+          </g>
+        </svg>
+      </div>
+    </section>
+    <script type="module" src="/camera.ts"></script>
+  </body>
+</html>

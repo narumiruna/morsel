@@ -198,6 +198,49 @@ Camera primitives, `createPngExport`, `serializeDiagramSvg`, and
 `downloadDiagram` are also exported from `/core`. SVG serialization and PNG
 helpers accept an explicit background color, defaulting to white.
 
+### Host-owned selectable nodes and camera
+
+Use `createDiagramView` when the host already owns its toolbar, fullscreen, and
+SVG lifecycle. The primitive does not require React or the package stylesheet:
+
+```ts
+import { createDiagramView } from "@narumitw/diagram-viewer/core"
+
+// The host selects which SVG nodes are actions and supplies their accessible
+// names, role, tabindex, click handler, and Enter/Space activation handlers.
+node.setAttribute("data-diagram-node", "")
+const camera = createDiagramView(viewport, stage, {
+  isExpanded: () => hostExpanded,
+})
+// After host-rendered content or expansion changes:
+camera.refresh()
+// On unmount, before removing the host DOM:
+camera.destroy()
+```
+
+- Set `data-diagram-node` only on selectable SVG nodes that should also start
+  touch pan/pinch in expanded mode. The attribute value is not significant.
+  - A marked node can keep `role="button"` and `tabindex="0"`. A tap still
+    activates it. A completed touch drag beyond 6 CSS pixels suppresses that
+    gesture's click, including clicks retargeted by pointer capture.
+  - Cancellation or lost pointer capture ends tracking. The next tap works.
+    Keyboard, assistive-technology, and programmatic clicks with `detail: 0`
+    remain available after a drag.
+  - Native controls, links, labels, summaries, editable descendants, and nested
+    unmarked `[tabindex]` controls keep their own gestures. Marking a native
+    control does not opt it in. Unmarked controls keep their existing behavior.
+  - The marker does not change mouse, pen, wheel, or keyboard control isolation.
+- The host must set `transform-origin: 0 0` on the stage, clip the viewport, and
+  manage touch CSS before gestures begin: `touch-action: pan-y` inline for page
+  scrolling and `touch-action: none` only on the expanded two-dimensional camera.
+  Inline touch does not move the camera, including touches starting on nodes.
+- The readable camera measures SVG text and HTML span/paragraph labels inside
+  `foreignObject`, so small HTML-only labels receive the same readable scaling.
+- The host retains activation, accessible names, keyboard handlers, and focus
+  styles. The camera does not install node actions or change focusability.
+- `destroy()` removes camera listeners and releases active pointer captures. The
+  host must also remove its own node handlers and finalize its renderer.
+
 ## Trust, limits, and verification
 
 This package is **not an untrusted HTML renderer**. Sanitize SVG before passing
