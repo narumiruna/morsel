@@ -49,14 +49,17 @@ jobs:
         with:
           branch: changeset-release/main
           base: main
-          commit-message: "chore(release): version repository"
-          title: "chore(release): version repository"
+          commit-message: "chore(release): version repository and packages"
+          title: "chore(release): version repository and packages"
           body-path: ${{ steps.version.outputs.body-path }}
           add-paths: |
             .changeset/*.md
             CHANGELOG.md
             package.json
             package-lock.json
+            packages/diagram-viewer/package.json
+            packages/diagram-viewer/CHANGELOG.md
+            packages/viewer/package.json
 
   container:
     needs: publish

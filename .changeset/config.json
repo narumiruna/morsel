@@ -5,10 +5,10 @@
   "format": false,
   "fixed": [],
   "linked": [],
-  "access": "restricted",
+  "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [],
+  "ignore": ["@narumitw/morsel-client", "@narumitw/morsel-viewer"],
   "privatePackages": {
     "version": true,
     "tag": true

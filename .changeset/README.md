@@ -1,18 +1,45 @@
-# Repository Changesets
+# Changesets
 
-All changesets target `@narumitw/morsel`, which represents the whole repository. Do not target the client or viewer packages.
+Changesets can target two releases:
+
+1. `@narumitw/morsel`: the repository version, container, GitHub release, and
+   deployment. Server, app, and client changes use this target.
+2. `@narumitw/diagram-viewer`: the public npm package version and its changelog.
+
+Do not target the client or private viewer workspace directly. Their versions do
+not change. Package versioning updates the viewer's diagram-viewer dependency.
 
 From the repository root:
 
 ```sh
 npm run changeset -- add patch "Fix share rendering."
+npm run changeset -- add patch "Fix diagram controls." --package @narumitw/diagram-viewer
 npm run changeset -- status
 ```
 
-Use `minor` for a feature or `major` for a breaking change. Commit the generated Markdown file with the change.
+Use `minor` for a feature or `major` for a breaking change. The default target is
+`@narumitw/morsel`. Commit the generated `.changeset/*.md` file with the code.
+A changeset can name both allowed targets when one change affects both releases.
 
-After changesets reach `main`, the **Publish** workflow checks the root release plan. If the release list is empty, it skips version PR creation without changing files. Otherwise, it prepares the root version and changelog. It then uses `peter-evans/create-pull-request@v8` to create or update a version pull request with the new release notes. Review and merge that pull request to publish the repository tag, container, and GitHub release, then deploy that tag automatically. Verify the [maintenance requirements](../docs/deployment.md#multi-account-maintenance-upgrade) before merging the version pull request.
+The **Publish** workflow prepares one version PR for all pending allowed targets.
+It updates the selected versions and changelogs, workspace dependency metadata,
+and lockfile. Empty release lists do not create a version PR. Review and merge
+the version PR before publication.
 
-Use the repository commands, not the stock `npx changeset` CLI. The stock CLI discovers individual npm workspaces. The PR action only commits the prepared repository version files. `npm run release:version` only changes local version files; `npm run release` is a CI command that can push a repository tag. No command publishes npm packages or creates workspace package tags.
+The two publication paths stay separate:
 
-See [release preparation](../docs/development.md#releases) for the complete process.
+1. **Publish** creates Morsel's `vX.Y.Z` tag, container, GitHub release, and deploys
+   that tag. A package-only change does not create a Morsel version or tag.
+2. **Publish diagram-viewer** publishes only `@narumitw/diagram-viewer` to npm.
+   It skips pending package changesets and already published versions. It uses
+   GitHub OIDC and needs an owner-configured npm trusted publisher.
+
+Use the repository commands, not the stock `npx changeset` CLI. The stock CLI can
+version other workspaces. `npm run release:version` changes local version files
+only. `npm run release` and `npm run release:diagram-viewer` are publication
+commands, not preview commands. Do not use them for validation.
+
+See [release preparation](../docs/development.md#releases) and
+[public npm releases](../docs/development.md#public-npm-releases). Verify the
+[maintenance requirements](../docs/deployment.md#multi-account-maintenance-upgrade)
+before service deployment.
