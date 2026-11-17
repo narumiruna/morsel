@@ -4,6 +4,15 @@ React diagram frame, composable controls, and browser-only core. It has no
 Mermaid, Vega, Radix, or Morsel runtime dependency. Rendering stays in the host.
 The verified React and React DOM version is **19.3.1**. License: AGPL-3.0-only.
 
+## Install
+
+```sh
+npm install @narumitw/diagram-viewer
+```
+
+The package is public on npm. The verified React and React DOM version is
+19.3.1. The host still owns rendering and SVG sanitation.
+
 ## Build and use
 
 From the Morsel repository root:
@@ -16,14 +25,8 @@ npm run test:browser --workspace @narumitw/diagram-viewer
 npm pack --workspace @narumitw/diagram-viewer --pack-destination /tmp
 ```
 
-The package is configured for public npm access, but these commands only build,
-test, and pack it. No registry publication is performed by the repository release
-workflow. Until a registry release exists, install the resulting tarball in
-another React 19.3.1 app:
-
-```sh
-npm install /tmp/narumitw-diagram-viewer-0.1.0.tgz
-```
+These commands only build, test, and pack the package. The packed-consumer check
+installs the exact generated tarball in a temporary app. It does not publish it.
 
 Import the stylesheet explicitly. Supply trusted or sanitized SVG, not arbitrary
 author HTML:
@@ -215,11 +218,27 @@ removes it afterward. `ci` builds first, then runs this check. Chromium must be
 installed with `npx playwright install chromium`; WSL launches use Wayland.
 Automated interaction and accessibility checks cover desktop Chromium, not
 physical touch devices or screen readers. Optional visual/device review remains
-with the host application's owner. Publication, registry access, license review
-for distribution, and migrations in other apps require separate authorization.
+with the host application's owner. npm account setup, real publication, and
+migrations in other apps remain separate owner actions.
 Browser captures are ignored under `test-results/`. Automated Chromium checks do
 not establish physical-device, screen-reader, or other-browser compatibility.
-Public access is set by `publishConfig.access` in the package manifest. The
-repository release workflow does not publish or independently version this
-package; an npm publish operation still requires separate approval and scope
-access.
+
+## Releases
+
+Add a changeset for this package from the repository root:
+
+```sh
+npm run changeset -- add patch "Describe the package change." --package @narumitw/diagram-viewer
+npm run changeset -- status
+```
+
+Use `minor` for features or `major` for breaking changes. The shared version PR
+updates this package's version, changelog, and workspace dependency metadata.
+The separate **Publish diagram-viewer** workflow publishes new committed versions
+with public access and provenance. It skips pending package changesets and
+versions already on npm. It does not create Morsel tags or deploy the service.
+
+The package owner must configure an npm trusted publisher for
+`narumiruna/morsel`, workflow `npm-release.yml`, with direct `npm publish` allowed.
+See [public npm releases](../../docs/development.md#public-npm-releases) for setup
+and failure handling. Validation uses test doubles; it never runs a real publish.

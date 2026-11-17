@@ -37,8 +37,9 @@ captures are ignored under `packages/diagram-viewer/test-results/`. The viewer
 and authentication Playwright configurations detect WSL and pass
 `--ozone-platform=wayland` without changing headless mode. The Docker viewer
 stage copies all dependency manifests and package source before building.
-Root-targeted changesets still version only Morsel. The package is configured
-for public npm access, but the repository release workflow does not publish it.
+Changesets can target Morsel or the public diagram-viewer package. Version PRs
+keep package versions, the viewer dependency, and lock metadata consistent. npm
+publication uses the separate [package release flow](#public-npm-releases).
 
 If port 4173 is occupied, run browser tests with `MORSEL_E2E_PREVIEW_PORT=4181 npm run test:browser` (choose an unused port).
 
@@ -320,24 +321,42 @@ For backend query/backfill measurements, run `go test -v ./internal/share -run '
 
 ## Releases
 
-Morsel has one repository version in the root `package.json`. The root version must not be older than the latest stable `vX.Y.Z` Git tag, even with pending changesets or an unreleased tag to recover. If the baseline is behind, update only the root version and the two root lockfile version fields. Do this before preparing a version PR. Do not move published tags. Server, viewer, and client changes all use this release target. Workspace package versions are not updated or published by this process.
+Morsel keeps its repository version in the root `package.json`.
+`@narumitw/diagram-viewer` has a separate npm package version. Server, app, and
+client changes still target `@narumitw/morsel`; do not version the client or private
+viewer workspace directly. The root version must not be older than the latest
+stable `vX.Y.Z` Git tag, even with pending changesets or an unreleased tag to
+recover. If it is behind, update only the root version and its two root lockfile
+version fields before preparing a version PR. Do not move published tags.
 
 Add a changeset with the change:
 
 ```sh
 npm run changeset -- add patch "Fix share rendering."
+npm run changeset -- add patch "Fix diagram controls." --package @narumitw/diagram-viewer
 npm run changeset -- status
 ```
 
-Use `minor` for a feature or `major` for a breaking change. Each generated `.changeset/*.md` file targets only `@narumitw/morsel`. Commit the file with the code change. Changesets are not required for changes that need no release.
+Use `minor` for a feature or `major` for a breaking change. The default target is
+`@narumitw/morsel`; `--package` selects the named package. Only these two targets
+are allowed. A changeset can name both when needed. Commit the generated
+`.changeset/*.md` with the change. No-release changes need no changeset.
 
 The **Publish** workflow runs on pushes to `main` and through manual dispatch:
 
-1. `node scripts/prepare-release.mjs` checks the root release plan. If the release list is empty, including changesets without release targets, it leaves version files unchanged and skips version PR creation.
-   - With a root release, preparation uses the highest pending bump, updates the root version, root lockfile version metadata, and root `CHANGELOG.md`, and removes the consumed changesets.
-   - `peter-evans/create-pull-request@v8` commits these files and creates or updates the existing `changeset-release/main` PR branch. The PR body includes the new root changelog entry, not workspace releases. PR creation uses the GitHub API and requires the existing PR permissions.
+1. `node scripts/prepare-release.mjs` checks both release targets. An empty list,
+   including changesets without targets, leaves files unchanged and skips the PR.
+   - Preparation applies the highest pending bump for each selected target. It
+     updates its version and changelog, the viewer's package dependency, and
+     lockfile metadata, then removes the consumed changesets.
+   - `peter-evans/create-pull-request@v8` creates or updates the existing
+     `changeset-release/main` PR. Its body contains each new release entry. The
+     action stages the root release files, diagram-viewer manifest/changelog,
+     and viewer manifest. PR creation needs the existing GitHub permissions.
    - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
-2. After the version pull request is merged and no changesets remain, `npm run release` creates and pushes one `vX.Y.Z` tag from the checked-out `main` commit.
+2. After the version PR is merged and no root release remains pending,
+   `npm run release` creates and pushes one Morsel `vX.Y.Z` tag from the checked-out
+   `main` commit. Package-only pending changes do not block this root check.
    - The workflow publishes the container from that tag, creates the GitHub release, then calls **Deploy** with the same tag. GitHub release notes use generated commit notes; Changesets summaries remain in the root changelog.
    - A completed version is a no-op on later pushes. An older version or a missing changelog entry fails before tagging.
 3. If container publication or GitHub release creation fails after tagging, manually rerun **Publish** on `main`.
@@ -348,18 +367,82 @@ GitHub Actions must have permission to create pull requests in the repository's 
 
 Local release tests do not verify Actions authentication or updates to an existing PR. After a workflow change is merged, the release maintainer must inspect the next authorized **Publish** run.
 
-- An empty root release list must skip PR creation.
-- A nonempty list must create or update a version PR with root release notes.
+- An empty release list must skip PR creation.
+- A nonempty list must create or update a version PR with the selected release
+  notes. Package-only releases must not change the Morsel version.
 
 Do not dispatch publication or merge a version PR only to test this behavior.
 
 To review a version change locally, run `npm run release:version` on a branch, then `npm run ci` and inspect the diff. This version command does not commit, tag, publish, or deploy. In contrast, `npm run release` is a CI publication command that can push a remote tag; do not use it to preview a release.
 
-Use the repository commands rather than the stock `npx changeset` CLI, which discovers individual npm workspaces. PR preparation uses the custom root-only version command. The PR action does not publish npm packages, create package tags, or create GitHub releases. Repository tag publication runs before version files are prepared. No npm registry URL, npm token, or OIDC permission is needed. Run `npm run test:release` for isolated tests.
+Use the repository commands rather than the stock `npx changeset` CLI, which can
+version other workspaces. The version PR action itself does not publish npm
+packages, create package tags, or create GitHub releases. Morsel tag publication
+runs before version file preparation and does not need npm credentials or OIDC.
+Run `npm run test:release` for isolated tests of both publication paths.
 
 **Deploy** is a reusable workflow called only after container publication and GitHub release creation succeed with a nonempty release tag. It checks out that exact tag and names the local image with the checked-out commit SHA, including recovery of an older unreleased tag. Tags pushed with `GITHUB_TOKEN` do not trigger another workflow; the direct call does not depend on that event. The deployment job appears inside the **Publish** run. Ordinary pushes that only prepare a version PR or find an already completed release do not deploy. Version-tag pushes from other credentials remain supported. Manual **Deploy** dispatch can select a trusted repository branch, including a PR head branch, and checks out the commit recorded for that dispatch. Use **Actions > Deploy > Run workflow > Use workflow from** to select the branch. This uses the existing deployment target, not an isolated preview; PR events and branch pushes do not deploy.
 
-Verify the [maintenance requirements](deployment.md#multi-account-maintenance-upgrade) before merging a version PR, starting release recovery, pushing a version tag, or dispatching deployment. If deployment fails after the GitHub release exists, rerun the failed deployment job in the original **Publish** run. A new **Publish** run for that completed version is a no-op and does not retry deployment.
+Verify the [maintenance requirements](deployment.md#multi-account-maintenance-upgrade)
+before merging a version PR that includes Morsel, starting service release
+recovery, pushing a Morsel version tag, or dispatching deployment. If deployment
+fails after the GitHub release exists, rerun the failed deployment job in the
+original **Publish** run. A new **Publish** run for that completed version is a
+no-op and does not retry deployment.
+
+## Public npm releases
+
+`@narumitw/diagram-viewer` is public on npm; version 0.1.0 was verified through
+an unauthenticated registry read. Add a package-targeted changeset for each later
+package release. The shared version PR updates the package changelog/version,
+the viewer's dependency, and workspace lock metadata. It does not bump the
+private viewer version.
+
+The separate **Publish diagram-viewer** workflow (`npm-release.yml`) runs on main
+pushes or manual dispatch from main. It uses GitHub-hosted runners, Node.js 26,
+and npm trusted publishing:
+
+1. The job verifies its checkout still matches the latest `origin/main` before
+   publication. Pending diagram-viewer changesets skip publication. Root-only
+   changesets do not block it.
+2. An exact-version registry read skips a version already on npm. Only a
+   structured `E404` permits a new publish. Network, authentication, malformed
+   response, and other registry errors stop the job.
+3. The manifest must have the expected name, a stable version, public access,
+   and no private flag. A matching package changelog entry is required.
+4. The job publishes only `@narumitw/diagram-viewer`, with public access and
+   provenance. Its prepack script builds the declared output. The job creates
+   no Morsel tag, container, GitHub release, or deployment.
+
+### npm owner setup
+
+The package owner must configure a trusted publisher on npm for:
+
+- GitHub owner: `narumiruna`
+- Repository: `morsel`
+- Workflow filename: `npm-release.yml` (filename only)
+- Allowed action: direct `npm publish`
+
+New trusted publishers permit staged publication by default. Direct publication
+must also be allowed for this workflow. A new configuration expires if its first
+successful publish does not occur within two days. Use the
+[official npm setup guide](https://docs.npmjs.com/trusted-publishers/) to confirm
+the current account-side settings. No new stored npm token is used.
+
+The workflow has `contents: read` and job-scoped `id-token: write`. It does not
+cache release dependencies. npm requires version 11.5.1+ and Node.js 22.14+ for
+this OIDC path; the selected Node.js 26 runner meets these requirements.
+
+Local tests use fake npm commands and do not establish trusted publisher access.
+`npm whoami` does not prove OIDC publish permission. The owner must verify the
+first authorized **Publish diagram-viewer** run after setup. Account-side setup
+and real publication remain unverified until that run. Do not merge a version
+PR or dispatch a publication job only to test it. Do not use
+`npm run release:diagram-viewer` as a preview command.
+
+If a publish fails after upload, retrying queries that exact version and skips a
+completed upload. Do not replace or delete a published version. Registry writes,
+npm account setup, and service deployment are separate actions.
 
 ## Repository layout
 
@@ -367,6 +450,7 @@ Verify the [maintenance requirements](deployment.md#multi-account-maintenance-up
 packages/server/ Go server, static-file serving, OpenAPI contract, and migrations
 packages/viewer/ React viewer source and build-time tests
 packages/client/ Publishable TypeScript client for the share API
+packages/diagram-viewer/ Public diagram frame, React controls, and browser core
 package.json     npm workspace scripts and shared overrides
 package-lock.json npm workspace lockfile
 docs/            Usage, deployment, design, development, and review notes

@@ -52,8 +52,9 @@ The frame and controls come from the reusable
 It provides a default viewer, composable controls, shared action bindings for
 app-specific buttons, and a framework-independent browser core. Morsel retains
 Mermaid sanitation, Vega resource policy, renderer lifecycles, theme selection,
-and source/render limits. The package is configured for public npm access;
-this extraction does not publish it to the registry.
+and source/render limits. The package is public on npm. Its Changesets and npm
+publication use the [package release flow](development.md#public-npm-releases),
+separate from Morsel deployment.
 
 ## Mermaid diagram controls
 

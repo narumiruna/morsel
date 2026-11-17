@@ -28,7 +28,7 @@ export async function publishRepository(root = repositoryRoot, env = process.env
     .split("\n")
     .filter((tag) => tag.startsWith("v") && isStableVersion(tag.slice(1)))
   const latestTag = tags[0]
-  const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
+  const { name, version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
   if (!isStableVersion(version)) {
     throw new Error("The repository version must be a stable semantic version.")
   }
@@ -56,7 +56,7 @@ export async function publishRepository(root = repositoryRoot, env = process.env
   }
 
   const plan = JSON.parse(await runChangeset(["status"], root))
-  if (plan.changesets.length > 0) return null
+  if (plan.releases.some((release) => release.name === name && release.type !== "none")) return null
 
   if (releasedTags.has(tag)) return null
 
