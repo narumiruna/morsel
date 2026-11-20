@@ -74,9 +74,13 @@ test("renders inline Vega-Lite data and blocks external resources", async ({ pag
     })
     .toBe(true)
 
-  const downloadPromise = page.waitForEvent("download")
-  await card.getByRole("button", { name: "Download SVG" }).click()
-  expect((await downloadPromise).suggestedFilename()).toBe("vega-lite-chart.svg")
+  for (const format of ["SVG", "PNG"]) {
+    const downloadPromise = page.waitForEvent("download")
+    await card.getByRole("button", { name: `Download ${format}` }).click()
+    expect((await downloadPromise).suggestedFilename()).toBe(
+      `vega-lite-chart.${format.toLowerCase()}`,
+    )
+  }
 
   await card.getByRole("button", { name: "Show source" }).click()
   await expect(card.locator("pre")).toContainText('"mark": "bar"')

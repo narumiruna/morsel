@@ -21,8 +21,7 @@ import { publishRepository } from "./release.mjs"
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url))
 const name = "@narumitw/morsel"
-const diagramName = "@narumitw/diagram-viewer"
-const workspaceNames = ["client", "viewer", "diagram-viewer"]
+const workspaceNames = ["client", "viewer"]
 const gitEnvironment = {
   ...process.env,
   GIT_AUTHOR_NAME: "Release Test",
@@ -45,7 +44,7 @@ function git(root, ...args) {
   return result.stdout.trim()
 }
 
-async function fixture(t, version = "0.0.1", { diagram = true } = {}) {
+async function fixture(t, version = "0.0.1") {
   const root = await mkdtemp(join(tmpdir(), "morsel-release-test-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(join(root, ".changeset"))
@@ -63,24 +62,17 @@ async function fixture(t, version = "0.0.1", { diagram = true } = {}) {
       integrity: "sha512-preserved",
     },
   }
-  for (const workspace of workspaceNames.filter(
-    (workspace) => diagram || workspace !== "diagram-viewer",
-  )) {
+  for (const workspace of workspaceNames) {
     const path = `packages/${workspace}`
     await mkdir(join(root, path), { recursive: true })
     const workspacePackage = {
-      name: workspace === "diagram-viewer" ? diagramName : `@narumitw/morsel-${workspace}`,
+      name: `@narumitw/morsel-${workspace}`,
       version: "0.1.0",
       private: workspace === "viewer",
-      ...(workspace === "viewer" && diagram
-        ? { dependencies: { [diagramName]: "0.1.0", unrelated: "2.0.0" } }
-        : {}),
+      ...(workspace === "viewer" ? { dependencies: { unrelated: "2.0.0" } } : {}),
     }
     await writeFile(join(root, path, "package.json"), JSON.stringify(workspacePackage))
     packages[path] = workspacePackage
-  }
-  if (diagram) {
-    packages[`node_modules/${diagramName}`] = { resolved: "packages/diagram-viewer", link: true }
   }
   await writeFile(join(root, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`)
   await writeFile(
@@ -174,9 +166,9 @@ test("empty releases and unsupported arguments do not change files", async (t) =
     ["add", "patch", "  "],
     ["add", "invalid", "Summary"],
     ["add", "patch", "Summary", "--package"],
-    ["add", "patch", "--package", diagramName],
-    ["add", "patch", "Summary", "--package", diagramName, "--package", diagramName],
-    ["add", "patch", "Summary", "--unknown", diagramName],
+    ["add", "patch", "--package", name],
+    ["add", "patch", "Summary", "--package", name, "--package", name],
+    ["add", "patch", "Summary", "--unknown", name],
     ["status", "--unexpected"],
     ["version", "--unexpected"],
     ["publish"],
@@ -223,7 +215,7 @@ test("configuration errors fail before generating a changeset", async (t) => {
   assert.deepEqual((await readdir(join(root, ".changeset"))).sort(), ["README.md", "config.json"])
 })
 
-for (const target of [undefined, diagramName]) {
+for (const target of [undefined, name]) {
   test(`CLI invocation from a workspace targets ${target ?? "the repository root"}`, async (t) => {
     const root = await fixture(t)
     await mkdir(join(root, "scripts"))
@@ -245,31 +237,12 @@ for (const target of [undefined, diagramName]) {
   })
 }
 
-test("package changesets use an explicit target and status includes an unversioned dependent", async (t) => {
-  const root = await fixture(t)
-  assert.match(
-    await add(root, "patch", "Fix diagram controls.", diagramName),
-    /^Created \.changeset\/.+\.md$/,
-  )
-  const before = git(root, "status", "--porcelain")
-  const plan = JSON.parse(await runChangeset(["status"], root))
-  assert.deepEqual(plan.changesets[0].releases, [{ name: diagramName, type: "patch" }])
-  assert.deepEqual(
-    plan.releases.map(({ name, type, oldVersion, newVersion }) => ({
-      name,
-      type,
-      oldVersion,
-      newVersion,
-    })),
-    [
-      { name: diagramName, type: "patch", oldVersion: "0.1.0", newVersion: "0.1.1" },
-      { name: "@narumitw/morsel-viewer", type: "none", oldVersion: "0.1.0", newVersion: "0.1.0" },
-    ],
-  )
-  assert.equal(git(root, "status", "--porcelain"), before)
-})
-
-for (const target of ["@narumitw/morsel-client", "@narumitw/morsel-viewer", "@unknown/package"]) {
+for (const target of [
+  "@narumitw/morsel-client",
+  "@narumitw/morsel-viewer",
+  "@narumitw/diagram-viewer",
+  "@unknown/package",
+]) {
   test(`add rejects ${target} before writing a changeset`, async (t) => {
     const root = await fixture(t)
     await assert.rejects(add(root, "patch", "Invalid target.", target), /Unknown release target/)
@@ -279,97 +252,57 @@ for (const target of ["@narumitw/morsel-client", "@narumitw/morsel-viewer", "@un
       `---\n"${target}": patch\n---\n\nInvalid target.\n`,
     )
     const before = git(root, "status", "--porcelain")
-    await assert.rejects(runChangeset(["version"], root), /must target only/)
+    for (const command of ["status", "version"]) {
+      await assert.rejects(runChangeset([command], root), /must target only @narumitw\/morsel/)
+    }
     assert.equal(git(root, "status", "--porcelain"), before)
   })
 }
 
-test("discovery supports old root-only fixtures without a diagram workspace", async (t) => {
-  const root = await fixture(t, "0.0.1", { diagram: false })
-  await assert.rejects(
-    add(root, "patch", "Missing package.", diagramName),
-    /Unknown release target/,
-  )
-  await add(root, "patch")
-  assert.equal(await runChangeset(["version"], root), "Versioned repository: v0.0.2")
-  assert.equal((await json(join(root, "packages/viewer/package.json"))).version, "0.1.0")
-})
-
-for (const combined of [false, true]) {
-  test(`${combined ? "combined" : "package-only"} versioning syncs package and dependent lock metadata`, async (t) => {
-    const root = await fixture(t)
-    const rootManifest = await readFile(join(root, "package.json"), "utf8")
-    const rootChangelog = await readFile(join(root, "CHANGELOG.md"), "utf8")
-    const clientManifest = await readFile(join(root, "packages/client/package.json"), "utf8")
-    const before = await json(join(root, "package-lock.json"))
-    const viewer = await json(join(root, "packages/viewer/package.json"))
-    await add(root, "minor", "Add diagram controls.", diagramName)
-    await add(root, "patch", "Fix diagram controls.", diagramName)
-    if (combined) await add(root, "patch", "Fix repository rendering.")
-    const head = git(root, "rev-parse", "HEAD")
-    assert.match(await runChangeset(["version"], root), /^Versioned packages: /)
-    assert.equal((await json(join(root, "packages/diagram-viewer/package.json"))).version, "0.2.0")
-    viewer.dependencies[diagramName] = "0.2.0"
-    assert.deepEqual(await json(join(root, "packages/viewer/package.json")), viewer)
-    before.packages["packages/diagram-viewer"].version = "0.2.0"
-    before.packages["packages/viewer"].dependencies[diagramName] = "0.2.0"
-    if (combined) {
-      before.version = "0.0.2"
-      before.packages[""].version = "0.0.2"
-      assert.equal((await json(join(root, "package.json"))).version, "0.0.2")
-      assert.match(await readFile(join(root, "CHANGELOG.md"), "utf8"), /Fix repository rendering\./)
-    } else {
-      assert.equal(await readFile(join(root, "package.json"), "utf8"), rootManifest)
-      assert.equal(await readFile(join(root, "CHANGELOG.md"), "utf8"), rootChangelog)
-    }
-    assert.deepEqual(await json(join(root, "package-lock.json")), before)
-    const changelog = await readFile(join(root, "packages/diagram-viewer/CHANGELOG.md"), "utf8")
-    assert.match(changelog, /## 0\.2\.0\n/)
-    assert.match(changelog, /Add diagram controls\./)
-    assert.match(changelog, /Fix diagram controls\./)
-    assert.equal(await readFile(join(root, "packages/client/package.json"), "utf8"), clientManifest)
-    assert.deepEqual(await readdir(join(root, "packages/viewer")), ["package.json"])
-    assert.deepEqual(JSON.parse(await runChangeset(["status"], root)).releases, [])
-    assert.deepEqual((await readdir(join(root, ".changeset"))).sort(), ["README.md", "config.json"])
-    assert.equal(git(root, "rev-parse", "HEAD"), head)
-    assert.equal(git(root, "tag", "--list"), "")
-  })
-}
-
-test("lock sync changes only dependency ranges updated by applyReleasePlan", async (t) => {
+test("lock sync changes only dependency ranges updated by a root release", async (t) => {
   const root = await fixture(t)
   const path = join(root, "packages/viewer/package.json")
   const viewer = await json(path)
-  for (const dependencyType of ["devDependencies", "peerDependencies", "optionalDependencies"]) {
-    viewer[dependencyType] = { [diagramName]: "~0.1.0" }
+  viewer.dependencies[name] = "0.0.1"
+  const otherDependencyTypes = ["devDependencies", "peerDependencies", "optionalDependencies"]
+  for (const dependencyType of otherDependencyTypes) {
+    viewer[dependencyType] = { [name]: "~0.0.1" }
   }
   await writeFile(path, JSON.stringify(viewer))
   const lockPath = join(root, "package-lock.json")
   const lock = await json(lockPath)
-  lock.packages["packages/viewer"] = { ...viewer, license: "preserved" }
-  lock.packages["packages/viewer"].dependencies["lock-only-metadata"] = "3.0.0"
+  lock.packages["packages/viewer"] = {
+    ...viewer,
+    license: "preserved",
+    dependencies: { ...viewer.dependencies, "lock-only-metadata": "3.0.0" },
+  }
   await writeFile(lockPath, JSON.stringify(lock))
-  await add(root, "patch", "Fix diagram controls.", diagramName)
-  await runChangeset(["version"], root)
-  lock.packages["packages/diagram-viewer"].version = "0.1.1"
-  lock.packages["packages/viewer"].dependencies[diagramName] = "0.1.1"
-  for (const dependencyType of ["devDependencies", "peerDependencies", "optionalDependencies"]) {
-    lock.packages["packages/viewer"][dependencyType][diagramName] = "~0.1.1"
+  await add(root, "patch")
+  const before = git(root, "status", "--porcelain")
+  const plan = JSON.parse(await runChangeset(["status"], root))
+  assert.deepEqual(
+    plan.releases.map(({ name, type, oldVersion, newVersion }) => ({
+      name,
+      type,
+      oldVersion,
+      newVersion,
+    })),
+    [
+      { name, type: "patch", oldVersion: "0.0.1", newVersion: "0.0.2" },
+      { name: "@narumitw/morsel-viewer", type: "none", oldVersion: "0.1.0", newVersion: "0.1.0" },
+    ],
+  )
+  assert.equal(git(root, "status", "--porcelain"), before)
+  assert.equal(await runChangeset(["version"], root), "Versioned repository: v0.0.2")
+  lock.version = "0.0.2"
+  lock.packages[""].version = "0.0.2"
+  lock.packages["packages/viewer"].dependencies[name] = "0.0.2"
+  for (const dependencyType of otherDependencyTypes) {
+    lock.packages["packages/viewer"][dependencyType][name] = "~0.0.2"
   }
   assert.deepEqual(await json(lockPath), lock)
   assert.equal((await json(path)).version, "0.1.0")
-})
-
-test("a single changeset can version both allowed targets", async (t) => {
-  const root = await fixture(t)
-  await writeFile(
-    join(root, ".changeset/combined.md"),
-    `---\n"${name}": minor\n"${diagramName}": patch\n---\n\nImprove diagram integration.\n`,
-  )
-  await runChangeset(["version"], root)
-  assert.equal((await json(join(root, "package.json"))).version, "0.1.0")
-  assert.equal((await json(join(root, "packages/diagram-viewer/package.json"))).version, "0.1.1")
-  assert.deepEqual((await readdir(join(root, ".changeset"))).sort(), ["README.md", "config.json"])
+  assert.deepEqual(await readdir(join(root, "packages/viewer")), ["package.json"])
 })
 
 for (const [description, corrupt] of [
@@ -385,22 +318,22 @@ for (const [description, corrupt] of [
       lock.version = "9.0.0"
     },
   ],
-  ["missing package", (lock) => delete lock.packages["packages/diagram-viewer"]],
-  ["missing dependent", (lock) => delete lock.packages["packages/viewer"]],
+  ["missing root package entry", (lock) => delete lock.packages[""]],
+  ["missing workspace", (lock) => delete lock.packages["packages/viewer"]],
   [
-    "wrong package name",
+    "wrong workspace name",
     (lock) => {
-      lock.packages["packages/diagram-viewer"].name = "wrong"
+      lock.packages["packages/viewer"].name = "wrong"
     },
   ],
   [
-    "wrong package version",
+    "wrong root package entry version",
     (lock) => {
-      lock.packages["packages/diagram-viewer"].version = "9.0.0"
+      lock.packages[""].version = "9.0.0"
     },
   ],
   [
-    "wrong dependent version",
+    "wrong workspace version",
     (lock) => {
       lock.packages["packages/viewer"].version = "9.0.0"
     },
@@ -414,13 +347,12 @@ for (const [description, corrupt] of [
   [
     "wrong dependency",
     (lock) => {
-      lock.packages["packages/viewer"].dependencies[diagramName] = "9.0.0"
+      lock.packages["packages/viewer"].dependencies.unrelated = "9.0.0"
     },
   ],
 ]) {
   test(`${description} lock metadata fails before any release files change`, async (t) => {
     const root = await fixture(t)
-    await add(root, "patch", "Fix controls.", diagramName)
     await add(root, "patch")
     const path = join(root, "package-lock.json")
     const lock = await json(path)
@@ -434,7 +366,7 @@ for (const [description, corrupt] of [
     )
     assert.equal(git(root, "diff"), before)
     assert.deepEqual(await readdir(join(root, ".changeset")), changesets)
-    assert.deepEqual(await readdir(join(root, "packages/diagram-viewer")), ["package.json"])
+    assert.deepEqual(await readdir(join(root, "packages/viewer")), ["package.json"])
   })
 }
 
@@ -527,14 +459,15 @@ test("completed publication is a no-op, including repeated main pushes", async (
 })
 
 test("pending changesets are left for the action's version PR", async (t) => {
-  const root = await fixture(t)
+  const root = await fixture(t, "0.0.2")
+  await add(root, "patch")
   await add(root, "minor")
   const before = git(root, "status", "--porcelain")
   const command = await publication(t, root)
   assert.equal(await command.run(), null)
   assert.deepEqual(await command.writes(), [])
   assert.equal(git(root, "status", "--porcelain"), before)
-  assert.equal((await json(join(root, "package.json"))).version, "0.0.1")
+  assert.equal((await json(join(root, "package.json"))).version, "0.0.2")
 })
 
 for (const released of [true, false]) {
@@ -606,31 +539,6 @@ test("an equal baseline permits only a root patch version PR", async (t) => {
   assert.deepEqual(await command.writes(), [])
   assert.equal(git(root, "rev-parse", "HEAD"), head)
   assert.equal(git(root, "tag", "--list"), "")
-})
-
-test("pending package changesets do not block publishing an already versioned root", async (t) => {
-  const root = await fixture(t, "0.0.2")
-  await add(root, "patch", "Fix diagram controls.", diagramName)
-  const before = git(root, "diff")
-  const changesets = await readdir(join(root, ".changeset"))
-  const command = await publication(t, root)
-  assert.equal(await command.run(), "v0.0.2")
-  assert.deepEqual(await command.writes(), [
-    ["git", "tag", "v0.0.2"],
-    ["git", "push", "origin", "refs/tags/v0.0.2"],
-  ])
-  assert.equal(git(root, "diff"), before)
-  assert.deepEqual(await readdir(join(root, ".changeset")), changesets)
-  assert.equal((await json(join(root, "packages/diagram-viewer/package.json"))).version, "0.1.0")
-})
-
-test("pending combined changesets still block a new root publication", async (t) => {
-  const root = await fixture(t, "0.0.2")
-  await add(root, "patch", "Fix diagram controls.", diagramName)
-  await add(root, "patch")
-  const command = await publication(t, root)
-  assert.equal(await command.run(), null)
-  assert.deepEqual(await command.writes(), [])
 })
 
 test("a retry recovers an unreleased tag before processing newer changesets", async (t) => {
@@ -750,16 +658,16 @@ test("workflow uses Changesets Action for version PRs before the existing deploy
     publish,
     /uses: changesets\/action@v2\n {8}with:\n {10}version-script: npm run release:version/,
   )
-  assert.match(publish, /commit-message: "chore\(release\): version repository and packages"/)
-  assert.match(publish, /pr-title: "chore\(release\): version repository and packages"/)
+  assert.match(publish, /commit-message: "chore\(release\): version repository"/)
+  assert.match(publish, /pr-title: "chore\(release\): version repository"/)
   assert.ok(
     publish.indexOf("run: npm run release\n") < publish.indexOf("uses: changesets/action@v2"),
   )
   assert.match(publish, /id: release/)
   assert.match(publish, /tag: \$\{\{ steps\.release\.outputs\.tag \}\}/)
   assert.doesNotMatch(
-    publish,
-    /publish-script:|npm publish|registry-url:|id-token:|release:diagram-viewer/,
+    workflow,
+    /npm-publish:|publish-script:|npm publish|registry-url:|id-token:|release:diagram-viewer/,
   )
   assert.doesNotMatch(workflow, /prepare-release\.mjs|peter-evans\/create-pull-request@/)
   assert.ok(workflow.includes("if: needs.publish.outputs.tag != ''"))

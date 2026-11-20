@@ -5,10 +5,6 @@ packages/server/bin
 node_modules
 packages/client/node_modules
 packages/client/dist
-packages/diagram-viewer/node_modules
-packages/diagram-viewer/dist
-packages/diagram-viewer/playwright-report
-packages/diagram-viewer/test-results
 packages/viewer/node_modules
 packages/viewer/dist
 packages/viewer/coverage

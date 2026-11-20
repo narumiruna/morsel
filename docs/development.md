@@ -17,29 +17,12 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-The reusable [`@narumitw/diagram-viewer`](../packages/diagram-viewer/README.md)
-workspace builds compiled ESM, declarations, and scoped CSS. Viewer dev, build,
-typecheck, test, and browser entry points build this dependency first; no existing
-`dist` directory is required. Root `npm test` also builds it before test discovery.
+The viewer installs [`@narumitw/diagram-viewer`](https://www.npmjs.com/package/@narumitw/diagram-viewer)
+from npm. Develop and release the package in the separate
+[diagram-viewer repository](https://github.com/narumiruna/diagram-viewer).
 
-```sh
-npm run ci --workspace @narumitw/diagram-viewer
-npm run test:browser --workspace @narumitw/diagram-viewer
-npm pack --workspace @narumitw/diagram-viewer --dry-run --json
-docker build --target viewer-build -t morsel-diagram-viewer-check .
-```
-
-Package CI includes an isolated packed-consumer check. It installs exact React
-and tool versions in a temporary directory, typechecks the examples, verifies a
-Node core import without React or browser globals, and exercises the built UI
-in Chromium. Install Chromium before package CI. Standalone layout/accessibility
-captures are ignored under `packages/diagram-viewer/test-results/`. The viewer
-and authentication Playwright configurations detect WSL and pass
-`--ozone-platform=wayland` without changing headless mode. The Docker viewer
-stage copies all dependency manifests and package source before building.
-Changesets can target Morsel or the public diagram-viewer package. Version PRs
-keep package versions, the viewer dependency, and lock metadata consistent. npm
-publication uses the separate [package release flow](#public-npm-releases).
+The viewer and authentication Playwright configurations detect WSL and pass
+`--ozone-platform=wayland` without changing headless mode.
 
 If port 4173 is occupied, run browser tests with `MORSEL_E2E_PREVIEW_PORT=4181 npm run test:browser` (choose an unused port).
 
@@ -82,7 +65,7 @@ npm run test:auth:browser
 
 Use a test-only PostgreSQL role with permission to create databases. The harness creates an isolated database, applies migrations, builds the viewer and backend, starts Go on an available dynamic port, and stops Go and removes the database on success or failure. It does not use the interactive service on port 12647. The browser origin is `http://localhost:<selected-port>` and the RP ID is `localhost`; the harness sets a matching `MORSEL_URL`. Direct navigation and refresh use Go's built viewer, not Vite preview. Never point this command at production.
 
-The viewer and authentication CI jobs use the digest-pinned Playwright image, which includes browsers and system dependencies. When you update `@playwright/test`, keep `packages/viewer/package.json`, `packages/diagram-viewer/package.json`, and both CI image references on the same Playwright version. The authentication job provisions PostgreSQL, Go, and Node.js; its database URL uses the `postgres` service hostname within the job container. It runs the account project before the OAuth project; all nine required OAuth cases and the required account lifecycle must execute without skips. Missing infrastructure, zero executed tests, or skipped required tests must fail the job. This suite does not use `MORSEL_E2E_LIVE`.
+The viewer and authentication CI jobs use the digest-pinned Playwright image, which includes browsers and system dependencies. When you update `@playwright/test`, keep `packages/viewer/package.json` and both CI image references on the same Playwright version. The authentication job provisions PostgreSQL, Go, and Node.js; its database URL uses the `postgres` service hostname within the job container. It runs the account project before the OAuth project; all nine required OAuth cases and the required account lifecycle must execute without skips. Missing infrastructure, zero executed tests, or skipped required tests must fail the job. This suite does not use `MORSEL_E2E_LIVE`.
 
 ## Backend
 
@@ -322,42 +305,40 @@ For backend query/backfill measurements, run `go test -v ./internal/share -run '
 ## Releases
 
 Morsel keeps its repository version in the root `package.json`.
-`@narumitw/diagram-viewer` has a separate npm package version. Server, app, and
-client changes still target `@narumitw/morsel`; do not version the client or private
-viewer workspace directly. The root version must not be older than the latest
-stable `vX.Y.Z` Git tag, even with pending changesets or an unreleased tag to
-recover. If it is behind, update only the root version and its two root lockfile
-version fields before preparing a version PR. Do not move published tags.
+Server, app, and client changes target `@narumitw/morsel`; do not version the
+client or private viewer workspace directly. The root version must not be older
+than the latest stable `vX.Y.Z` Git tag, even with pending changesets or an
+unreleased tag to recover. If it is behind, update only the root version and its
+two root lockfile version fields before preparing a version PR. Do not move
+published tags.
 
 Add a changeset with the change:
 
 ```sh
 npm run changeset -- add patch "Fix share rendering."
-npm run changeset -- add patch "Fix diagram controls." --package @narumitw/diagram-viewer
 npm run changeset -- status
 ```
 
 Use `minor` for a feature or `major` for a breaking change. The default target is
-`@narumitw/morsel`; `--package` selects the named package. Only these two targets
-are allowed. A changeset can name both when needed. Commit the generated
-`.changeset/*.md` with the change. No-release changes need no changeset.
+`@narumitw/morsel`, the only release target. Commit the generated `.changeset/*.md`
+with the change. No-release changes need no changeset.
 
 The **Publish** workflow runs on pushes to `main` and through manual dispatch:
 
 1. `changesets/action@v2` creates or updates the existing
    `changeset-release/main` PR when nonempty changesets remain. Empty changesets
    leave version files unchanged and skip PR creation.
-   - The action runs `npm run release:version` to apply the highest pending bump
-     for each selected target, update changelogs and workspace/lock metadata,
-     and remove consumed changesets. The custom version command includes Morsel's
-     root version, which stock workspace discovery does not version.
+   - The action runs `npm run release:version` to apply the highest pending bump,
+     update the root changelog and lockfile, and remove consumed changesets. The
+     custom version command includes Morsel's root version, which stock
+     workspace discovery does not version.
    - The action commits all changed release files through the GitHub API. Its PR
      notes list changed workspace versions; review Morsel release notes in the
      root `CHANGELOG.md`. PR creation needs the existing GitHub permissions.
    - Review these changes and required CI results before merging the version pull request. Version PR preparation also runs when an older release is being recovered.
 2. After the version PR is merged and no root release remains pending,
    `npm run release` creates and pushes one Morsel `vX.Y.Z` tag from the checked-out
-   `main` commit. Package-only pending changes do not block this root check.
+   `main` commit.
    - The workflow publishes the container from that tag, creates the GitHub release, then calls **Deploy** with the same tag. GitHub release notes use generated commit notes; Changesets summaries remain in the root changelog.
    - A completed version is a no-op on later pushes. An older version or a missing changelog entry fails before tagging.
 3. If container publication or GitHub release creation fails after tagging, manually rerun **Publish** on `main`.
@@ -370,7 +351,7 @@ Local release tests do not verify Actions authentication or updates to an existi
 
 - An empty release list must skip PR creation.
 - A nonempty list must create or update a version PR with the selected release
-  notes. Package-only releases must not change the Morsel version.
+  notes.
 
 Do not dispatch publication or merge a version PR only to test this behavior.
 
@@ -380,7 +361,7 @@ Use the repository commands rather than the stock `npx changeset` CLI, which can
 version other workspaces. The version PR action itself does not publish npm
 packages, create package tags, or create GitHub releases. Morsel tag publication
 runs before version file preparation and does not need npm credentials or OIDC.
-Run `npm run test:release` for isolated tests of both publication paths.
+Run `npm run test:release` to test the Morsel release tooling.
 
 **Deploy** is a reusable workflow called only after container publication and GitHub release creation succeed with a nonempty release tag. It checks out that exact tag and names the local image with the checked-out commit SHA, including recovery of an older unreleased tag. Tags pushed with `GITHUB_TOKEN` do not trigger another workflow; the direct call does not depend on that event. The deployment job appears inside the **Publish** run. Ordinary pushes that only prepare a version PR or find an already completed release do not deploy. Version-tag pushes from other credentials remain supported. Manual **Deploy** dispatch can select a trusted repository branch, including a PR head branch, and checks out the commit recorded for that dispatch. Use **Actions > Deploy > Run workflow > Use workflow from** to select the branch. This uses the existing deployment target, not an isolated preview; PR events and branch pushes do not deploy.
 
@@ -391,77 +372,12 @@ fails after the GitHub release exists, rerun the failed deployment job in the
 original **Publish** run. A new **Publish** run for that completed version is a
 no-op and does not retry deployment.
 
-## Public npm releases
-
-`@narumitw/diagram-viewer` is public on npm; version 0.1.0 was verified through
-an unauthenticated registry read. Add a package-targeted changeset for each later
-package release. The shared version PR updates the package changelog/version,
-the viewer's dependency, and workspace lock metadata. It does not bump the
-private viewer version.
-
-The **Publish** workflow (`release.yml`) runs on main pushes or manual dispatch
-from main. Its independent `npm-publish` job (**Publish diagram-viewer**) uses
-GitHub-hosted runners, Node.js 26, and npm trusted publishing. It does not depend
-on the Morsel publication jobs, and its result does not gate service deployment.
-Tests and checks stay in `ci.yml`; the release workflow only prepares versions
-and publishes releases.
-
-The npm job follows these rules:
-
-1. The job verifies its checkout still matches the latest `origin/main` before
-   publication. Pending diagram-viewer changesets skip publication. Root-only
-   changesets do not block it.
-2. An exact-version registry read skips a version already on npm. Only a
-   structured `E404` permits a new publish. Network, authentication, malformed
-   response, and other registry errors stop the job.
-3. The manifest must have the expected name, a stable version, public access,
-   and no private flag. A matching package changelog entry is required.
-4. The job publishes only `@narumitw/diagram-viewer`, with public access and
-   provenance. Its prepack script builds the declared output. The job creates
-   no Morsel tag, container, GitHub release, or deployment.
-
-### npm owner setup
-
-The package owner must configure a trusted publisher on npm for:
-
-- GitHub owner: `narumiruna`
-- Repository: `morsel`
-- Workflow filename: `release.yml` (filename only)
-- Allowed action: direct `npm publish`
-
-New trusted publishers permit staged publication by default. Direct publication
-must also be allowed for this workflow. A new configuration expires if its first
-successful publish does not occur within two days. Use the
-[official npm setup guide](https://docs.npmjs.com/trusted-publishers/) to confirm
-the current account-side settings. No new stored npm token is used.
-
-If a trusted publisher already names `npm-release.yml`, add a new connection for
-`release.yml` before merging a package version PR. Existing connections cannot be
-edited. After the first authorized publication with the new connection succeeds,
-remove the obsolete connection. Renaming a workflow does not transfer npm trust.
-
-The npm job has only `contents: read` and `id-token: write`. The Morsel jobs do not
-receive OIDC permission. The npm job does not cache release dependencies. npm
-requires version 11.5.1+ and Node.js 22.14+ for this OIDC path; the selected Node.js 26 runner meets these requirements.
-
-Local tests use fake npm commands and do not establish trusted publisher access.
-`npm whoami` does not prove OIDC publish permission. The owner must verify the
-first authorized **Publish diagram-viewer** job in **Publish** after setup.
-Account-side setup and real publication remain unverified until that run. Do not merge a version
-PR or dispatch a publication job only to test it. Do not use
-`npm run release:diagram-viewer` as a preview command.
-
-If a publish fails after upload, retrying queries that exact version and skips a
-completed upload. Do not replace or delete a published version. Registry writes,
-npm account setup, and service deployment are separate actions.
-
 ## Repository layout
 
 ```text
 packages/server/ Go server, static-file serving, OpenAPI contract, and migrations
 packages/viewer/ React viewer source and build-time tests
 packages/client/ Publishable TypeScript client for the share API
-packages/diagram-viewer/ Public diagram frame, React controls, and browser core
 package.json     npm workspace scripts and shared overrides
 package-lock.json npm workspace lockfile
 docs/            Usage, deployment, design, development, and review notes

@@ -47,20 +47,15 @@ export async function runChangeset(args, root = repositoryRoot) {
   const packages = await NpmTool.getPackages(root)
   packages.packages.unshift(packages.rootPackage)
   const { name } = packages.rootPackage.packageJson
-  const allowedTargets = packages.packages
-    .map((pkg) => pkg.packageJson.name)
-    .filter((packageName) => packageName === name || packageName === "@narumitw/diagram-viewer")
-  if (target !== undefined && !allowedTargets.includes(target)) {
-    throw new Error(
-      `Unknown release target ${target}. Allowed targets: ${allowedTargets.join(", ")}.`,
-    )
+  if (target !== undefined && target !== name) {
+    throw new Error(`Unknown release target ${target}. Allowed target: ${name}.`)
   }
   const { config, warnings, errors } = await readConfig(root, packages)
   if (errors) throw new Error(errors.join("\n"))
   for (const warning of warnings) console.warn(warning)
 
   if (command === "add") {
-    const id = await writeChangeset({ releases: [{ name: target ?? name, type }], summary }, root, {
+    const id = await writeChangeset({ releases: [{ name, type }], summary }, root, {
       format: config.format,
     })
     return `Created .changeset/${id}.md`
@@ -69,22 +64,22 @@ export async function runChangeset(args, root = repositoryRoot) {
   const changesets = await readChangesets(root)
   for (const changeset of changesets) {
     for (const release of changeset.releases) {
-      if (!allowedTargets.includes(release.name) || !bumpTypes.includes(release.type)) {
+      if (release.name !== name || !bumpTypes.includes(release.type)) {
         throw new Error(
-          `.changeset/${changeset.id}.md must target only ${allowedTargets.join(" or ")} with patch, minor, or major.`,
+          `.changeset/${changeset.id}.md must target only ${name} with patch, minor, or major.`,
         )
       }
     }
   }
   const plan = assembleReleasePlan(changesets, packages, config)
   for (const release of plan.releases) {
-    if (release.type !== "none" && !allowedTargets.includes(release.name)) {
+    if (release.type !== "none" && release.name !== name) {
       throw new Error(`Release plan must not version ${release.name}.`)
     }
   }
   if (command === "status") return JSON.stringify(plan, null, 2)
-  const releases = plan.releases.filter((release) => release.type !== "none")
-  if (releases.length === 0) throw new Error("No unreleased repository changesets.")
+  const release = plan.releases.find(({ type }) => type !== "none")
+  if (!release) throw new Error("No unreleased repository changesets.")
 
   const lockfilePath = join(root, "package-lock.json")
   const lockfile = JSON.parse(await readFile(lockfilePath, "utf8"))
@@ -134,10 +129,7 @@ export async function runChangeset(args, root = repositoryRoot) {
     }
   }
   await writeFile(lockfilePath, `${JSON.stringify(lockfile, null, 2)}\n`)
-  if (releases.length === 1 && releases[0].name === name) {
-    return `Versioned repository: v${releases[0].newVersion}`
-  }
-  return `Versioned packages: ${releases.map((release) => `${release.name}@${release.newVersion}`).join(", ")}`
+  return `Versioned repository: v${release.newVersion}`
 }
 
 if (import.meta.main) {
