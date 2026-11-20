@@ -24,12 +24,34 @@ vi.mock("mermaid", () => ({
 }))
 const vegaEmbedMock = vi.hoisted(() => vi.fn())
 vi.mock("vega-embed", () => ({ default: vegaEmbedMock }))
-const exportMock = vi.hoisted(() => ({
-  createPngExport: vi.fn(),
-  downloadDiagram: vi.fn(),
-}))
-// Test-only seam into the compiled package; application imports use public exports.
-vi.mock("../../../diagram-viewer/dist/core/diagramExport.js", () => exportMock)
+
+function mockDownload() {
+  const blobs: Blob[] = []
+  vi.spyOn(URL, "createObjectURL").mockImplementation((source) => {
+    if (source instanceof Blob) blobs.push(source)
+    return "blob:test"
+  })
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+  return { blobs, click }
+}
+
+function mockCanvas() {
+  // biome-ignore lint/complexity/useArrowFunction: The PNG exporter calls Image with new.
+  vi.spyOn(globalThis, "Image").mockImplementation(function () {
+    const image = document.createElement("img")
+    queueMicrotask(() => image.dispatchEvent(new Event("load")))
+    return image
+  })
+  const context = { fillStyle: "", fillRect: vi.fn(), drawImage: vi.fn() }
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+    context as unknown as CanvasRenderingContext2D,
+  )
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback, type) => {
+    callback(new Blob(["png"], { type }))
+  })
+  return context
+}
+
 function ThemeProvider({ children }: { children: ReactNode }) {
   return (
     <BaseThemeProvider>
@@ -60,9 +82,6 @@ beforeEach(() => {
   renderDiagram.mockResolvedValue({
     svg: '<svg viewBox="0 0 10 10"><title>Safe diagram</title><path d="M0 0" /></svg>',
   })
-  exportMock.createPngExport.mockReset()
-  exportMock.createPngExport.mockResolvedValue(new Blob(["png"], { type: "image/png" }))
-  exportMock.downloadDiagram.mockReset()
   finalizeChart.mockReset()
   vegaEmbedMock.mockReset()
   vegaEmbedMock.mockImplementation(async (element: HTMLElement, spec: { description?: string }) => {
@@ -327,19 +346,10 @@ $\htmlStyle{background:url(https://evil.example/image.png)}{styled}$
     expect(screen.getByRole("graphics-document", { name: "Controlled chart" })).toBe(graphic)
     expect(finalizeChart).not.toHaveBeenCalled()
 
+    const download = mockDownload()
     fireEvent.click(screen.getByRole("button", { name: "Download SVG" }))
-    expect(exportMock.downloadDiagram).toHaveBeenCalledWith(
-      expect.any(Blob),
-      "svg",
-      "vega-lite-chart",
-    )
-    fireEvent.click(screen.getByRole("button", { name: "Download PNG" }))
-    await waitFor(() => expect(exportMock.createPngExport).toHaveBeenCalled())
-    expect(exportMock.downloadDiagram).toHaveBeenCalledWith(
-      expect.any(Blob),
-      "png",
-      "vega-lite-chart",
-    )
+    expect(download.click.mock.contexts[0]).toHaveProperty("download", "vega-lite-chart.svg")
+    expect(download.blobs[0]?.type).toMatch(/^image\/svg\+xml(?:;|$)/)
   })
 
   it("preserves chart retry and source labels", async () => {
@@ -580,23 +590,17 @@ $\htmlStyle{background:url(https://evil.example/image.png)}{styled}$
     await user.click(screen.getByRole("option", { name: "Dark" }))
     await screen.findByText("Refreshing diagram…")
     expect(screen.getByText("Light")).toBeVisible()
+    const download = mockDownload()
+    const context = mockCanvas()
     await user.click(screen.getByRole("button", { name: "Download PNG" }))
-    await waitFor(() =>
-      expect(exportMock.createPngExport).toHaveBeenLastCalledWith(
-        expect.any(SVGSVGElement),
-        "#ffffff",
-      ),
-    )
+    await waitFor(() => expect(download.blobs).toHaveLength(1))
+    expect(context.fillStyle).toBe("#ffffff")
 
     act(() => finishDark?.({ svg: '<svg viewBox="0 0 10 10"><text>Dark</text></svg>' }))
     expect(await screen.findByText("Dark")).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Download PNG" }))
-    await waitFor(() =>
-      expect(exportMock.createPngExport).toHaveBeenLastCalledWith(
-        expect.any(SVGSVGElement),
-        "#111113",
-      ),
-    )
+    await waitFor(() => expect(download.blobs).toHaveLength(2))
+    expect(context.fillStyle).toBe("#111113")
     expect(mermaidMock.configuration).toMatchObject({ theme: "dark" })
   })
 

@@ -3,10 +3,8 @@ FROM node:26.13-alpine3.23 AS viewer-build
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY packages/client/package.json packages/client/package.json
-COPY packages/diagram-viewer/package.json packages/diagram-viewer/package.json
 COPY packages/viewer/package.json packages/viewer/package.json
 RUN npm ci
-COPY packages/diagram-viewer/ packages/diagram-viewer/
 COPY packages/viewer/ packages/viewer/
 RUN npm run build --workspace @narumitw/morsel-viewer
 

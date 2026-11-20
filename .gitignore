@@ -14,8 +14,6 @@ packages/*/dist/
 packages/viewer/coverage/
 packages/viewer/playwright-report/
 packages/viewer/test-results/
-packages/diagram-viewer/test-results/
-packages/diagram-viewer/playwright-report/
 *.tsbuildinfo
 
 # Logs and editor files

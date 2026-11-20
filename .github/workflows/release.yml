@@ -43,31 +43,8 @@ jobs:
       - uses: changesets/action@v2
         with:
           version-script: npm run release:version
-          commit-message: "chore(release): version repository and packages"
-          pr-title: "chore(release): version repository and packages"
-
-  npm-publish:
-    name: Publish diagram-viewer
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
-      - run: npm ci
-      - name: Verify latest main
-        run: |
-          git fetch origin main
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
-      - run: npm run release:diagram-viewer
+          commit-message: "chore(release): version repository"
+          pr-title: "chore(release): version repository"
 
   container:
     needs: publish
