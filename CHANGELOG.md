@@ -1,5 +1,11 @@
 # @narumitw/morsel
 
+## 0.4.1
+
+### Patch Changes
+
+- 58bde0f: Update Vega Embed to 7.4.0 in the viewer.
+
 ## 0.4.0
 
 ### Minor Changes
