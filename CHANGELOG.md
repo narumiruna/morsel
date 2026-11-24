@@ -1,5 +1,11 @@
 # @narumitw/morsel
 
+## 0.5.0
+
+### Minor Changes
+
+- f2ebe11: Accept both Base64URL and lowercase hex share links while continuing to issue Base64URL links.
+
 ## 0.4.1
 
 ### Patch Changes
