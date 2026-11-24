@@ -44,6 +44,31 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+for (const [format, shareToken] of [
+  ["Base64URL", token],
+  ["hex", "0123456789abcdef".repeat(4)],
+] as const) {
+  for (const prefix of ["/s/", "/#/s/"]) {
+    test(`${format} ${prefix} links open directly and through homepage paste`, async ({ page }) => {
+      const destination = `${prefix}${shareToken}`
+      await page.route(`**/v1/shares/${shareToken}`, (route) =>
+        route.fulfill({
+          json: { content: "# Format fixture", created_at: "2026-01-01T00:00:00Z", view_count: 1 },
+        }),
+      )
+      await page.goto(destination)
+      await expect(page.getByRole("heading", { name: "Format fixture" })).toBeVisible()
+
+      await page.goto("/")
+      await page
+        .getByLabel("Document URL", { exact: true })
+        .fill(new URL(destination, page.url()).href)
+      await page.getByRole("button", { name: "Open document", exact: true }).click()
+      await expect(page.getByRole("heading", { name: "Format fixture" })).toBeVisible()
+    })
+  }
+}
+
 test("renders safely under the production CSP and uses one request", async ({ page }) => {
   let requests = 0
   page.on("request", (request) => {

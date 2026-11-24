@@ -3,6 +3,7 @@ package viewer
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -19,15 +20,45 @@ import (
 	"github.com/narumiruna/morsel/packages/server/internal/telemetry"
 )
 
-type previewSourceStub struct {
-	result share.Share
-	err    error
-	calls  int
+const (
+	// These tokens encode the same bytes, but their lookup hashes use the original token text.
+	base64URLShareToken    = "-_8AAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0"
+	lowercaseHexShareToken = "fbff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d"
+)
+
+var previewTokenCases = []struct{ name, token string }{
+	{name: "Base64URL", token: base64URLShareToken},
+	{name: "lowercase hex", token: lowercaseHexShareToken},
 }
 
-func (s *previewSourceStub) Preview(context.Context, [32]byte) (share.Share, error) {
-	s.calls++
+type previewSourceStub struct {
+	result        share.Share
+	err           error
+	previewHashes [][32]byte
+	consumeCalls  int
+}
+
+func (s *previewSourceStub) Preview(_ context.Context, hash [32]byte) (share.Share, error) {
+	s.previewHashes = append(s.previewHashes, hash)
 	return s.result, s.err
+}
+
+func (s *previewSourceStub) Consume(context.Context, [32]byte) (share.Share, error) {
+	s.consumeCalls++
+	return share.Share{}, share.ErrNotFound
+}
+
+func (s *previewSourceStub) assertCalls(t *testing.T, token string, wantPreviews int) {
+	t.Helper()
+	if len(s.previewHashes) != wantPreviews || s.consumeCalls != 0 {
+		t.Fatalf("Preview calls=%d, want %d; Consume calls=%d, want 0", len(s.previewHashes), wantPreviews, s.consumeCalls)
+	}
+	wantHash := sha256.Sum256([]byte(token))
+	for _, got := range s.previewHashes {
+		if got != wantHash {
+			t.Fatalf("Preview called with hash %x, want %x", got, wantHash)
+		}
+	}
 }
 
 func TestHandlerServesIndexAndImmutableAssetsWithoutDirectoryListings(t *testing.T) {
@@ -119,10 +150,14 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte(`<!doctype html><head><title>Morsel</title></head><body><div id="root"></div></body>`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := (share.TokenGenerator{Reader: strings.NewReader(strings.Repeat("x", share.TokenBytes))}).Generate()
-	if err != nil {
-		t.Fatal(err)
+	for _, test := range previewTokenCases {
+		t.Run(test.name, func(t *testing.T) {
+			testHandlerPreviewMetadata(t, directory, test.token)
+		})
 	}
+}
+
+func testHandlerPreviewMetadata(t *testing.T, directory, token string) {
 	previewID := uuid.New()
 	source := &previewSourceStub{result: share.Share{
 		ID: previewID, Content: "SECRET MARKDOWN",
@@ -158,9 +193,10 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 			t.Fatalf("preview body missing %q: %s", want, body)
 		}
 	}
-	if strings.Contains(body, "<unsafe>") || strings.Contains(body, source.result.Content) || source.calls != 1 {
-		t.Fatalf("unsafe, content-derived, or unexpected result: calls=%d body=%s", source.calls, body)
+	if strings.Contains(body, "<unsafe>") || strings.Contains(body, source.result.Content) || strings.Contains(body, "data-morsel-instant-view") {
+		t.Fatalf("preview exposed unsafe output or article content: %s", body)
 	}
+	source.assertCalls(t, token, 1)
 	logText := logs.String()
 	if !strings.Contains(logText, `"route":"unmatched"`) || !strings.Contains(logText, `"share_id":"`+previewID.String()+`"`) || strings.Contains(logText, token) || strings.Contains(logText, source.result.Content) {
 		t.Fatalf("preview log missing route/share ID or exposed content: %s", logText)
@@ -168,9 +204,10 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 
 	head := httptest.NewRecorder()
 	handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/s/"+token, nil))
-	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") == "" || source.calls != 2 {
-		t.Fatalf("HEAD status=%d length=%q body=%q calls=%d", head.Code, head.Header().Get("Content-Length"), head.Body.String(), source.calls)
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") == "" {
+		t.Fatalf("HEAD status=%d length=%q body=%q", head.Code, head.Header().Get("Content-Length"), head.Body.String())
 	}
+	source.assertCalls(t, token, 2)
 
 	source.err = errors.New("preview unavailable")
 	response = httptest.NewRecorder()
@@ -187,11 +224,13 @@ func TestHandlerServesOptInPreviewMetadata(t *testing.T) {
 		t.Fatalf("missing preview metadata generated a fallback: %s", response.Body.String())
 	}
 
+	source.assertCalls(t, token, 4)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/s/short", nil))
-	if strings.Contains(response.Body.String(), `property="og:title"`) || source.calls != 4 {
-		t.Fatalf("malformed preview called source or exposed metadata: calls=%d body=%s", source.calls, response.Body.String())
+	if strings.Contains(response.Body.String(), `property="og:title"`) {
+		t.Fatalf("malformed preview exposed metadata: %s", response.Body.String())
 	}
+	source.assertCalls(t, token, 4)
 }
 
 func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
@@ -200,10 +239,14 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := (share.TokenGenerator{Reader: strings.NewReader(strings.Repeat("i", share.TokenBytes))}).Generate()
-	if err != nil {
-		t.Fatal(err)
+	for _, test := range previewTokenCases {
+		t.Run(test.name, func(t *testing.T) {
+			testHandlerTelegramInstantViewArticle(t, directory, test.token)
+		})
 	}
+}
+
+func testHandlerTelegramInstantViewArticle(t *testing.T, directory, token string) {
 	source := &previewSourceStub{result: share.Share{
 		ID: uuid.New(),
 		Content: `## Section
@@ -251,9 +294,10 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 			t.Fatalf("Instant View body contains unsafe output %q: %s", unwanted, body)
 		}
 	}
-	if source.calls != 1 || response.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("calls=%d headers=%v", source.calls, response.Header())
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d headers=%v", response.Code, response.Header())
 	}
+	source.assertCalls(t, token, 1)
 
 	head := httptest.NewRecorder()
 	handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/s/"+token, nil))
@@ -261,12 +305,14 @@ func TestHandlerServesOptInTelegramInstantViewArticle(t *testing.T) {
 		t.Fatalf("HEAD status=%d length=%q body=%q", head.Code, head.Header().Get("Content-Length"), head.Body.String())
 	}
 
+	source.assertCalls(t, token, 2)
 	source.err = share.ErrRevoked
 	unavailable := httptest.NewRecorder()
 	handler.ServeHTTP(unavailable, httptest.NewRequest(http.MethodGet, "/s/"+token, nil))
-	if strings.Contains(unavailable.Body.String(), "Full article") || strings.Contains(unavailable.Body.String(), "data-morsel-instant-view") {
+	if strings.Contains(unavailable.Body.String(), "<h2>Section</h2>") || strings.Contains(unavailable.Body.String(), "data-morsel-instant-view") {
 		t.Fatalf("unavailable share exposed Instant View content: %s", unavailable.Body.String())
 	}
+	source.assertCalls(t, token, 3)
 }
 
 func TestNewRequiresValidIndex(t *testing.T) {

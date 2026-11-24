@@ -1,3 +1,5 @@
+import { isShareToken } from "./shareToken"
+
 export type Route =
   | { kind: "home" }
   | { kind: "authentication"; mode: "login" | "recover" | "setup" | "invite" }
@@ -12,7 +14,6 @@ export type Route =
   | { kind: "invalid-gist" }
   | { kind: "not-found" }
 
-const tokenPattern = /^[A-Za-z0-9_-]{43}$/
 const gistPattern = /^[0-9A-Fa-f]{1,64}$/
 
 export function parseRoute(pathname: string, hash: string): Route {
@@ -30,7 +31,7 @@ export function parseRoute(pathname: string, hash: string): Route {
   if (pathname === "/settings") return { kind: "settings" }
   if (pathname.startsWith("/s/")) {
     const token = pathname.slice(3)
-    if (!tokenPattern.test(token)) return { kind: "invalid-share" }
+    if (!isShareToken(token)) return { kind: "invalid-share" }
     return { kind: "share", token }
   }
   if (pathname === "/gist/") {
@@ -47,7 +48,7 @@ export function parseHash(hash: string): Route {
   if (hash === "" || hash === "#" || hash === "#/") return { kind: "home" }
   if (hash.startsWith("#/s/")) {
     const token = hash.slice(4)
-    if (!tokenPattern.test(token)) return { kind: "invalid-share" }
+    if (!isShareToken(token)) return { kind: "invalid-share" }
     return { kind: "share", token }
   }
   return { kind: "not-found" }

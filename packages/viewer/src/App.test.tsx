@@ -28,7 +28,7 @@ vi.mock("@simplewebauthn/browser", () => ({
 }))
 
 const token = "A".repeat(43)
-const nextToken = "B".repeat(43)
+const nextToken = "b".repeat(64)
 const gist = "7dbaf8170c7292354678069a9acb061f"
 
 function renderApp(strict = false) {

@@ -2,7 +2,7 @@
 # A template rhash is deployment-specific and is not included in Morsel.
 ~version: "2.1"
 
-?path: /s/[A-Za-z0-9_-]{43}
+?path: ^/s/([A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]|[0-9a-f]{64})$
 !exists: //article[@data-morsel-instant-view]
 
 site_name: "Morsel"

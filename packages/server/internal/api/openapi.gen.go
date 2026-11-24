@@ -135,8 +135,11 @@ type Share struct {
 	ViewsRemaining *int64     `json:"views_remaining,omitempty"`
 }
 
-// ShareCapability defines model for ShareCapability.
-type ShareCapability = string
+// ShareToken Canonical 43-character unpadded Base64URL or 64-character lowercase hex share token.
+type ShareToken = string
+
+// ShareCapability Canonical 43-character unpadded Base64URL or 64-character lowercase hex share token.
+type ShareCapability = ShareToken
 
 // BadRequest defines model for BadRequest.
 type BadRequest = Error

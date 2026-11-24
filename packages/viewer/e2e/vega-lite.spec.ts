@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test"
 
-const token = "V".repeat(43)
+const token = `${"V".repeat(42)}A`
 const content = `# Vega-Lite charts
 
 \`\`\`vega-lite

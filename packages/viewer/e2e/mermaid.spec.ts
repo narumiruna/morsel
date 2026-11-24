@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { expect, type Page, test } from "@playwright/test"
 
-const token = "M".repeat(43)
+const token = `${"M".repeat(42)}A`
 const spacer = Array.from(
   { length: 120 },
   (_, index) =>

@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	TokenBytes  = 32
-	TokenLength = 43
+	TokenBytes        = 32
+	TokenLength       = legacyTokenLength
+	legacyTokenLength = 43
+	hexTokenLength    = TokenBytes * 2
 )
 
 type TokenGenerator struct {
@@ -31,12 +33,20 @@ func (g TokenGenerator) Generate() (string, [sha256.Size]byte, error) {
 }
 
 func HashToken(token string) ([sha256.Size]byte, error) {
-	if len(token) != TokenLength {
+	switch len(token) {
+	case legacyTokenLength:
+		raw, err := base64.RawURLEncoding.DecodeString(token)
+		if err != nil || len(raw) != TokenBytes || base64.RawURLEncoding.EncodeToString(raw) != token {
+			return [sha256.Size]byte{}, errors.New("invalid token encoding")
+		}
+	case hexTokenLength:
+		for _, char := range token {
+			if !('0' <= char && char <= '9') && !('a' <= char && char <= 'f') {
+				return [sha256.Size]byte{}, errors.New("invalid token encoding")
+			}
+		}
+	default:
 		return [sha256.Size]byte{}, errors.New("invalid token length")
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil || len(raw) != TokenBytes || base64.RawURLEncoding.EncodeToString(raw) != token {
-		return [sha256.Size]byte{}, errors.New("invalid token encoding")
 	}
 	return sha256.Sum256([]byte(token)), nil
 }
