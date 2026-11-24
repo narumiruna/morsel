@@ -44,6 +44,14 @@ Legacy rows without a plaintext token show **Link unavailable**. Their original 
 
 Historical migration-10 compatibility: older single-account applications used the same public hashes but could not retrieve plaintext-only saved links; the encrypted-storage release also needed its original key. Its runner rejects version 10. On a compatible, isolated single-account database only, a new-runner down step with version 10 confirmed as latest drops `link_token` and permanently removes saved-link retrieval unless restored from backup. Hashes and old ciphertext remain. This is historical guidance, not authorization to run an old unscoped application after the multi-account cutover. The [multi-account rollback restrictions](#backup-restore-and-rollback) always take precedence.
 
+### Share token format rollout
+
+1. Deploy the compatibility image to every instance. It serves the API and viewer together, reads Base64URL and lowercase hex share tokens, and still issues Base64URL. Retain its immutable image reference for rollback. No share data or schema change is required.
+2. With approved, non-sensitive shares at a reachable test origin, verify both token formats in the [Telegram Instant View Editor](https://instantview.telegram.org/) using the [dual-format template](telegram-instant-view-template.txt). Confirm ordinary shares still do not qualify. Publish the updated template for the deployment domain if required. Confirm that any known client that assumes a 43-character token is updated.
+3. Only after those checks pass, allow the separate hex-issuance release to publish or deploy. Do not batch it with the compatibility release. If a rollout fails after issuing any hex URL, roll back to the retained compatibility image, not a Base64URL-only version. Keep the database and dual-format Telegram template, and verify both formats on dedicated fixture shares.
+
+Repository tests do not verify Telegram or production deployment. These steps do not authorize release or deployment.
+
 ## Operator setup and recovery
 
 The image contains the static `/usr/local/bin/account` executable. It reads only `MORSEL_DATABASE_URL`; it does not require viewer or public-origin configuration. From source, run `cd packages/server` and use `GOTOOLCHAIN=go1.26.11 go run ./cmd/account` with `-kind setup`, `-kind invite`, or `-kind recover -account-id ACCOUNT_UUID`. Each command prints one raw token; only its hash is stored. Treat the output as a secret. Keep setup and recovery tokens out of all URLs. Invitation tokens alone may use the configured-origin `/invite#token=<43-character base64url token>` format; never put any grant secret in a query or path, log, ticket, or shell trace. CLI output remains a raw token; manual form entry remains supported.

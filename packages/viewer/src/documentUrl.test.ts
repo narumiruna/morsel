@@ -3,6 +3,7 @@ import { parseDocumentUrl } from "./documentUrl"
 
 const origin = "https://morsel.example"
 const token = `Ab_-${"0".repeat(39)}`
+const hexToken = "0123456789abcdef".repeat(4)
 const gist = "7dbaf8170c7292354678069a9acb061f"
 
 describe("parseDocumentUrl", () => {
@@ -13,6 +14,10 @@ describe("parseDocumentUrl", () => {
     [`/#/s/${token}`, `/#/s/${token}`],
     [`#/s/${token}`, `/#/s/${token}`],
     [`${origin}/#/s/${token}`, `/#/s/${token}`],
+    [`/s/${hexToken}`, `/s/${hexToken}`],
+    [`#/s/${hexToken}`, `/#/s/${hexToken}`],
+    [`${origin}/s/${hexToken}`, `/s/${hexToken}`],
+    [`${origin}/#/s/${hexToken}`, `/#/s/${hexToken}`],
     [`/gist/#${gist}`, `/gist/#${gist}`],
     [`gist/#${gist}`, `/gist/#${gist}`],
     [`${origin}/gist/#${gist}`, `/gist/#${gist}`],
@@ -68,6 +73,10 @@ describe("parseDocumentUrl", () => {
     `/s/${"A".repeat(42)}`,
     `/s/${"A".repeat(44)}`,
     `/s/${"A".repeat(42)}!`,
+    `/s/${"A".repeat(42)}B`,
+    `/s/${hexToken.toUpperCase()}`,
+    `/#/s/${hexToken.slice(1)}`,
+    `/#/s/${hexToken}a`,
     `/s/${token}=`,
     `/s/${token}/`,
     `/s/${token}/extra`,

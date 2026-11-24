@@ -1,4 +1,5 @@
-const tokenPattern = /^[A-Za-z0-9_-]{43}$/
+import { isShareToken } from "./shareToken"
+
 const gistPattern = /^[0-9A-Fa-f]{1,64}$/
 const ownerPattern = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/
 
@@ -36,10 +37,10 @@ export function parseDocumentUrl(input: string, origin: string): string | null {
   }
 
   const share = /^\/?s\/([^/?#]+)$/.exec(path)
-  if (share?.[1] && tokenPattern.test(share[1])) return `/s/${share[1]}`
+  if (share?.[1] && isShareToken(share[1])) return `/s/${share[1]}`
 
   const fragmentShare = /^(?:\/)?#\/s\/([^/?#]+)$/.exec(path)
-  if (fragmentShare?.[1] && tokenPattern.test(fragmentShare[1])) return `/#/s/${fragmentShare[1]}`
+  if (fragmentShare?.[1] && isShareToken(fragmentShare[1])) return `/#/s/${fragmentShare[1]}`
 
   const gist = /^\/?gist\/#([^/?#]+)$/.exec(path)
   if (gist?.[1] && gistPattern.test(gist[1])) return `/gist/#${gist[1]}`

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -173,6 +175,7 @@ func TestMCPPostgresRESTInteroperabilityAndPreview(t *testing.T) {
 			mcpDBOwner(t, f, created.Id, a.id)
 			mcpDBViews(t, f, created.Id, 0)
 			token := mcpDBToken(t, created)
+			assertIssuedShareTokenFormat(t, token)
 			for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodGet} {
 				r := f.do(t, "", method, "/s/"+token, "", nil)
 				mcpDBStatus(t, r, http.StatusOK)
@@ -206,38 +209,73 @@ func TestMCPPostgresRESTInteroperabilityAndPreview(t *testing.T) {
 	}
 }
 
-func TestMCPPostgresUnavailableCapabilities(t *testing.T) {
+func TestMCPPostgresCapabilityFormats(t *testing.T) {
 	f := mcpDBOpen(t)
 	a, b := f.accounts[0], f.accounts[1]
-	for _, code := range []ErrorCode{ErrorCodeExpired, ErrorCodeRevoked, ErrorCodeViewLimitExhausted} {
-		t.Run(string(code), func(t *testing.T) {
-			created := f.create(t, a.keys[0], map[string]any{"content": "unavailable", "max_views": 1})
-			token := mcpDBToken(t, created)
-			var count int64
-			switch code {
-			case ErrorCodeExpired:
-				// Set fixture time directly; no sleeps or timing-dependent expiration.
-				if _, err := f.pool.Exec(t.Context(), `UPDATE shares SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1`, created.Id); err != nil {
+	repository := share.NewPostgresRepository(f.pool)
+	for _, format := range []struct {
+		name   string
+		encode func([]byte) string
+		retain bool
+	}{
+		{"base64url", base64.RawURLEncoding.EncodeToString, false}, // Legacy hash-only row.
+		{"hex", hex.EncodeToString, true},
+	} {
+		for i, code := range []ErrorCode{ErrorCodeExpired, ErrorCodeRevoked, ErrorCodeViewLimitExhausted} {
+			t.Run(format.name+"/"+string(code), func(t *testing.T) {
+				// Seed a distinct share for each case, without issuing or parsing a token.
+				raw := bytes.Repeat([]byte{0xfb}, 32)
+				raw[31] = byte(i)
+				token := format.encode(raw)
+				id := uuid.New()
+				maxViews := int64(2)
+				const content = "seeded capability"
+				params := share.CreateParams{AccountID: a.id, ID: id, TokenHash: sha256.Sum256([]byte(token)), Content: content, MaxViews: &maxViews}
+				if format.retain {
+					params.LinkToken = token
+				}
+				if _, err := repository.Create(t.Context(), params); err != nil {
 					t.Fatal(err)
 				}
-			case ErrorCodeRevoked:
-				mcpDBSuccess(t, f.call(t, a.keys[1], "revoke_share", map[string]any{"id": created.Id}, nil), nil)
-			case ErrorCodeViewLimitExhausted:
-				mcpDBStatus(t, f.do(t, "", http.MethodGet, "/v1/shares/"+token, "", nil), http.StatusOK)
-				count = 1
-			}
-			result := f.call(t, b.keys[0], "get_share", map[string]any{"token": token}, nil)
-			mcpDBError(t, result, code)
-			rest := f.do(t, "", http.MethodGet, "/v1/shares/"+token, "", nil)
-			mcpDBStatus(t, rest, http.StatusGone)
-			var restError, toolError Error
-			mcpDBUnmarshal(t, rest.body, &restError)
-			mcpDBUnmarshal(t, result.Structured, &toolError)
-			if restError != toolError {
-				t.Fatalf("REST/MCP domain error mismatch: %+v / %+v", restError, toolError)
-			}
-			mcpDBViews(t, f, created.Id, count)
-		})
+				path := "/v1/shares/" + token
+				args := map[string]any{"token": token}
+				var count int64
+				switch code {
+				case ErrorCodeExpired:
+					// Set fixture time directly; no sleeps or timing-dependent expiration.
+					if _, err := f.pool.Exec(t.Context(), `UPDATE shares SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1`, id); err != nil {
+						t.Fatal(err)
+					}
+				case ErrorCodeRevoked:
+					mcpDBSuccess(t, f.call(t, a.keys[1], "revoke_share", map[string]any{"id": id}, nil), nil)
+				case ErrorCodeViewLimitExhausted:
+					// REST and MCP each consume one view before the limit is exhausted.
+					var restRead, toolRead Share
+					rest := f.do(t, "", http.MethodGet, path, "", nil)
+					mcpDBStatus(t, rest, http.StatusOK)
+					mcpDBUnmarshal(t, rest.body, &restRead)
+					mcpDBSuccess(t, f.call(t, b.keys[0], "get_share", args, nil), &toolRead)
+					for i, read := range []Share{restRead, toolRead} {
+						wantCount := int64(i + 1)
+						if read.Content != content || read.ViewCount != wantCount || read.ViewsRemaining == nil || *read.ViewsRemaining != maxViews-wantCount {
+							t.Fatalf("incorrect consuming result: %+v", read)
+						}
+					}
+					count = maxViews
+				}
+				result := f.call(t, b.keys[0], "get_share", args, nil)
+				mcpDBError(t, result, code)
+				rest := f.do(t, "", http.MethodGet, path, "", nil)
+				mcpDBStatus(t, rest, http.StatusGone)
+				var restError, toolError Error
+				mcpDBUnmarshal(t, rest.body, &restError)
+				mcpDBUnmarshal(t, result.Structured, &toolError)
+				if restError != toolError {
+					t.Fatalf("REST/MCP domain error mismatch: %+v / %+v", restError, toolError)
+				}
+				mcpDBViews(t, f, id, count)
+			})
+		}
 	}
 }
 
@@ -568,6 +606,15 @@ func mcpDBToken(t *testing.T, created CreateShareResponse) string {
 		t.Fatalf("creation returned invalid capability: %v", err)
 	}
 	return token
+}
+
+func assertIssuedShareTokenFormat(t *testing.T, token string) {
+	t.Helper()
+	// Phase 1 still issues canonical, unpadded Base64URL for 32 random bytes.
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || len(raw) != 32 || base64.RawURLEncoding.EncodeToString(raw) != token {
+		t.Fatal("creation did not issue a canonical Base64URL token")
+	}
 }
 
 func mcpDBNoIdentity(t *testing.T, response mcpDBResponse, accounts [2]mcpDBAccount) {

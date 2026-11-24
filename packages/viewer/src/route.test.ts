@@ -68,6 +68,19 @@ describe("parseRoute", () => {
     expect(parseRoute("/", "#/settings")).toEqual({ kind: "not-found" })
   })
 
+  it.each([token, "0123456789abcdef".repeat(4)])("opens either share route for %s", (value) => {
+    expect(parseRoute(`/s/${value}`, "")).toEqual({ kind: "share", token: value })
+    expect(parseRoute("/", `#/s/${value}`)).toEqual({ kind: "share", token: value })
+  })
+
+  it.each(["A".repeat(64), "a".repeat(63), `${"A".repeat(42)}B`, `${token}=`, `${token}\n`])(
+    "rejects malformed share tokens in either route: %j",
+    (value) => {
+      expect(parseRoute(`/s/${value}`, "")).toEqual({ kind: "invalid-share" })
+      expect(parseRoute("/", `#/s/${value}`)).toEqual({ kind: "invalid-share" })
+    },
+  )
+
   it("parses path-based preview routes before hash routes", () => {
     expect(parseRoute(`/s/${token}`, "")).toEqual({ kind: "share", token })
     expect(parseRoute("/s/short", "")).toEqual({ kind: "invalid-share" })

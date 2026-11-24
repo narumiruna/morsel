@@ -8,7 +8,7 @@ Paste a URL into **Document URL** on the homepage and select **Open document**. 
 
 Supported formats:
 
-- A share URL from this Morsel origin, using `/s/<token>` or `/#/s/<token>`; relative forms also work.
+- A share URL from this Morsel origin, using `/s/<token>` or `/#/s/<token>`; relative forms also work. Readers accept 43-character unpadded Base64URL and 64-character lowercase hex. New links still use Base64URL.
 - This origin's `/gist/#<id>` viewer URL.
 - `https://gist.github.com/<id>` or `https://gist.github.com/<owner>/<id>`.
 

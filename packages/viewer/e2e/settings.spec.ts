@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
   )
 })
 
-const token = "P".repeat(43)
+const token = `${"P".repeat(42)}A`
 const otherToken = "Q".repeat(43)
 const content = `# Settings fixture
 

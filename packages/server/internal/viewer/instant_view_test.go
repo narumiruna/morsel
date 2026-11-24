@@ -3,7 +3,9 @@ package viewer
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,7 +73,7 @@ func TestInstantViewDirectionFollowsRenderedMarkdown(t *testing.T) {
 	}
 }
 
-func TestTelegramInstantViewTemplateAllowsDiagramSourceFallback(t *testing.T) {
+func TestTelegramInstantViewTemplate(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("locate test source")
@@ -82,13 +84,51 @@ func TestTelegramInstantViewTemplateAllowsDiagramSourceFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	lines := strings.Split(string(template), "\n")
+	var pathPattern string
+	for _, line := range lines {
+		if pattern, ok := strings.CutPrefix(line, "?path: "); ok {
+			pathPattern = pattern
+			break
+		}
+	}
+	if pathPattern == "" {
+		t.Fatal("Instant View template missing ?path pattern")
+	}
+	pattern, err := regexp.Compile(pathPattern)
+	if err != nil {
+		t.Fatalf("invalid Instant View path pattern: %v", err)
+	}
+	for _, test := range previewTokenCases {
+		t.Run(test.name, func(t *testing.T) {
+			path := "/s/" + test.token
+			if !pattern.MatchString(path) {
+				t.Errorf("path pattern %q rejected %q", pathPattern, path)
+			}
+			for _, invalid := range []string{"/prefix" + path, path + "/extra"} {
+				if pattern.MatchString(invalid) {
+					t.Errorf("path pattern %q matched %q", pathPattern, invalid)
+				}
+			}
+		})
+	}
+	for _, invalid := range []string{
+		"/s/" + base64URLShareToken + "=",
+		"/s/" + base64URLShareToken[:len(base64URLShareToken)-1] + "1", // Nonzero Base64URL padding bits.
+		"/s/" + strings.ToUpper(lowercaseHexShareToken),
+		"/s/" + lowercaseHexShareToken[:len(lowercaseHexShareToken)-1] + "g",
+	} {
+		if pattern.MatchString(invalid) {
+			t.Errorf("path pattern %q matched %q", pathPattern, invalid)
+		}
+	}
+
 	for _, want := range []string{
-		`?path: /s/[A-Za-z0-9_-]{43}`,
 		`!exists: //article[@data-morsel-instant-view]`,
 		`image_url: //meta[@property="og:image"]/@content`,
 		`image_url: $body//img/@src`,
 	} {
-		if !strings.Contains(string(template), want) {
+		if !slices.Contains(lines, want) {
 			t.Errorf("Instant View template missing %q", want)
 		}
 	}

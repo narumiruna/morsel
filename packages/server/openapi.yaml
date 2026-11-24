@@ -796,10 +796,8 @@ paths:
               required: [token]
               properties:
                 token:
-                  type: string
-                  minLength: 43
-                  maxLength: 43
-                  description: Original base64url capability supplied by the owner, never an administrative UUID.
+                  $ref: "#/components/schemas/ShareToken"
+                  description: Original capability supplied by the owner, never an administrative UUID.
       responses:
         "200":
           description: Canonical public URL for the supplied capability and matching share
@@ -1579,9 +1577,12 @@ components:
       in: path
       required: true
       schema:
-        type: string
-        pattern: "^[A-Za-z0-9_-]{43}$"
+        $ref: "#/components/schemas/ShareToken"
   schemas:
+    ShareToken:
+      type: string
+      description: Canonical 43-character unpadded Base64URL or 64-character lowercase hex share token.
+      pattern: "^([A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]|[0-9a-f]{64})$"
     OAuthClientID:
       type: string
       format: uuid
